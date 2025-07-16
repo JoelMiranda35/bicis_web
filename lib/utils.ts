@@ -1,3 +1,4 @@
+// @/lib/utils.ts
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 
@@ -7,6 +8,14 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatDate(date: Date): string {
   return date.toISOString().split("T")[0]
+}
+
+export function formatDateForDisplay(date: Date, language: string): string {
+  return date.toLocaleDateString(language, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  })
 }
 
 export function calculateDays(startDate: string, endDate: string): number {

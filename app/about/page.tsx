@@ -136,7 +136,7 @@ export default function AboutPage() {
       >
         {/* Imagen estática del mapa - Reemplaza con tu imagen */}
         <Image
-          src="/images/mapa-altea-bike-shop.jpg" // Ruta a tu imagen del mapa
+          src="/images/Alteamap.jpg" // Ruta a tu imagen del mapa
           alt="Ubicación de Altea Bike Shop en mapa"
           width={600}
           height={400}

@@ -1,23 +1,48 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { Resend } from "resend"
+import { type NextRequest, NextResponse } from "next/server";
+import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+export const dynamic = 'force-dynamic';
+
+interface BikeItem {
+  title: string;
+  size: string;
+  quantity: number;
+}
+
+interface AccessoryItem {
+  name: string;
+}
+
+interface ReservationData {
+  customer_name: string;
+  id: string;
+  start_date: string;
+  end_date: string;
+  total_days: number;
+  bikes: BikeItem[];
+  accessories: AccessoryItem[];
+  insurance: boolean;
+  total_amount: number;
+  deposit_amount: number;
+}
 
 export async function POST(request: NextRequest) {
   if (!process.env.RESEND_API_KEY) {
-    console.error("RESEND_API_KEY is not configured")
-    return NextResponse.json({ error: "Email service not configured" }, { status: 500 })
+    console.error("RESEND_API_KEY is not configured");
+    return NextResponse.json({ error: "Email service not configured" }, { status: 500 });
   }
 
   if (!process.env.EMAIL_FROM) {
-    console.error("EMAIL_FROM is not configured")
-    return NextResponse.json({ error: "Email service not configured" }, { status: 500 })
+    console.error("EMAIL_FROM is not configured");
+    return NextResponse.json({ error: "Email service not configured" }, { status: 500 });
   }
 
   try {
-    const { to, subject, reservationData, language = "es" } = await request.json()
+    const { to, subject, reservationData, language = "es" } = await request.json();
 
-    const getEmailContent = (data: any, lang: string) => {
+    const getEmailContent = (data: ReservationData, lang: string) => {
       const translations = {
         es: {
           subject: "Confirmación de Reserva - Altea Bike Shop",
@@ -30,6 +55,7 @@ export async function POST(request: NextRequest) {
           days: "días",
           bikes: "Bicicletas:",
           size: "Talla",
+          quantity: "Cantidad",
           accessories: "Accesorios:",
           insurance: "Seguro:",
           yes: "Sí",
@@ -55,6 +81,7 @@ export async function POST(request: NextRequest) {
           days: "days",
           bikes: "Bikes:",
           size: "Size",
+          quantity: "Quantity",
           accessories: "Accessories:",
           insurance: "Insurance:",
           yes: "Yes",
@@ -80,6 +107,7 @@ export async function POST(request: NextRequest) {
           days: "dagen",
           bikes: "Fietsen:",
           size: "Maat",
+          quantity: "Aantal",
           accessories: "Accessoires:",
           insurance: "Verzekering:",
           yes: "Ja",
@@ -94,9 +122,9 @@ export async function POST(request: NextRequest) {
           thanks: "Bedankt voor het kiezen van Altea Bike Shop!",
           team: "Het Altea Bike Shop team",
         },
-      }
+      };
 
-      const t = translations[lang as keyof typeof translations] || translations.es
+      const t = translations[lang as keyof typeof translations] || translations.es;
 
       return `
         <!DOCTYPE html>
@@ -135,12 +163,12 @@ export async function POST(request: NextRequest) {
                 <h3>${t.bikes}</h3>
                 ${data.bikes
                   .map(
-                    (bike: any) => `
+                    (bike) => `
                   <div class="bike-item">
                     <strong>${bike.title}</strong><br>
-                    ${t.size}: ${bike.size} | ${t.quantity || "Cantidad"}: ${bike.quantity}
+                    ${t.size}: ${bike.size} | ${t.quantity}: ${bike.quantity}
                   </div>
-                `,
+                `
                   )
                   .join("")}
               </div>
@@ -150,7 +178,7 @@ export async function POST(request: NextRequest) {
                   ? `
                 <div class="details">
                   <h3>${t.accessories}</h3>
-                  ${data.accessories.map((acc: any) => `<p>• ${acc.name}</p>`).join("")}
+                  ${data.accessories.map((acc) => `<p>• ${acc.name}</p>`).join("")}
                 </div>
               `
                   : ""
@@ -184,26 +212,26 @@ export async function POST(request: NextRequest) {
           </div>
         </body>
         </html>
-      `
-    }
+      `;
+    };
 
-    const emailHtml = getEmailContent(reservationData, language)
+    const emailHtml = getEmailContent(reservationData, language);
 
-    const { data, error } = await resend.emails.send({
+    const { data: emailData, error: emailError } = await resend.emails.send({
       from: process.env.EMAIL_FROM || "onboarding@resend.dev",
       to: [to],
       subject: subject,
       html: emailHtml,
-    })
+    });
 
-    if (error) {
-      console.error("Error sending email:", error)
-      return NextResponse.json({ error: "Failed to send email" }, { status: 500 })
+    if (emailError) {
+      console.error("Error sending email:", emailError);
+      return NextResponse.json({ error: "Failed to send email" }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, data })
+    return NextResponse.json({ success: true, data: emailData });
   } catch (error) {
-    console.error("Error in send-email API:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    console.error("Error in send-email API:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

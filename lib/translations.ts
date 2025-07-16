@@ -69,6 +69,7 @@ export const translations = {
 
     // Categories
     road: "Carretera",
+    roadPremium: "Carretera Premium",
     mtb: "Mountain Bike",
     cityBike: "Ciudad",
     eCityBike: "E-City",
@@ -125,6 +126,23 @@ export const translations = {
     backToHome: "Volver al inicio",
     processing: "Procesando...",
     pay: "Pagar",
+    paymentSimulation: "Simulación de pago",
+    paymentSimulationDescription: "Esta es una simulación de pago. No se realizará ningún cargo real.",
+    amountToPay: "Cantidad a pagar",
+    testCardDetails: "Detalles de tarjeta de prueba",
+    cardNumber: "Número de tarjeta",
+    expiryDate: "Fecha de expiración",
+    cvc: "CVC",
+    zipCode: "Código postal",
+    processingPayment: "Procesando pago...",
+    payNow: "Pagar ahora",
+    paymentSimulationNotice: "Esta es una simulación de pago. No se realizará ningún cargo real a tu tarjeta.",
+
+    // Horarios
+    pickupTime: "Hora de recogida",
+    returnTime: "Hora de devolución",
+    pickupTimeLabel: "Hora de inicio",
+    returnTimeLabel: "Hora final",
 
     // Sizes
     size: "Talla",
@@ -163,6 +181,7 @@ export const translations = {
     validationInvalidPhone: "Teléfono inválido",
     validationInvalidDocument: "DNI/NIE/Pasaporte inválido",
     validationValidDocumentInfo: "DNI, NIE o Pasaporte válido",
+    validationTermsRequired: "Debes aceptar los términos y condiciones",
 
     // Reservation
     reservationConfirmationSubject: "Confirmación de Reserva - Altea Bike Shop",
@@ -172,7 +191,14 @@ export const translations = {
     reservationClose: "Cerrar",
 
     // Payment
-    paymentError: "Error en el pago"
+    paymentError: "Error en el pago",
+
+    // Store hours
+    storeHoursTitle: "Horario de Recogida/Devolución",
+    storeHoursContent: "Lunes a Viernes: 10:00 - 18:00 | Sábados: 10:00 - 14:00",
+    rentalTermsTitle: "Términos y Condiciones de Alquiler",
+    rentalTermsContent: "Acepto los términos y condiciones de alquiler. El depósito será devuelto al completar la devolución.",
+    downloadTerms: "Descargar Términos"
   },
 
   en: {
@@ -244,6 +270,7 @@ export const translations = {
 
     // Categories
     road: "Road",
+    roadPremium: "Premium Road",
     mtb: "Mountain Bike",
     cityBike: "City",
     eCityBike: "E-City",
@@ -300,6 +327,23 @@ export const translations = {
     backToHome: "Back to home",
     processing: "Processing...",
     pay: "Pay",
+    paymentSimulation: "Payment simulation",
+    paymentSimulationDescription: "This is a payment simulation. No actual charge will be made.",
+    amountToPay: "Amount to pay",
+    testCardDetails: "Test card details",
+    cardNumber: "Card number",
+    expiryDate: "Expiry date",
+    cvc: "CVC",
+    zipCode: "Zip code",
+    processingPayment: "Processing payment...",
+    payNow: "Pay now",
+    paymentSimulationNotice: "This is a payment simulation. No actual charge will be made to your card.",
+
+    // Horarios
+    pickupTime: "Pickup time",
+    returnTime: "Return time",
+    pickupTimeLabel: "Start time",
+    returnTimeLabel: "End time",
 
     // Sizes
     size: "Size",
@@ -337,6 +381,7 @@ export const translations = {
     validationInvalidPhone: "Invalid phone number",
     validationInvalidDocument: "Invalid ID/Passport",
     validationValidDocumentInfo: "Valid ID, NIE or Passport",
+    validationTermsRequired: "You must accept the terms and conditions",
 
     // Reservation
     reservationConfirmationSubject: "Booking Confirmation - Altea Bike Shop",
@@ -346,7 +391,14 @@ export const translations = {
     reservationClose: "Close",
 
     // Payment
-    paymentError: "Payment error"
+    paymentError: "Payment error",
+
+    // Store hours
+    storeHoursTitle: "Pickup/Return Hours",
+    storeHoursContent: "Monday to Friday: 10:00 - 18:00 | Saturdays: 10:00 - 14:00",
+    rentalTermsTitle: "Rental Terms and Conditions",
+    rentalTermsContent: "I accept the rental terms and conditions. The deposit will be returned upon completion of the return.",
+    downloadTerms: "Download Terms"
   },
 
   nl: {
@@ -419,6 +471,7 @@ export const translations = {
 
     // Categories
     road: "Racefiets",
+    roadPremium: "Premium Racefiets",
     mtb: "Mountainbike",
     cityBike: "Stadsfiets",
     eCityBike: "E-Stadsfiets",
@@ -475,6 +528,23 @@ export const translations = {
     backToHome: "Terug naar home",
     processing: "Verwerken...",
     pay: "Betalen",
+    paymentSimulation: "Betalingssimulatie",
+    paymentSimulationDescription: "Dit is een betalingssimulatie. Er wordt geen daadwerkelijke betaling verwerkt.",
+    amountToPay: "Te betalen bedrag",
+    testCardDetails: "Testkaartgegevens",
+    cardNumber: "Kaartnummer",
+    expiryDate: "Vervaldatum",
+    cvc: "CVC",
+    zipCode: "Postcode",
+    processingPayment: "Betaling verwerken...",
+    payNow: "Nu betalen",
+    paymentSimulationNotice: "Dit is een betalingssimulatie. Er wordt geen daadwerkelijke betaling van uw kaart afgeschreven.",
+
+    // Horarios
+    pickupTime: "Ophaaltijd",
+    returnTime: "Retourtijd",
+    pickupTimeLabel: "Starttijd",
+    returnTimeLabel: "Eindtijd",
 
     // Sizes
     size: "Maat",
@@ -513,6 +583,7 @@ export const translations = {
     validationInvalidPhone: "Ongeldig telefoonnummer",
     validationInvalidDocument: "Ongeldig ID/Paspoort",
     validationValidDocumentInfo: "Geldig ID, NIE of Paspoort",
+    validationTermsRequired: "U moet de voorwaarden accepteren",
 
     // Reservation
     reservationConfirmationSubject: "Reserveringsbevestiging - Altea Bike Shop",
@@ -522,12 +593,16 @@ export const translations = {
     reservationClose: "Sluiten",
 
     // Payment
-    paymentError: "Betalingsfout"
-  }
-}
+    paymentError: "Betalingsfout",
 
-export type Language = keyof typeof translations
-export type TranslationKey = keyof typeof translations.es | 
-  `validation${'NameRequired' | 'InvalidEmail' | 'InvalidPhone' | 'InvalidDocument' | 'ValidDocumentInfo'}` |
-  `reservation${'ConfirmationSubject' | 'Error' | 'Create' | 'New' | 'Close'}` |
-  'paymentError'
+    // Store hours
+    storeHoursTitle: "Ophaal-/Retoururen",
+    storeHoursContent: "Maandag tot vrijdag: 10:00 - 18:00 | Zaterdag: 10:00 - 14:00",
+    rentalTermsTitle: "Huurvoorwaarden",
+    rentalTermsContent: "Ik accepteer de huurvoorwaarden. De borg wordt terugbetaald bij voltooiing van de retour.",
+    downloadTerms: "Download Voorwaarden"
+  }
+};
+
+export type Language = keyof typeof translations;
+export type TranslationKey = keyof typeof translations.es;

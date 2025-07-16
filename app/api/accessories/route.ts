@@ -5,6 +5,9 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+// ⚠️ Solución clave: Fuerza a que la ruta sea dinámica (se ejecuta en cada request)
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
