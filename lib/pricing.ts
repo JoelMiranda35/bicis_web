@@ -9,7 +9,7 @@ export const PRICING = {
     "1-3": 50,
     "4-9": 47,
     "10+": 42,
-    deposit: 150, // Asumo el mismo depósito que ROAD estándar
+    deposit: 150,
   },
   MTB: {
     "1-3": 20,
@@ -37,39 +37,39 @@ export const PRICING = {
   },
 } as const;
 
-// Insurance is 5€ per day with a maximum of 25€ for 5+ days
 export const INSURANCE_PRICE_PER_DAY = 5;
 export const INSURANCE_MAX_PRICE = 25;
 
-type BikeCategory = keyof typeof PRICING;
+export type BikeCategory = keyof typeof PRICING;
 
-// Las funciones existentes no necesitan cambios ya que trabajan con el tipo BikeCategory
-// que se actualiza automáticamente con las nuevas claves de PRICING
+export function isValidCategory(category: string): category is BikeCategory {
+  return category in PRICING;
+}
 
-export function calculatePrice(category: BikeCategory, days: number): number {
+export function calculatePrice(category: string, days: number): number {
   if (days <= 0) return 0;
-  
-  const pricing = PRICING[category];
-  
-  if (!pricing) {
+
+  if (!isValidCategory(category)) {
     console.error(`Categoría no válida: ${category}`);
     return 0;
   }
+
+  const pricing = PRICING[category];
 
   if (days <= 3) return pricing["1-3"];
   if (days <= 9) return pricing["4-9"];
   return pricing["10+"];
 }
 
-export function calculateDeposit(category: BikeCategory): number {
-  return PRICING[category]?.deposit ?? 0;
+export function calculateDeposit(category: string): number {
+  if (!isValidCategory(category)) {
+    console.error(`Categoría no válida para depósito: ${category}`);
+    return 0;
+  }
+  return PRICING[category].deposit;
 }
 
 export function calculateInsurance(days: number): number {
   if (days <= 0) return 0;
   return Math.min(INSURANCE_PRICE_PER_DAY * days, INSURANCE_MAX_PRICE);
-}
-
-export function isValidCategory(category: string): category is BikeCategory {
-  return category in PRICING;
 }

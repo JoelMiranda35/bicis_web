@@ -39,12 +39,14 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isWithinInterval, isSunday, isSaturday, addDays, parseISO, addMonths, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
-import { calculatePrice, calculateDeposit, calculateInsurance } from "@/lib/pricing"
+import { calculatePrice, calculateDeposit, calculateInsurance, isValidCategory } from "@/lib/pricing"
 
-type BikeCategory = "ROAD" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB";
+
+type BikeCategory = "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB";
 
 const CATEGORY_NAMES: Record<BikeCategory, string> = {
   ROAD: "Carretera",
+  ROAD_PREMIUM: "Carretera Premium",
   MTB: "MTB",
   CITY_BIKE: "Ciudad",
   E_CITY_BIKE: "E-Ciudad",
@@ -454,102 +456,105 @@ export default function AdminPage() {
   }
 
   const createReservation = async () => {
-  try {
-    setError(null);
-    
-    if (!newReservation.customer_name || !newReservation.customer_email || 
-        !newReservation.customer_phone || !newReservation.customer_dni) {
-      throw new Error("Todos los campos del cliente son obligatorios");
-    }
-    
-    if (!newReservation.start_date || !newReservation.end_date) {
-      throw new Error("Debe seleccionar fechas de inicio y fin");
-    }
-    
-    if (newReservation.bikes.length === 0) {
-      throw new Error("Debe seleccionar al menos una bicicleta");
-    }
-    
-    const startDate = new Date(newReservation.start_date);
-    const endDate = new Date(newReservation.end_date);
-    
-    const totalDays = calculateTotalDays(
-      new Date(newReservation.start_date),
-      new Date(newReservation.end_date),
-      newReservation.pickup_time,
-      newReservation.return_time
-    );
-    
-    const bikesForDB = newReservation.bikes.map((bike: any) => ({
-      id: bike.id,
-      title_es: bike.title_es || bike.title,
-      size: bike.size,
-      category: bike.category,
-      bike_ids: [bike.id]
-    }));
-    
-    // DECLARACIÓN E INICIALIZACIÓN DE VARIABLES (AÑADIDO)
-    let totalAmount = 0;
-    let depositAmount = 0;
-    
-    // Calculamos precio con días corregidos
-    bikesForDB.forEach((bike: any) => {
-      const bikePrice = calculatePrice(bike.category, totalDays);
-      totalAmount += bikePrice * totalDays;
-      depositAmount += calculateDeposit(bike.category);
-    });
-    
-    newReservation.accessories.forEach((acc: any) => {
-      totalAmount += (acc.price || 0) * totalDays;
-    });
-
-    if (newReservation.insurance) {
-      totalAmount += calculateInsurance(totalDays);
-    }
-
-    const dataToSave = {
-      ...newReservation,
-      start_date: formatDateForDB(startDate),
-      end_date: formatDateForDB(endDate),
-      total_days: totalDays,
-      total_amount: totalAmount,
-      deposit_amount: depositAmount,
-      status: "confirmed",
-      created_at: new Date().toISOString(),
-      bikes: bikesForDB,
-      accessories: newReservation.accessories.map((acc: any) => ({
-        id: acc.id,
-        name_es: acc.name_es || acc.name,
-        price: acc.price
-      }))
-    };
-
-    const { error } = await supabase
-      .from("reservations")
-      .insert([dataToSave]);
-
-    if (error) throw error;
-
-    await fetchData();
-    setNewReservation({
-      customer_name: "",
-      customer_email: "",
-      customer_phone: "",
-      customer_dni: "",
-      start_date: createLocalDate(),
-      end_date: createLocalDate(addDays(new Date(), 1)),
-      pickup_time: "10:00",
-      return_time: "18:00",
-      bikes: [],
-      accessories: [],
-      insurance: false,
-      status: "confirmed"
-    });
-    setReservationStep("dates");
-  } catch (error: any) {
-    setError(`Error al crear la reserva: ${error.message}`);
+    try {
+      setError(null);
+      
+      if (!newReservation.customer_name || !newReservation.customer_email || 
+          !newReservation.customer_phone || !newReservation.customer_dni) {
+        throw new Error("Todos los campos del cliente son obligatorios");
+      }
+      
+      if (!newReservation.start_date || !newReservation.end_date) {
+        throw new Error("Debe seleccionar fechas de inicio y fin");
+      }
+      
+      if (newReservation.bikes.length === 0) {
+        throw new Error("Debe seleccionar al menos una bicicleta");
+      }
+      
+      const startDate = new Date(newReservation.start_date);
+      const endDate = new Date(newReservation.end_date);
+      
+      const totalDays = calculateTotalDays(
+        new Date(newReservation.start_date),
+        new Date(newReservation.end_date),
+        newReservation.pickup_time,
+        newReservation.return_time
+      );
+      
+      const bikesForDB = newReservation.bikes.map((bike: any) => ({
+        id: bike.id,
+        title_es: bike.title_es || bike.title,
+        size: bike.size,
+        category: bike.category,
+        bike_ids: [bike.id]
+      }));
+      
+      let totalAmount = 0;
+      let depositAmount = 0;
+      
+      bikesForDB.forEach((bike: any) => {
+  if (isValidCategory(bike.category)) {
+    const bikePrice = calculatePrice(bike.category, totalDays);
+    totalAmount += bikePrice * totalDays;
+    depositAmount += calculateDeposit(bike.category);
+  } else {
+    console.error("Categoría no válida en bikesForDB:", bike.category);
   }
-};
+});
+
+      
+      newReservation.accessories.forEach((acc: any) => {
+        totalAmount += (acc.price || 0) * totalDays;
+      });
+
+      if (newReservation.insurance) {
+        totalAmount += calculateInsurance(totalDays);
+      }
+
+      const dataToSave = {
+        ...newReservation,
+        start_date: formatDateForDB(startDate),
+        end_date: formatDateForDB(endDate),
+        total_days: totalDays,
+        total_amount: totalAmount,
+        deposit_amount: depositAmount,
+        status: "confirmed",
+        created_at: new Date().toISOString(),
+        bikes: bikesForDB,
+        accessories: newReservation.accessories.map((acc: any) => ({
+          id: acc.id,
+          name_es: acc.name_es || acc.name,
+          price: acc.price
+        }))
+      };
+
+      const { error } = await supabase
+        .from("reservations")
+        .insert([dataToSave]);
+
+      if (error) throw error;
+
+      await fetchData();
+      setNewReservation({
+        customer_name: "",
+        customer_email: "",
+        customer_phone: "",
+        customer_dni: "",
+        start_date: createLocalDate(),
+        end_date: createLocalDate(addDays(new Date(), 1)),
+        pickup_time: "10:00",
+        return_time: "18:00",
+        bikes: [],
+        accessories: [],
+        insurance: false,
+        status: "confirmed"
+      });
+      setReservationStep("dates");
+    } catch (error: any) {
+      setError(`Error al crear la reserva: ${error.message}`);
+    }
+  };
 
   const updateReservationStatus = async (id: string, status: string) => {
     try {
@@ -634,57 +639,53 @@ export default function AdminPage() {
     }
   }
   
- const calculateTotalDays = (startDate: Date, endDate: Date, pickupTime: string, returnTime: string): number => {
-  // Fechas sin horas para comparar días
-  const startDay = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-  const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-  
-  // Si es el mismo día
-  if (isSameDay(startDay, endDay)) return 1;
+  const calculateTotalDays = (startDate: Date, endDate: Date, pickupTime: string, returnTime: string): number => {
+    const startDay = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    
+    if (isSameDay(startDay, endDay)) return 1;
 
-  // Diferencia en días naturales
-  const diffDays = Math.ceil((endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24));
+    const diffDays = Math.ceil((endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24));
 
-  // Si la hora de devolución es igual o anterior a la de recogida (ej: 16/10:00 - 17/10:00)
-  if (returnTime <= pickupTime) {
-    return diffDays; // 1 día en el ejemplo
-  }
+    if (returnTime <= pickupTime) {
+      return diffDays;
+    }
 
-  // Si la hora de devolución es posterior (ej: 16/10:00 - 17/18:00)
-  return diffDays + 1; // 2 días en el ejemplo
-};
+    return diffDays + 1;
+  };
 
   const calculateTotalDeposit = () => {
     return newReservation.bikes.reduce((sum: number, bike: any) => {
-      return sum + calculateDeposit(bike.category);
-    }, 0);
+  return sum + (isValidCategory(bike.category) ? calculateDeposit(bike.category) : 0);
+}, 0);
+
   };
 
   const calculateTotalPrice = () => {
-  if (!newReservation.start_date || !newReservation.end_date) return 0;
-  
-  const days = calculateTotalDays(
-    new Date(newReservation.start_date),
-    new Date(newReservation.end_date),
-    newReservation.pickup_time,
-    newReservation.return_time
-  );
-  
-  let total = 0;
-  newReservation.bikes.forEach((bike: any) => {
-    total += calculatePrice(bike.category, days) * days;
-  });
-  
-  newReservation.accessories.forEach((acc: any) => {
-    total += (acc.price || 0) * days;
-  });
-  
-  if (newReservation.insurance) {
-    total += calculateInsurance(days);
-  }
-  
-  return total;
-};
+    if (!newReservation.start_date || !newReservation.end_date) return 0;
+    
+    const days = calculateTotalDays(
+      new Date(newReservation.start_date),
+      new Date(newReservation.end_date),
+      newReservation.pickup_time,
+      newReservation.return_time
+    );
+    
+    let total = 0;
+    newReservation.bikes.forEach((bike: any) => {
+      total += (isValidCategory(bike.category) ? calculatePrice(bike.category, days) : 0) * days;
+    });
+    
+    newReservation.accessories.forEach((acc: any) => {
+      total += (acc.price || 0) * days;
+    });
+    
+    if (newReservation.insurance) {
+      total += calculateInsurance(days);
+    }
+    
+    return total;
+  };
 
   if (!isAuthenticated) {
     return (
@@ -832,7 +833,7 @@ export default function AdminPage() {
                               target.style.display = "none"
                               const fallback = target.parentElement?.querySelector(".fallback-icon")
                               if (fallback) {
-                                ;(fallback as HTMLElement).style.display = "flex"
+                                (fallback as HTMLElement).style.display = "flex"
                               }
                             }}
                           />
@@ -921,7 +922,7 @@ export default function AdminPage() {
                               target.style.display = "none"
                               const fallback = target.parentElement?.querySelector(".fallback-icon")
                               if (fallback) {
-                                ;(fallback as HTMLElement).style.display = "flex"
+                                (fallback as HTMLElement).style.display = "flex"
                               }
                             }}
                           />
@@ -1078,7 +1079,7 @@ export default function AdminPage() {
                             <div>
                               <h4 className="font-medium mb-2">Bicicletas:</h4>
                               {reservation.bikes?.map((bike: any, index: number) => {
-                                const pricePerDay = calculatePrice(bike.category, reservation.total_days);
+                                const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, reservation.total_days) : 0;
                                 return (
                                   <p key={index} className="text-sm text-gray-600">
                                     {bike.title || bike.title_es} - Talla {bike.size || bike.selectedSize} ({pricePerDay}€/día)
@@ -1170,38 +1171,37 @@ export default function AdminPage() {
                               </Button>
                             </PopoverTrigger>
                             <PopoverContent className="w-auto p-0">
-                             <Calendar
-  mode="single"
-  selected={newReservation.start_date}
-  onSelect={(date) => {
-    if (!date) return;
-    const newDate = createLocalDate(date);
-    const isSaturday = newDate.getDay() === 6;
+                              <Calendar
+                                mode="single"
+                                selected={newReservation.start_date}
+                                onSelect={(date) => {
+                                  if (!date) return;
+                                  const newDate = createLocalDate(date);
+                                  const isSaturday = newDate.getDay() === 6;
 
-    if (isSunday(newDate)) {
-      setError("No se puede seleccionar domingo como fecha de inicio");
-      return;
-    }
+                                  if (isSunday(newDate)) {
+                                    setError("No se puede seleccionar domingo como fecha de inicio");
+                                    return;
+                                  }
 
-    setNewReservation({
-      ...newReservation,
-      start_date: newDate,
-      pickup_time: isSaturday ? "10:00" : "10:00",
-      return_time: isSaturday ? "14:00" : "18:00",
-    });
-    setError(null);
-  }}
-  initialFocus
-  locale={es}
-  disabled={(date) => {
-    const today = createLocalDate();
-    // SOLUCIÓN: Permitir siempre la fecha actual (hoy) y futuras
-    if (date < today && !isSameDay(date, today)) {
-      return true;
-    }
-    return isSunday(date); // Solo deshabilitar domingos
-  }}
-/>
+                                  setNewReservation({
+                                    ...newReservation,
+                                    start_date: newDate,
+                                    pickup_time: isSaturday ? "10:00" : "10:00",
+                                    return_time: isSaturday ? "14:00" : "18:00",
+                                  });
+                                  setError(null);
+                                }}
+                                initialFocus
+                                locale={es}
+                                disabled={(date) => {
+                                  const today = createLocalDate();
+                                  if (date < today && !isSameDay(date, today)) {
+                                    return true;
+                                  }
+                                  return isSunday(date);
+                                }}
+                              />
                             </PopoverContent>
                           </Popover>
                         </div>
@@ -1310,24 +1310,24 @@ export default function AdminPage() {
                       </div>
 
                       {newReservation.start_date && newReservation.end_date && (
-  <div className="mt-4 p-4 bg-green-50 rounded-lg">
-    <p className="text-sm text-green-800">
-      <strong>Duración:</strong>{" "}
-      {calculateTotalDays(
-        new Date(newReservation.start_date),
-        new Date(newReservation.end_date),
-        newReservation.pickup_time,
-        newReservation.return_time
-      )}{" "}
-      días
-    </p>
-    <p className="text-sm text-green-800">
-      <strong>Desde:</strong>{" "}
-      {format(newReservation.start_date, 'PPP', { locale: es })} {newReservation.pickup_time} <strong>Hasta:</strong>{" "}
-      {format(newReservation.end_date, 'PPP', { locale: es })} {newReservation.return_time}
-    </p>
-  </div>
-)}
+                        <div className="mt-4 p-4 bg-green-50 rounded-lg">
+                          <p className="text-sm text-green-800">
+                            <strong>Duración:</strong>{" "}
+                            {calculateTotalDays(
+                              new Date(newReservation.start_date),
+                              new Date(newReservation.end_date),
+                              newReservation.pickup_time,
+                              newReservation.return_time
+                            )}{" "}
+                            días
+                          </p>
+                          <p className="text-sm text-green-800">
+                            <strong>Desde:</strong>{" "}
+                            {format(newReservation.start_date, 'PPP', { locale: es })} {newReservation.pickup_time} <strong>Hasta:</strong>{" "}
+                            {format(newReservation.end_date, 'PPP', { locale: es })} {newReservation.return_time}
+                          </p>
+                        </div>
+                      )}
 
                       <div className="flex justify-end gap-4 pt-4">
                         <Button
@@ -1407,7 +1407,7 @@ export default function AdminPage() {
                                 newReservation.start_date.getTime()) / 
                                 (1000 * 60 * 60 * 24)
                               );
-                              const pricePerDay = calculatePrice(bike.category, days);
+                              const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, days) : 0;
                               
                               return (
                                 <div
@@ -1489,7 +1489,7 @@ export default function AdminPage() {
                                 newReservation.start_date.getTime()) / 
                                 (1000 * 60 * 60 * 24)
                               );
-                              const pricePerDay = calculatePrice(bike.category, days);
+                              const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, days) : 0;
                               return (
                                 <p key={index} className="text-sm">
                                   {bike.title} - {pricePerDay}€/día
@@ -1611,7 +1611,7 @@ export default function AdminPage() {
                                 newReservation.start_date.getTime()) / 
                                 (1000 * 60 * 60 * 24)
                               );
-                              const pricePerDay = calculatePrice(bike.category, days);
+                              const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, days) : 0;
                               return (
                                 <p key={index} className="text-sm">
                                   {bike.title} - {pricePerDay}€/día
@@ -1877,6 +1877,7 @@ function BikeForm({ bike, onSave, onCancel }: any) {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="ROAD">Carretera</SelectItem>
+            <SelectItem value="ROAD_PREMIUM">Carretera Premium</SelectItem>
             <SelectItem value="MTB">MTB</SelectItem>
             <SelectItem value="CITY_BIKE">Ciudad</SelectItem>
             <SelectItem value="E_CITY_BIKE">E-Ciudad</SelectItem>

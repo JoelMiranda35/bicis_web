@@ -1,6 +1,6 @@
 "use client"
 
-import type React from "react"
+import React, { useEffect, useState } from "react"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
@@ -19,18 +19,32 @@ export default function RootLayout({
   const pathname = usePathname()
   const isAdmin = pathname.startsWith("/admin")
 
-  // Función para detectar si es dispositivo móvil
-  const isMobile = () => {
-    if (typeof window !== 'undefined') {
-      return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-    }
-    return false
-  }
+  // Estado para detectar si ya estamos en cliente
+  const [isClient, setIsClient] = useState(false)
+  const [whatsappLink, setWhatsappLink] = useState("")
 
-  // Generamos el enlace adecuado según el dispositivo
-  const whatsappLink = isMobile() 
-    ? `https://wa.me/34604535972?text=${encodeURIComponent("Hola Altea Bike Shop, necesito información")}`
-    : `https://web.whatsapp.com/send?phone=34604535972&text=${encodeURIComponent("Hola Altea Bike Shop, necesito información")}`
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isClient) return
+
+    // Detección móvil en cliente
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent
+    )
+
+    const link = isMobile
+      ? `https://wa.me/34604535972?text=${encodeURIComponent(
+          "Hola Altea Bike Shop, necesito información"
+        )}`
+      : `https://web.whatsapp.com/send?phone=34604535972&text=${encodeURIComponent(
+          "Hola Altea Bike Shop, necesito información"
+        )}`
+
+    setWhatsappLink(link)
+  }, [isClient])
 
   return (
     <html lang="es">
@@ -40,8 +54,8 @@ export default function RootLayout({
           <main>{children}</main>
           <Footer />
 
-          {/* Botón flotante de WhatsApp con tu diseño preferido */}
-          {!isAdmin && (
+          {/* Botón flotante WhatsApp solo en cliente y fuera de admin */}
+          {!isAdmin && isClient && (
             <a
               href={whatsappLink}
               target="_blank"
