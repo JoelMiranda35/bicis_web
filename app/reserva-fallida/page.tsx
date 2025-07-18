@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'; // ¡Solución clave!
+
 'use client';
 
 import { useSearchParams } from 'next/navigation';

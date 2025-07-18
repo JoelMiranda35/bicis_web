@@ -1,4 +1,7 @@
+export const dynamic = 'force-dynamic'; // ¡Solución clave!
+
 'use client';
+
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { useLanguage } from '@/lib/language-context';
