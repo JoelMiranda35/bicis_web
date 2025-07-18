@@ -182,6 +182,9 @@ export const translations = {
     validationInvalidDocument: "DNI/NIE/Pasaporte inválido",
     validationValidDocumentInfo: "DNI, NIE o Pasaporte válido",
     validationTermsRequired: "Debes aceptar los términos y condiciones",
+    validationInvalidCardName: "Nombre de tarjeta inválido",
+    validationCardDataRequired: "Datos de tarjeta requeridos",
+    validationInvalidCVV: "CVV inválido",
 
     // Reservation
     reservationConfirmationSubject: "Confirmación de Reserva - Altea Bike Shop",
@@ -195,6 +198,11 @@ export const translations = {
     paymentDetails: "Detalles del pago",
     redsysPaymentNotice: "Serás redirigido a la pasarela de pago seguro de Redsys para completar tu transacción",
     paymentSecureNotice: "Todos los pagos se procesan de forma segura a través de Redsys",
+    paymentErrorHelpText: "Texto de ayuda para error de pago",
+    paymentProcessingError: "Error al procesar el pago",
+    paymentFailed: "Pago fallido",
+    unknownError: "Error desconocido",
+    tryAgain: "Intentar de nuevo",
 
     // Store hours
     storeHoursTitle: "Horario de Recogida/Devolución",
@@ -212,11 +220,6 @@ export const translations = {
     validationZipRequired: "Código postal requerido",
 
     // Newly added translations
-    validationCardDataRequired: "Datos de tarjeta requeridos",
-    validationInvalidCVV: "CVV inválido",
-    paymentProcessingError: "Error al procesar el pago",
-    paymentFailed: "Pago fallido",
-    unknownError: "Error desconocido",
     cvv: "CVV",
     cardName: "Nombre en la tarjeta",
     cardholderName: "Nombre del titular de la tarjeta",
@@ -405,6 +408,9 @@ export const translations = {
     validationInvalidDocument: "Invalid ID/Passport",
     validationValidDocumentInfo: "Valid ID, NIE or Passport",
     validationTermsRequired: "You must accept the terms and conditions",
+    validationInvalidCardName: "Invalid card name",
+    validationCardDataRequired: "Card data required",
+    validationInvalidCVV: "Invalid CVV",
 
     // Reservation
     reservationConfirmationSubject: "Booking Confirmation - Altea Bike Shop",
@@ -418,6 +424,11 @@ export const translations = {
     paymentDetails: "Payment Details",
     redsysPaymentNotice: "You will be redirected to Redsys secure payment gateway to complete your transaction",
     paymentSecureNotice: "All payments are processed securely through Redsys",
+    paymentErrorHelpText: "Payment error help text",
+    paymentProcessingError: "Payment processing error",
+    paymentFailed: "Payment failed",
+    unknownError: "Unknown error",
+    tryAgain: "Try again",
 
     // Store hours
     storeHoursTitle: "Pickup/Return Hours",
@@ -435,11 +446,6 @@ export const translations = {
     validationZipRequired: "Zip code required",
 
     // Newly added translations
-    validationCardDataRequired: "Card data required",
-    validationInvalidCVV: "Invalid CVV",
-    paymentProcessingError: "Payment processing error",
-    paymentFailed: "Payment failed",
-    unknownError: "Unknown error",
     cvv: "CVV",
     cardName: "Card name",
     cardholderName: "Cardholder name",
@@ -630,6 +636,9 @@ export const translations = {
     validationInvalidDocument: "Ongeldig ID/Paspoort",
     validationValidDocumentInfo: "Geldig ID, NIE of Paspoort",
     validationTermsRequired: "U moet de voorwaarden accepteren",
+    validationInvalidCardName: "Ongeldige kaartnaam",
+    validationCardDataRequired: "Kaartgegevens vereist",
+    validationInvalidCVV: "Ongeldige CVV",
 
     // Reservation
     reservationConfirmationSubject: "Reserveringsbevestiging - Altea Bike Shop",
@@ -643,6 +652,11 @@ export const translations = {
     paymentDetails: "Betalingsdetails",
     redsysPaymentNotice: "U wordt doorgestuurd naar het beveiligde betalingssysteem van Redsys om uw transactie te voltooien",
     paymentSecureNotice: "Alle betalingen worden veilig verwerkt via Redsys",
+    paymentErrorHelpText: "Hulptekst voor betalingsfout",
+    paymentProcessingError: "Betalingsverwerkingsfout",
+    paymentFailed: "Betaling mislukt",
+    unknownError: "Onbekende fout",
+    tryAgain: "Probeer opnieuw",
 
     // Store hours
     storeHoursTitle: "Ophaal-/Retoururen",
@@ -660,11 +674,6 @@ export const translations = {
     validationZipRequired: "Postcode vereist",
 
     // Newly added translations
-    validationCardDataRequired: "Kaartgegevens vereist",
-    validationInvalidCVV: "Ongeldige CVV",
-    paymentProcessingError: "Betalingsverwerkingsfout",
-    paymentFailed: "Betaling mislukt",
-    unknownError: "Onbekende fout",
     cvv: "CVV",
     cardName: "Naam op kaart",
     cardholderName: "Naam kaarthouder",
