@@ -64,7 +64,6 @@ interface BikeModel {
   subtitle_en: string;
   subtitle_nl: string;
   category: BikeCategory;
-  image_url?: string;
   availableSizes: { size: string; count: number; bikes: any[] }[];
 }
 
@@ -87,7 +86,6 @@ interface Accessory {
   name_en: string;
   name_nl: string;
   price: number;
-  image_url?: string;
   available: boolean;
 }
 
@@ -210,75 +208,263 @@ const RentalTermsCheckbox = ({
   );
 };
 
-const PaymentSimulation = ({ 
+const PaymentForm = ({ 
   amount, 
-  onSuccess,
-  t
+  t,
+  onBack,
+  reservationId,
+  customerData
 }: {
   amount: number,
-  onSuccess: () => void,
-  t: (key: TranslationKey) => string
+  t: (key: TranslationKey) => string,
+  onBack: () => void,
+  reservationId: string,
+  customerData: {
+    name: string;
+    email: string;
+    phone: string;
+    dni: string;
+  }
 }) => {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [cardData, setCardData] = useState({
+    number: '',
+    expiry: '',
+    cvv: '',
+    name: ''
+  });
 
-  const handlePayment = () => {
-    setIsProcessing(true);
-    // Simulamos un retraso de 2 segundos para el pago
-    setTimeout(() => {
-      onSuccess();
-      setIsProcessing(false);
-    }, 2000);
+  const handleCardDataChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    
+    if (name === 'number') {
+      const cleanedValue = value.replace(/\s+/g, '').replace(/[^0-9]/g, '');
+      const formattedValue = cleanedValue.replace(/(\d{4})/g, '$1 ').trim();
+      setCardData(prev => ({
+        ...prev,
+        [name]: formattedValue
+      }));
+    } 
+    else if (name === 'expiry') {
+      const cleanedValue = value.replace(/[^0-9]/g, '');
+      let formattedValue = cleanedValue;
+      if (cleanedValue.length > 2) {
+        formattedValue = `${cleanedValue.slice(0, 2)}/${cleanedValue.slice(2, 4)}`;
+      }
+      setCardData(prev => ({
+        ...prev,
+        [name]: formattedValue
+      }));
+    }
+    else if (name === 'cvv') {
+      setCardData(prev => ({
+        ...prev,
+        [name]: value.replace(/[^0-9]/g, '')
+      }));
+    } else {
+      setCardData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
   };
+
+  const handlePayment = async () => {
+  setIsProcessing(true);
+  setError(null);
+
+  try {
+    // Validaciones de los datos de la tarjeta...
+    if (!cardData.number || !cardData.expiry || !cardData.cvv || !cardData.name) {
+      throw new Error(t("validationCardDataRequired"));
+    }
+
+    const cleanedCardNumber = cardData.number.replace(/\s+/g, '');
+    if (!/^\d{13,19}$/.test(cleanedCardNumber)) {
+      throw new Error(t("validationInvalidCardNumber"));
+    }
+
+    if (!/^\d{2}\/\d{2}$/.test(cardData.expiry)) {
+      throw new Error(t("validationInvalidExpiry"));
+    }
+
+    if (!/^\d{3,4}$/.test(cardData.cvv)) {
+      throw new Error(t("validationInvalidCVV"));
+    }
+
+    if (cardData.name.trim().length < 3) {
+      throw new Error(t("validationInvalidCardName"));
+    }
+
+    // Preparar datos para el pago
+    const [expMonth, expYear] = cardData.expiry.split('/');
+    const paymentData = {
+      amount: amount,
+      orderId: reservationId,
+      customerEmail: customerData.email,
+      customerName: customerData.name.trim(),
+      cardNumber: cleanedCardNumber,
+      cardExpiry: `${expMonth}${expYear}`,
+      cardCVV: cardData.cvv,
+      cardName: cardData.name.trim(),
+      currency: 'EUR'
+    };
+
+    // Enviar pago al servidor
+    const res = await fetch('/api/create-payment', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(paymentData),
+    });
+
+    const responseData = await res.json();
+
+    if (!res.ok || !responseData.success) {
+      throw new Error(responseData.error || t("paymentProcessingError"));
+    }
+
+    // Pago exitoso
+    window.location.href = `/reserva-exitosa?order=${reservationId}`;
+
+  } catch (err) {
+    console.error('Error en el proceso de pago:', err);
+    const errorMessage = err instanceof Error ? err.message : t("unknownError");
+    setError(errorMessage);
+    
+    // Registrar el error en Supabase
+    await supabase.from("payment_errors").insert({
+      reservation_id: reservationId,
+      error_type: "payment_processing",
+      error_data: JSON.stringify({
+        customer: customerData.email,
+        error: errorMessage,
+        card_data: {
+          last4: cardData.number.slice(-4),
+          expiry: cardData.expiry
+        }
+      })
+    });
+  } finally {
+    setIsProcessing(false);
+  }
+};
 
   return (
     <div className="border rounded-lg p-6 mt-6">
-      <h3 className="text-lg font-semibold mb-4">{t("paymentSimulation")}</h3>
-      <p className="text-sm text-gray-600 mb-4">
-        {t("paymentSimulationDescription")}
-      </p>
+      <h3 className="text-lg font-semibold mb-4">{t("paymentDetails")}</h3>
       
-      <div className="bg-gray-50 p-4 rounded-lg mb-4">
+      <div className="bg-gray-50 p-4 rounded-lg my-6">
         <div className="flex justify-between font-semibold">
           <span>{t("amountToPay")}:</span>
-          <span>{amount}{t("euro")}</span>
+          <span>{amount.toFixed(2)}{t("euro")}</span>
         </div>
       </div>
-      
-      <div className="space-y-3">
-        <div className="border rounded-lg p-4">
-          <h4 className="font-medium mb-2">{t("testCardDetails")}</h4>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <Label className="text-gray-500">{t("cardNumber")}</Label>
-              <p>4242 4242 4242 4242</p>
-            </div>
-            <div>
-              <Label className="text-gray-500">{t("expiryDate")}</Label>
-              <p>12/34</p>
-            </div>
-            <div>
-              <Label className="text-gray-500">{t("cvc")}</Label>
-              <p>123</p>
-            </div>
-            <div>
-              <Label className="text-gray-500">{t("zipCode")}</Label>
-              <p>12345</p>
-            </div>
+
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="cardNumber">{t("cardNumber")} *</Label>
+          <Input
+            id="cardNumber"
+            name="number"
+            value={cardData.number}
+            onChange={handleCardDataChange}
+            placeholder="1234 5678 9012 3456"
+            maxLength={19}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="expiry">{t("expiryDate")} (MM/YY) *</Label>
+            <Input
+              id="expiry"
+              name="expiry"
+              value={cardData.expiry}
+              onChange={handleCardDataChange}
+              placeholder="MM/YY"
+              maxLength={5}
+            />
+          </div>
+          <div>
+            <Label htmlFor="cvv">{t("cvv")} *</Label>
+            <Input
+              id="cvv"
+              name="cvv"
+              value={cardData.cvv}
+              onChange={handleCardDataChange}
+              placeholder="123"
+              maxLength={4}
+              type="password"
+            />
           </div>
         </div>
+
+        <div>
+          <Label htmlFor="cardName">{t("cardName")} *</Label>
+          <Input
+            id="cardName"
+            name="name"
+            value={cardData.name}
+            onChange={handleCardDataChange}
+            placeholder={t("cardholderName")}
+          />
+        </div>
       </div>
-      
-      <Button 
-        onClick={handlePayment}
-        className="w-full mt-6"
-        disabled={isProcessing}
-      >
-        {isProcessing ? t("processingPayment") : t("payNow")}
-      </Button>
-      
-      <p className="text-xs text-gray-500 mt-4">
-        {t("paymentSimulationNotice")}
-      </p>
+
+      {error && (
+        <div className="bg-red-50 p-4 rounded-lg my-4">
+          <p className="text-red-600">{error}</p>
+          <p className="text-sm text-red-500 mt-1">
+            {t("paymentErrorHelpText")}
+          </p>
+          <Button
+            variant="link"
+            className="text-blue-600 p-0 h-auto"
+            onClick={() => window.location.reload()}
+          >
+            {t("tryAgain")}
+          </Button>
+        </div>
+      )}
+
+      <div className="bg-blue-50 p-4 rounded-lg my-6">
+        <p className="text-sm text-blue-700">
+          {t("securePaymentNotice")}
+        </p>
+        <p className="text-xs text-blue-600 mt-1">
+          {t("paymentProcessedSecurely")}
+        </p>
+      </div>
+
+      <div className="flex gap-4">
+        <Button
+          variant="outline"
+          onClick={onBack}
+          className="flex-1"
+        >
+          {t("back")}
+        </Button>
+        <Button
+          onClick={handlePayment}
+          className="flex-1"
+          disabled={isProcessing}
+        >
+          {isProcessing ? (
+            <span className="flex items-center">
+              <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              {t("processingPayment")}
+            </span>
+          ) : (
+            t("payNow")
+          )}
+        </Button>
+      </div>
     </div>
   );
 };
@@ -311,6 +497,7 @@ export default function ReservePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingBikes, setIsLoadingBikes] = useState(false);
   const [isLoadingAccessories, setIsLoadingAccessories] = useState(false);
+  const [bikesAvailabilityChecked, setBikesAvailabilityChecked] = useState(false);
 
   useEffect(() => {
     const fetchAccessories = async () => {
@@ -323,6 +510,8 @@ export default function ReservePage() {
         if (data) {
           setAccessories(data);
         }
+      } catch (error) {
+        console.error("Error fetching accessories:", error);
       } finally {
         setIsLoadingAccessories(false);
       }
@@ -349,18 +538,22 @@ export default function ReservePage() {
 
     setIsLoadingBikes(true);
     try {
-      const { data: allBikes } = await supabase
+      const { data: allBikes, error: bikesError } = await supabase
         .from("bikes")
         .select("*")
         .eq("available", true);
 
-      const { data: overlappingReservations } = await supabase
+      if (bikesError) throw bikesError;
+
+      const { data: overlappingReservations, error: reservationsError } = await supabase
         .from("reservations")
         .select("bikes")
         .or(
           `and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`
         )
         .in("status", ["confirmed", "in_process"]);
+
+      if (reservationsError) throw reservationsError;
 
       if (allBikes) {
         const reservedBikeIds = new Set();
@@ -375,6 +568,8 @@ export default function ReservePage() {
         );
         setAvailableBikes(available);
       }
+    } catch (error) {
+      console.error("Error fetching available bikes:", error);
     } finally {
       setIsLoadingBikes(false);
     }
@@ -393,7 +588,6 @@ export default function ReservePage() {
             subtitle_en: bike.subtitle_en,
             subtitle_nl: bike.subtitle_nl,
             category: bike.category as BikeCategory,
-            image_url: bike.image_url,
             availableSizes: [],
           };
         }
@@ -560,7 +754,7 @@ export default function ReservePage() {
 
   const sendConfirmationEmail = async (reservationData: any) => {
     try {
-      await fetch("/api/send-email", {
+      const response = await fetch("/api/send-email", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -572,132 +766,250 @@ export default function ReservePage() {
           language,
         }),
       });
+
+      if (!response.ok) {
+        throw new Error("Failed to send confirmation email");
+      }
     } catch (error) {
       console.error("Error sending email:", error);
+      await supabase
+        .from("email_errors")
+        .insert({
+          reservation_id: reservationData.id,
+          error_type: "confirmation_email",
+          error_data: JSON.stringify({
+            customer: customerData.email,
+            error: error instanceof Error ? error.message : String(error)
+          })
+        });
     }
   };
+
+  const generateRedsysOrderId = () => {
+    return Array.from({ length: 12 }, () => 
+      Math.floor(Math.random() * 36).toString(36).toUpperCase()
+    ).join('').replace(/[^A-Z0-9]/g, '0').slice(0, 12).padStart(12, '0');
+  };
+
+  const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
+  if (!startDate || !endDate || selectedBikes.length === 0) {
+    return { available: false, unavailableBikes: [] };
+  }
+
+  try {
+    const { data: overlappingReservations, error } = await supabase
+      .from("reservations")
+      .select("bikes, status")
+      .or(
+        `and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`
+      )
+      .in("status", ["confirmed", "in_process", "pending_payment"]);
+
+    if (error) throw error;
+
+    const reservedBikeIds = new Set<string>();
+    overlappingReservations?.forEach((reservation) => {
+      reservation.bikes.forEach((bike: any) => {
+        bike.bike_ids?.forEach((id: string) => reservedBikeIds.add(id));
+      });
+    });
+
+    const unavailableBikes = selectedBikes.flatMap(bike => 
+      bike.bikes.filter(b => reservedBikeIds.has(b.id)).map(b => b.id)
+    );
+
+    return {
+      available: unavailableBikes.length === 0,
+      unavailableBikes
+    };
+  } catch (error) {
+    console.error("Error checking bikes availability:", error);
+    return { available: false, unavailableBikes: [] };
+  }
+};
 
   const handleSubmitReservation = async () => {
-    if (!startDate || !endDate) return;
+  if (!startDate || !endDate) return;
 
-    setIsSubmitting(true);
+  setIsSubmitting(true);
 
-    try {
-      if (!validateCustomerData()) {
-        throw new Error("Datos del cliente no válidos");
-      }
+  try {
+    // 1. Validar datos del cliente
+    if (!validateCustomerData()) {
+      throw new Error(t("reservationValidationError"));
+    }
 
-      const { data: currentAvailability } = await supabase
-        .from("reservations")
-        .select("bikes")
-        .or(
-          `and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`
-        )
-        .in("status", ["confirmed", "in_process"]);
+    // 2. Verificar disponibilidad con detalle
+    const { available, unavailableBikes } = await checkBikesAvailability();
+    if (!available) {
+      // Actualizar el listado de bicis disponibles
+      await fetchAvailableBikes();
+      
+      // Crear mensaje de error específico
+      const errorMessage = unavailableBikes.length > 0 
+        ? t("specificBikesNoLongerAvailable", { count: unavailableBikes.length })
+        : t("bikesNoLongerAvailable");
+      
+      setValidationErrors({
+        ...validationErrors,
+        bikes: errorMessage
+      });
+      
+      // Mostrar bicicletas no disponibles
+      const updatedSelectedBikes = selectedBikes.map(bike => ({
+        ...bike,
+        bikes: bike.bikes.filter(b => !unavailableBikes.includes(b.id))
+      })).filter(bike => bike.bikes.length > 0);
 
-      const reservedBikeIds = new Set();
-      currentAvailability?.forEach((reservation) => {
-        reservation.bikes.forEach((bike: any) => {
-          bike.bike_ids?.forEach((id: string) => reservedBikeIds.add(id));
-        });
+      setSelectedBikes(updatedSelectedBikes);
+      setCurrentStep("bikes");
+      return;
+    }
+
+    // 3. Generar ID único para Redsys
+    const redsysOrderId = generateRedsysOrderId();
+
+    // 4. Preparar datos de bicicletas para la base de datos
+    const bikesForDB = selectedBikes.map(bike => ({
+      model: {
+        title_es: bike.title_es,
+        title_en: bike.title_en,
+        title_nl: bike.title_nl,
+        subtitle_es: bike.subtitle_es,
+        subtitle_en: bike.subtitle_en,
+        subtitle_nl: bike.subtitle_nl,
+        category: bike.category,
+      },
+      size: bike.size,
+      quantity: bike.quantity,
+      bike_ids: bike.bikes.map(b => b.id),
+      daily_price: calculatePrice(bike.category, 1)
+    }));
+
+    // 5. Preparar datos de accesorios
+    const accessoriesForDB = selectedAccessories.map(acc => ({
+      id: acc.id,
+      name_es: acc.name_es,
+      name_en: acc.name_en,
+      name_nl: acc.name_nl,
+      price: acc.price,
+    }));
+
+    // 6. Formatear fechas y horas
+    const pickupDate = new Date(startDate);
+    const returnDate = new Date(endDate);
+    const [pickupHour, pickupMinute] = pickupTime.split(':').map(Number);
+    const [returnHour, returnMinute] = returnTime.split(':').map(Number);
+    
+    pickupDate.setHours(pickupHour, pickupMinute, 0, 0);
+    returnDate.setHours(returnHour, returnMinute, 0, 0);
+
+    // 7. Calcular días totales
+    const totalDays = calculateTotalDays(
+      new Date(startDate),
+      new Date(endDate),
+      pickupTime,
+      returnTime
+    );
+
+    // 8. Crear objeto de datos de reserva
+    const reservationData = {
+      customer_name: customerData.name.trim(),
+      customer_email: customerData.email.toLowerCase().trim(),
+      customer_phone: customerData.phone.trim(),
+      customer_dni: customerData.dni.toUpperCase().trim(),
+      start_date: pickupDate.toISOString(),
+      end_date: returnDate.toISOString(),
+      pickup_time: pickupTime,
+      return_time: returnTime,
+      total_days: totalDays,
+      bikes: bikesForDB,
+      accessories: accessoriesForDB,
+      insurance: hasInsurance,
+      total_amount: calculateTotal(),
+      deposit_amount: calculateTotalDeposit(),
+      paid_amount: 0,
+      status: isAdminMode ? "confirmed" : "pending_payment",
+      payment_gateway: "redsys",
+      payment_status: "pending",
+      payment_reference: redsysOrderId,
+      redsys_order_id: redsysOrderId,
+      redsys_merchant_code: process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE || '999008881',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      locale: language
+    };
+
+    // 9. Crear reserva en Supabase
+    const { data, error: insertError } = await supabase
+      .from("reservations")
+      .insert([reservationData])
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error("Error creating reservation:", insertError);
+      throw insertError;
+    }
+
+    setReservationId(data.id);
+
+    // 10. Registrar en logs
+    await supabase
+      .from("reservation_logs")
+      .insert({
+        reservation_id: data.id,
+        action: "created",
+        status: reservationData.status,
+        amount: reservationData.total_amount
       });
 
-      const selectedBikeIds = selectedBikes.flatMap(bike => bike.bikes.map(b => b.id));
-      const unavailableBikes = selectedBikeIds.filter(id => reservedBikeIds.has(id));
-
-      if (unavailableBikes.length > 0) {
-        throw new Error("Algunas bicicletas seleccionadas ya no están disponibles");
-      }
-
-      const bikesForDB = selectedBikes.map(bike => ({
-        model: {
-          title_es: bike.title_es,
-          title_en: bike.title_en,
-          title_nl: bike.title_nl,
-          subtitle_es: bike.subtitle_es,
-          subtitle_en: bike.subtitle_en,
-          subtitle_nl: bike.subtitle_nl,
-          category: bike.category
-        },
-        size: bike.size,
-        quantity: bike.quantity,
-        bike_ids: bike.bikes.map(b => b.id)
-      }));
-
-      const accessoriesForDB = selectedAccessories.map(acc => ({
-        id: acc.id,
-        name_es: acc.name_es,
-        name_en: acc.name_en,
-        name_nl: acc.name_nl,
-        price: acc.price
-      }));
-
-      const formattedStartDate = new Date(startDate);
-      const formattedEndDate = new Date(endDate);
-      
-      const [pickupHour, pickupMinute] = pickupTime.split(':').map(Number);
-      const [returnHour, returnMinute] = returnTime.split(':').map(Number);
-      
-      formattedStartDate.setHours(pickupHour, pickupMinute, 0, 0);
-      formattedEndDate.setHours(returnHour, returnMinute, 0, 0);
-
-      const reservationData = {
-        customer_name: customerData.name,
-        customer_email: customerData.email,
-        customer_phone: customerData.phone,
-        customer_dni: customerData.dni,
-        start_date: formattedStartDate.toISOString(),
-        end_date: formattedEndDate.toISOString(),
-        pickup_time: pickupTime,
-        return_time: returnTime,
-        total_days: calculateTotalDays(
-          new Date(startDate),
-          new Date(endDate),
-          pickupTime,
-          returnTime
-        ),
-        bikes: bikesForDB,
-        accessories: accessoriesForDB,
-        insurance: hasInsurance,
-        total_amount: calculateTotal(),
-        deposit_amount: calculateTotalDeposit(),
-        status: isAdminMode ? "confirmed" : "pending",
-      };
-
-      const { data, error } = await supabase
-        .from("reservations")
-        .insert([reservationData])
-        .select()
-        .single();
-
-      if (error) {
-        console.error("Error de Supabase:", error);
-        throw error;
-      }
-
-      if (data) {
-        setReservationId(data.id);
-
-        if (!isAdminMode) {
-          await sendConfirmationEmail({ 
-            ...data, 
-            ...reservationData,
-            start_date: formattedStartDate.toISOString(),
-            end_date: formattedEndDate.toISOString(),
-            formatted_start_date: formatDateForDisplay(formattedStartDate, language),
-            formatted_end_date: formatDateForDisplay(formattedEndDate, language)
-          });
-        }
-
-        setCurrentStep("confirmation");
-      }
-    } catch (error) {
-      console.error("Error al crear reserva:", error);
-      alert(t("reservationError"));
-    } finally {
-      setIsSubmitting(false);
+    // 11. Manejar flujo según modo (admin o usuario)
+    if (isAdminMode) {
+      await sendConfirmationEmail({
+        ...reservationData,
+        id: data.id,
+        status: "confirmed"
+      });
+      setCurrentStep("confirmation");
+    } else {
+      setCurrentStep("payment");
     }
-  };
+
+  } catch (error) {
+    console.error("Error in reservation process:", error);
+    const errorMessage = error instanceof Error ? error.message : t("reservationError");
+    
+    // Registrar error detallado
+    await supabase
+      .from("reservation_errors")
+      .insert({
+        error_type: "reservation_creation",
+        error_data: JSON.stringify({
+          customer: customerData.email,
+          error: errorMessage,
+          selected_bikes: selectedBikes.map(b => ({
+            model: b.title_es,
+            size: b.size,
+            quantity: b.quantity,
+            bike_ids: b.bikes.map(bike => bike.id)
+          })),
+          timestamp: new Date().toISOString()
+        })
+      });
+
+    // Manejar error según contexto
+    if (isAdminMode) {
+      alert(`Error: ${errorMessage}`);
+    } else if (errorMessage.includes("bikesNoLongerAvailable")) {
+      // Ya manejado en el flujo principal
+    } else {
+      window.location.href = `/reserva-fallida?order=${reservationId || 'none'}&error=${encodeURIComponent(errorMessage)}`;
+    }
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   const getCategoryName = (category: BikeCategory): string => {
     switch (category) {
@@ -891,6 +1203,12 @@ export default function ReservePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {validationErrors.bikes && (
+                <div className="bg-red-50 p-4 rounded-lg mb-4">
+                  <p className="text-red-600">{validationErrors.bikes}</p>
+                </div>
+              )}
+              
               <StoreHoursNotice t={t} />
               
               {isLoadingBikes ? (
@@ -925,41 +1243,8 @@ export default function ReservePage() {
                         >
                           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                             <div className="flex items-center gap-3">
-                              <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0 relative">
-                                {model.image_url ? (
-                                  <img
-                                    src={model.image_url}
-                                    alt={translateBikeContent(
-                                      {
-                                        es: model.title_es,
-                                        en: model.title_en,
-                                        nl: model.title_nl,
-                                      },
-                                      language
-                                    )}
-                                    className="w-full h-full object-cover rounded-lg"
-                                    onError={(e) => {
-                                      const target = e.currentTarget;
-                                      target.style.display = "none";
-                                      const fallback =
-                                        target.parentElement?.querySelector(
-                                          ".fallback-icon"
-                                        );
-                                      if (fallback) {
-                                        (
-                                          fallback as HTMLElement
-                                        ).style.display = "flex";
-                                      }
-                                    }}
-                                  />
-                                ) : null}
-                                <div
-                                  className={`absolute inset-0 flex items-center justify-center fallback-icon ${
-                                    model.image_url ? "hidden" : "flex"
-                                  }`}
-                                >
-                                  <Bike className="h-8 w-8 text-gray-400" />
-                                </div>
+                              <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <Bike className="h-8 w-8 text-gray-400" />
                               </div>
                               <div>
                                 <h4 className="font-semibold">
@@ -1177,529 +1462,486 @@ export default function ReservePage() {
                               handleAccessorySelection(accessory)
                             }
                           />
-                          <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0 relative">
-                            {accessory.image_url ? (
-                              <img
-                                src={accessory.image_url}
-                                alt={translateBikeContent(
-                                  {
-                                    es: accessory.name_es,
-                                    en: accessory.name_en,
-                                    nl: accessory.name_nl,
-                                  },
-                                  language
-                                )}
-                                className="w-full h-full object-cover rounded-lg"
-                                onError={(e) => {
-                                  const target = e.currentTarget;
-                                  target.style.display = "none";
-                                  const fallback =
-                                    target.parentElement?.querySelector(
-                                      ".fallback-icon"
-                                    );
-                                  if (fallback) {
-                                    (fallback as HTMLElement).style.display =
-                                      "flex";
-                                  }
-                                }}
-                              />
-                            ) : null}
-                            <div
-                              className={`absolute inset-0 flex items-center justify-center fallback-icon ${
-                                accessory.image_url ? "hidden" : "flex"
-                              }`}
-                            >
-                              <Package className="h-6 w-6 text-gray-400" />
+                          <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <Package className="h-6 w-6 text-gray-400" />
+                              </div>
+                              <div className="flex-1">
+                                <Label
+                                  htmlFor={accessory.id}
+                                  className="font-medium"
+                                >
+                                  {translateBikeContent(
+                                    {
+                                      es: accessory.name_es,
+                                      en: accessory.name_en,
+                                      nl: accessory.name_nl,
+                                    },
+                                    language
+                                  )}
+                                </Label>
+                                <p className="text-sm text-gray-600">
+                                  {accessory.price}
+                                  {t("euro")}
+                                  {t("perDay")}
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex-1">
-                            <Label
-                              htmlFor={accessory.id}
-                              className="font-medium"
-                            >
-                              {translateBikeContent(
-                                {
-                                  es: accessory.name_es,
-                                  en: accessory.name_en,
-                                  nl: accessory.name_nl,
-                                },
-                                language
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="border-t pt-6">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="insurance"
+                            checked={hasInsurance}
+                            onCheckedChange={(checked) =>
+                              handleInsuranceChange(checked as boolean)
+                            }
+                          />
+                          <Label htmlFor="insurance" className="font-medium">
+                            {t("additionalInsurance")} - {INSURANCE_PRICE_PER_DAY}
+                            {t("euro")} {t("perDay")} {t("perBike")} (max{" "}
+                            {INSURANCE_MAX_PRICE}
+                            {t("euro")} {t("perBike")})
+                          </Label>
+                        </div>
+                        <p className="text-sm text-gray-600 mt-1">
+                          {t("completeProtectionDamage")}
+                        </p>
+                      </div>
+
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between">
+                            <span>
+                              {t("bikes")} (
+                              {selectedBikes.reduce(
+                                (total, bike) => total + bike.quantity,
+                                0
                               )}
-                            </Label>
-                            <p className="text-sm text-gray-600">
-                              {accessory.price}
+                              )
+                            </span>
+                            <span>
+                              {selectedBikes.reduce(
+                                (total: number, bike: SelectedBike) =>
+                                  total +
+                                  calculatePrice(
+                                    bike.category,
+                                    calculateTotalDays(
+                                      new Date(startDate!),
+                                      new Date(endDate!),
+                                      pickupTime,
+                                      returnTime
+                                    ) * bike.quantity
+                                  ),
+                                0
+                              )}
                               {t("euro")}
-                              {t("perDay")}
-                            </p>
+                            </span>
+                          </div>
+                          {selectedAccessories.length > 0 && (
+                            <div className="flex justify-between">
+                              <span>{t("accessories")}</span>
+                              <span>
+                                {selectedAccessories.reduce(
+                                  (total, acc) => 
+                                    total + acc.price * calculateTotalDays(
+                                      new Date(startDate!),
+                                      new Date(endDate!),
+                                      pickupTime,
+                                      returnTime
+                                    ),
+                                  0
+                                )}
+                                {t("euro")}
+                              </span>
+                            </div>
+                          )}
+                          {hasInsurance && (
+                            <div className="flex justify-between">
+                              <span>{t("insurance")}</span>
+                              <span>
+                                {calculateInsurance(
+                                  calculateTotalDays(
+                                    new Date(startDate!),
+                                    new Date(endDate!),
+                                    pickupTime,
+                                    returnTime
+                                  )
+                                ) * selectedBikes.reduce(
+                                  (total, bike) => total + bike.quantity,
+                                  0
+                                )}
+                                {t("euro")}
+                              </span>
+                            </div>
+                          )}
+                          <div className="border-t pt-1 flex justify-between font-semibold">
+                            <span>{t("total")}</span>
+                            <span>
+                              {calculateTotal()}
+                              {t("euro")}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-orange-600">
+                            <span>{t("depositCash")}</span>
+                            <span>
+                              {calculateTotalDeposit()}
+                              {t("euro")}
+                            </span>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
+                      </div>
 
-                  <div className="border-t pt-6">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="insurance"
-                        checked={hasInsurance}
-                        onCheckedChange={(checked) =>
-                          handleInsuranceChange(checked as boolean)
-                        }
+                      <div className="mt-6 flex gap-4">
+                        <Button
+                          variant="outline"
+                          onClick={() => setCurrentStep("bikes")}
+                        >
+                          {t("back")}
+                        </Button>
+                        <Button
+                          onClick={() => setCurrentStep("customer")}
+                          className="flex-1"
+                        >
+                          {t("continue")}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+
+          case "customer":
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t("customerData")}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <StoreHoursNotice t={t} />
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="name">{t("fullName")} *</Label>
+                      <Input
+                        id="name"
+                        value={customerData.name}
+                        onChange={(e) => {
+                          setCustomerData({
+                            ...customerData,
+                            name: e.target.value,
+                          });
+                          if (validationErrors.name) {
+                            setValidationErrors({ ...validationErrors, name: "" });
+                          }
+                        }}
+                        className={validationErrors.name ? "border-red-500" : ""}
                       />
-                      <Label htmlFor="insurance" className="font-medium">
-                        {t("additionalInsurance")} - {INSURANCE_PRICE_PER_DAY}
-                        {t("euro")} {t("perDay")} {t("perBike")} (max{" "}
-                        {INSURANCE_MAX_PRICE}
-                        {t("euro")} {t("perBike")})
-                      </Label>
+                      {validationErrors.name && (
+                        <p className="text-red-500 text-sm mt-1">
+                          {validationErrors.name}
+                        </p>
+                      )}
                     </div>
-                    <p className="text-sm text-gray-600 mt-1">
-                      {t("completeProtectionDamage")}
-                    </p>
+
+                    <div>
+                      <Label htmlFor="email">{t("email")} *</Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={customerData.email}
+                        onChange={(e) => {
+                          setCustomerData({
+                            ...customerData,
+                            email: e.target.value,
+                          });
+                          if (validationErrors.email) {
+                            setValidationErrors({ ...validationErrors, email: "" });
+                          }
+                        }}
+                        className={validationErrors.email ? "border-red-500" : ""}
+                      />
+                      {validationErrors.email && (
+                        <p className="text-red-500 text-sm mt-1">
+                          {validationErrors.email}
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <Label htmlFor="phone">{t("phone")} *</Label>
+                      <Input
+                        id="phone"
+                        value={customerData.phone}
+                        onChange={(e) => {
+                          setCustomerData({
+                            ...customerData,
+                            phone: e.target.value,
+                          });
+                          if (validationErrors.phone) {
+                            setValidationErrors({ ...validationErrors, phone: "" });
+                          }
+                        }}
+                        className={validationErrors.phone ? "border-red-500" : ""}
+                        placeholder="+34 XXX XXX XXX"
+                      />
+                      {validationErrors.phone && (
+                        <p className="text-red-500 text-sm mt-1">
+                          {validationErrors.phone}
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <Label htmlFor="dni">{t("dniPassport")} *</Label>
+                      <Input
+                        id="dni"
+                        value={customerData.dni}
+                        onChange={(e) => {
+                          setCustomerData({ ...customerData, dni: e.target.value });
+                          if (validationErrors.dni) {
+                            setValidationErrors({ ...validationErrors, dni: "" });
+                          }
+                        }}
+                        className={validationErrors.dni ? "border-red-500" : ""}
+                        placeholder="12345678A / X1234567A / AB123456"
+                      />
+                      {validationErrors.dni && (
+                        <p className="text-red-500 text-sm mt-1">
+                          {validationErrors.dni}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-500 mt-1">
+                        {t("validationValidDocumentInfo")}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex justify-between">
-                        <span>
-                          {t("bikes")} (
-                          {selectedBikes.reduce(
-                            (total, bike) => total + bike.quantity,
-                            0
-                          )}
-                          )
-                        </span>
-                        <span>
-                          {selectedBikes.reduce(
-                            (total: number, bike: SelectedBike) =>
-                              total +
-                              calculatePrice(
-                                bike.category,
-                                calculateTotalDays(
-                                  new Date(startDate!),
-                                  new Date(endDate!),
-                                  pickupTime,
-                                  returnTime
-                                ) * bike.quantity
-                              ),
-                            0
-                          )}
-                          {t("euro")}
-                        </span>
-                      </div>
-                      {selectedAccessories.length > 0 && (
-                        <div className="flex justify-between">
-                          <span>{t("accessories")}</span>
-                          <span>
-                            {selectedAccessories.reduce(
-                              (total, acc) => 
-                                total + acc.price * calculateTotalDays(
-                                  new Date(startDate!),
-                                  new Date(endDate!),
-                                  pickupTime,
-                                  returnTime
-                                ),
-                              0
-                            )}
-                            {t("euro")}
-                          </span>
-                        </div>
-                      )}
-                      {hasInsurance && (
-                        <div className="flex justify-between">
-                          <span>{t("insurance")}</span>
-                          <span>
-                            {calculateInsurance(
-                              calculateTotalDays(
-                                new Date(startDate!),
-                                new Date(endDate!),
-                                pickupTime,
-                                returnTime
-                              )
-                            ) * selectedBikes.reduce(
-                              (total, bike) => total + bike.quantity,
-                              0
-                            )}
-                            {t("euro")}
-                          </span>
-                        </div>
-                      )}
-                      <div className="border-t pt-1 flex justify-between font-semibold">
-                        <span>{t("total")}</span>
-                        <span>
-                          {calculateTotal()}
-                          {t("euro")}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-orange-600">
-                        <span>{t("depositCash")}</span>
-                        <span>
-                          {calculateTotalDeposit()}
-                          {t("euro")}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                  <RentalTermsCheckbox 
+                    t={t}
+                    acceptedTerms={acceptedTerms}
+                    setAcceptedTerms={setAcceptedTerms}
+                    validationErrors={validationErrors}
+                    setValidationErrors={setValidationErrors}
+                    language={language}
+                  />
 
                   <div className="mt-6 flex gap-4">
                     <Button
                       variant="outline"
-                      onClick={() => setCurrentStep("bikes")}
+                      onClick={() => setCurrentStep("accessories")}
                     >
                       {t("back")}
                     </Button>
                     <Button
-                      onClick={() => setCurrentStep("customer")}
+                      onClick={() => {
+                        if (validateCustomerData()) {
+                          handleSubmitReservation();
+                        }
+                      }}
                       className="flex-1"
+                      disabled={isSubmitting}
                     >
-                      {t("continue")}
+                      {isSubmitting
+                        ? t("processing")
+                        : isAdminMode
+                          ? t("reservationCreate")
+                          : t("continuePayment")}
                     </Button>
                   </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        );
+                </CardContent>
+              </Card>
+            );
 
-      case "customer":
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle>{t("customerData")}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <StoreHoursNotice t={t} />
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="name">{t("fullName")} *</Label>
-                  <Input
-                    id="name"
-                    value={customerData.name}
-                    onChange={(e) => {
-                      setCustomerData({
-                        ...customerData,
-                        name: e.target.value,
-                      });
-                      if (validationErrors.name) {
-                        setValidationErrors({ ...validationErrors, name: "" });
-                      }
-                    }}
-                    className={validationErrors.name ? "border-red-500" : ""}
-                  />
-                  {validationErrors.name && (
-                    <p className="text-red-500 text-sm mt-1">
-                      {validationErrors.name}
-                    </p>
-                  )}
-                </div>
+          case "payment":
+            if (isAdminMode) {
+              return null;
+            }
 
-                <div>
-                  <Label htmlFor="email">{t("email")} *</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={customerData.email}
-                    onChange={(e) => {
-                      setCustomerData({
-                        ...customerData,
-                        email: e.target.value,
-                      });
-                      if (validationErrors.email) {
-                        setValidationErrors({ ...validationErrors, email: "" });
-                      }
-                    }}
-                    className={validationErrors.email ? "border-red-500" : ""}
-                  />
-                  {validationErrors.email && (
-                    <p className="text-red-500 text-sm mt-1">
-                      {validationErrors.email}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <Label htmlFor="phone">{t("phone")} *</Label>
-                  <Input
-                    id="phone"
-                    value={customerData.phone}
-                    onChange={(e) => {
-                      setCustomerData({
-                        ...customerData,
-                        phone: e.target.value,
-                      });
-                      if (validationErrors.phone) {
-                        setValidationErrors({ ...validationErrors, phone: "" });
-                      }
-                    }}
-                    className={validationErrors.phone ? "border-red-500" : ""}
-                    placeholder="+34 XXX XXX XXX"
-                  />
-                  {validationErrors.phone && (
-                    <p className="text-red-500 text-sm mt-1">
-                      {validationErrors.phone}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <Label htmlFor="dni">{t("dniPassport")} *</Label>
-                  <Input
-                    id="dni"
-                    value={customerData.dni}
-                    onChange={(e) => {
-                      setCustomerData({ ...customerData, dni: e.target.value });
-                      if (validationErrors.dni) {
-                        setValidationErrors({ ...validationErrors, dni: "" });
-                      }
-                    }}
-                    className={validationErrors.dni ? "border-red-500" : ""}
-                    placeholder="12345678A / X1234567A / AB123456"
-                  />
-                  {validationErrors.dni && (
-                    <p className="text-red-500 text-sm mt-1">
-                      {validationErrors.dni}
-                    </p>
-                  )}
-                  <p className="text-xs text-gray-500 mt-1">
-                    {t("validationValidDocumentInfo")}
+            return (
+              <div className="space-y-6">
+                <StoreHoursNotice t={t} />
+                
+                <div className="bg-yellow-50 p-4 rounded-lg">
+                  <p className="text-sm text-yellow-800">
+                    <strong>{t("important")}:</strong>{" "}
+                    {t("depositMessage", { amount: calculateTotalDeposit() })}
                   </p>
                 </div>
+
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h4 className="font-semibold mb-2">{t("finalSummary")}</h4>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span>{t("payWithCard")}</span>
+                      <span className="font-semibold">
+                        {calculateTotal()}
+                        {t("euro")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-orange-600">
+                      <span>{t("depositInStore")}</span>
+                      <span>
+                        {calculateTotalDeposit()}
+                        {t("euro")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <PaymentForm
+                  amount={calculateTotal()}
+                  t={t}
+                  onBack={() => setCurrentStep("customer")}
+                  reservationId={reservationId}
+                  customerData={customerData}
+                />
               </div>
+            );
 
-              <RentalTermsCheckbox 
-                t={t}
-                acceptedTerms={acceptedTerms}
-                setAcceptedTerms={setAcceptedTerms}
-                validationErrors={validationErrors}
-                setValidationErrors={setValidationErrors}
-                language={language}
-              />
+          case "confirmation":
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-green-600">
+                    <CheckCircle className="h-5 w-5" />
+                    {t("reservationConfirmed")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center space-y-4">
+                    <p className="text-lg">{t("reservationSuccess")}</p>
+                    <p className="text-sm text-gray-600">
+                      {t("reservationNumber")}: <strong>{reservationId}</strong>
+                    </p>
+                    {!isAdminMode && (
+                      <p className="text-sm text-gray-600">
+                        {t("emailSent")} {customerData.email}
+                      </p>
+                    )}
 
-              <div className="mt-6 flex gap-4">
-                <Button
-                  variant="outline"
-                  onClick={() => setCurrentStep("accessories")}
-                >
-                  {t("back")}
-                </Button>
-                <Button
-                  onClick={() => {
-                    if (validateCustomerData()) {
-                      if (isAdminMode) {
-                        handleSubmitReservation();
-                      } else {
-                        setCurrentStep("payment");
-                      }
-                    }
-                  }}
-                  className="flex-1"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting
-                    ? t("processing")
-                    : isAdminMode
-                      ? t("reservationCreate")
-                      : t("continuePayment")}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        );
+                    <div className="bg-green-50 p-4 rounded-lg mt-6">
+                      <h4 className="font-semibold mb-2">{t("nextSteps")}</h4>
+                      <ul className="text-sm text-left space-y-1">
+                        <li>{t("comeToStore")}</li>
+                        <li>{t("bringDocuments")}</li>
+                        <li>{t("reviewBikes")}</li>
+                      </ul>
+                    </div>
 
-      case "payment":
-        if (isAdminMode) {
-          return null;
+                    <div className="flex gap-4 mt-6">
+                      {isAdminMode ? (
+                        <>
+                          <Button
+                            onClick={() => window.location.reload()}
+                            className="flex-1"
+                          >
+                            {t("reservationNew")}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => window.close()}
+                            className="flex-1"
+                          >
+                            {t("reservationClose")}
+                          </Button>
+                        </>
+                      ) : (
+                        <Button asChild className="w-full">
+                          <a href="/">{t("backToHome")}</a>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+
+          default:
+            return null;
         }
+      };
 
-        return (
-          <div className="space-y-6">
-            <StoreHoursNotice t={t} />
-            
-            <div className="bg-yellow-50 p-4 rounded-lg">
-              <p className="text-sm text-yellow-800">
-                <strong>{t("important")}:</strong>{" "}
-                {t("depositMessage", { amount: calculateTotalDeposit() })}
-              </p>
-            </div>
+      return (
+        <div className="min-h-screen bg-gray-50 py-8">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 mb-4">
+                {t("reserveBikes")}{" "}
+                {isAdminMode && <Badge variant="secondary">Modo Admin</Badge>}
+              </h1>
 
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h4 className="font-semibold mb-2">{t("finalSummary")}</h4>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span>{t("payWithCard")}</span>
-                  <span className="font-semibold">
-                    {calculateTotal()}
-                    {t("euro")}
-                  </span>
-                </div>
-                <div className="flex justify-between text-orange-600">
-                  <span>{t("depositInStore")}</span>
-                  <span>
-                    {calculateTotalDeposit()}
-                    {t("euro")}
-                  </span>
-                </div>
-              </div>
-            </div>
+              <div className="flex items-center flex-nowrap gap-2 md:gap-4 mb-8 overflow-x-auto sm:overflow-x-visible sm:justify-between">
+                {[
+                  { key: "dates", label: t("dates"), icon: CalendarDays },
+                  { key: "bikes", label: t("bikes"), icon: ShoppingCart },
+                  {
+                    key: "accessories",
+                    label: t("accessories"),
+                    icon: ShoppingCart,
+                  },
+                  { key: "customer", label: t("data"), icon: CreditCard },
+                  ...(isAdminMode
+                    ? []
+                    : [{ key: "payment", label: t("payment"), icon: CreditCard }]),
+                  {
+                    key: "confirmation",
+                    label: t("confirmation"),
+                    icon: CheckCircle,
+                  },
+                ].map((step, index, array) => {
+                  const Icon = step.icon;
+                  const isActive = currentStep === step.key;
+                  const stepKeys = array.map((s) => s.key);
+                  const currentIndex = stepKeys.indexOf(currentStep);
+                  const stepIndex = stepKeys.indexOf(step.key);
+                  const isCompleted = currentIndex > stepIndex;
 
-            <PaymentSimulation
-              amount={calculateTotal()}
-              onSuccess={handleSubmitReservation}
-              t={t}
-            />
-
-            <div className="flex gap-4">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentStep("customer")}
-              >
-                {t("back")}
-              </Button>
-            </div>
-          </div>
-        );
-
-      case "confirmation":
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-green-600">
-                <CheckCircle className="h-5 w-5" />
-                {t("reservationConfirmed")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center space-y-4">
-                <p className="text-lg">{t("reservationSuccess")}</p>
-                <p className="text-sm text-gray-600">
-                  {t("reservationNumber")}: <strong>{reservationId}</strong>
-                </p>
-                {!isAdminMode && (
-                  <p className="text-sm text-gray-600">
-                    {t("emailSent")} {customerData.email}
-                  </p>
-                )}
-
-                <div className="bg-green-50 p-4 rounded-lg mt-6">
-                  <h4 className="font-semibold mb-2">{t("nextSteps")}</h4>
-                  <ul className="text-sm text-left space-y-1">
-                    <li>{t("comeToStore")}</li>
-                    <li>{t("bringDocuments")}</li>
-                    <li>{t("reviewBikes")}</li>
-                  </ul>
-                </div>
-
-                <div className="flex gap-4 mt-6">
-                  {isAdminMode ? (
-                    <>
-                      <Button
-                        onClick={() => window.location.reload()}
-                        className="flex-1"
-                      >
-                        {t("reservationNew")}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => window.close()}
-                        className="flex-1"
-                      >
-                        {t("reservationClose")}
-                      </Button>
-                    </>
-                  ) : (
-                    <Button asChild className="w-full">
-                      <a href="/">{t("backToHome")}</a>
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        );
-
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">
-            {t("reserveBikes")}{" "}
-            {isAdminMode && <Badge variant="secondary">Modo Admin</Badge>}
-          </h1>
-
-          <div className="flex items-center flex-nowrap gap-2 md:gap-4 mb-8 overflow-x-auto sm:overflow-x-visible sm:justify-between">
-            {[
-              { key: "dates", label: t("dates"), icon: CalendarDays },
-              { key: "bikes", label: t("bikes"), icon: ShoppingCart },
-              {
-                key: "accessories",
-                label: t("accessories"),
-                icon: ShoppingCart,
-              },
-              { key: "customer", label: t("data"), icon: CreditCard },
-              ...(isAdminMode
-                ? []
-                : [{ key: "payment", label: t("payment"), icon: CreditCard }]),
-              {
-                key: "confirmation",
-                label: t("confirmation"),
-                icon: CheckCircle,
-              },
-            ].map((step, index, array) => {
-              const Icon = step.icon;
-              const isActive = currentStep === step.key;
-              const stepKeys = array.map((s) => s.key);
-              const currentIndex = stepKeys.indexOf(currentStep);
-              const stepIndex = stepKeys.indexOf(step.key);
-              const isCompleted = currentIndex > stepIndex;
-
-              return (
-                <div
-                  key={step.key}
-                  className="flex items-center flex-shrink-0 min-w-[120px]"
-                >
-                  <div
-                    className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                      isActive
-                        ? "bg-green-600 text-white"
-                        : isCompleted
-                          ? "bg-green-100 text-green-600"
-                          : "bg-gray-200 text-gray-400"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <span
-                    className={`ml-2 text-xs sm:text-sm whitespace-nowrap ${
-                      isActive
-                        ? "text-green-600 font-medium"
-                        : isCompleted
-                          ? "text-green-600"
-                          : "text-gray-400"
-                    }`}
-                  >
-                    {step.label}
-                  </span>
-                  {index < array.length - 1 && (
+                  return (
                     <div
-                      className="hidden sm:block w-4 h-0.5 mx-2 bg-gray-200 sm:w-8 sm:mx-4 sm:bg-gray-200"
-                      style={{ minWidth: 8 }}
-                    />
-                  )}
-                </div>
-              );
-            })}
+                      key={step.key}
+                      className="flex items-center flex-shrink-0 min-w-[120px]"
+                    >
+                      <div
+                        className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                          isActive
+                            ? "bg-green-600 text-white"
+                            : isCompleted
+                              ? "bg-green-100 text-green-600"
+                              : "bg-gray-200 text-gray-400"
+                        }`}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <span
+                        className={`ml-2 text-xs sm:text-sm whitespace-nowrap ${
+                          isActive
+                            ? "text-green-600 font-medium"
+                            : isCompleted
+                              ? "text-green-600"
+                              : "text-gray-400"
+                        }`}
+                      >
+                        {step.label}
+                      </span>
+                      {index < array.length - 1 && (
+                        <div
+                          className="hidden sm:block w-4 h-0.5 mx-2 bg-gray-200 sm:w-8 sm:mx-4 sm:bg-gray-200"
+                          style={{ minWidth: 8 }}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {renderStepContent()}
           </div>
         </div>
-
-        {renderStepContent()}
-      </div>
-    </div>
-  );
-}
+      );
+    }

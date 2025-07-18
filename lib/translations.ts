@@ -192,13 +192,36 @@ export const translations = {
 
     // Payment
     paymentError: "Error en el pago",
+    paymentDetails: "Detalles del pago",
+    redsysPaymentNotice: "Serás redirigido a la pasarela de pago seguro de Redsys para completar tu transacción",
+    paymentSecureNotice: "Todos los pagos se procesan de forma segura a través de Redsys",
 
     // Store hours
     storeHoursTitle: "Horario de Recogida/Devolución",
     storeHoursContent: "Lunes a Viernes: 10:00 - 18:00 | Sábados: 10:00 - 14:00",
     rentalTermsTitle: "Términos y Condiciones de Alquiler",
     rentalTermsContent: "Acepto los términos y condiciones de alquiler. El depósito será devuelto al completar la devolución.",
-    downloadTerms: "Descargar Términos"
+    downloadTerms: "Descargar Términos",
+
+    // Card details
+    cardHolderName: "Nombre del titular",
+    validationInvalidCardNumber: "Número de tarjeta inválido",
+    validationCardNameRequired: "Nombre del titular requerido",
+    validationInvalidExpiry: "Fecha de expiración inválida",
+    validationInvalidCvc: "CVC inválido",
+    validationZipRequired: "Código postal requerido",
+
+    // Newly added translations
+    validationCardDataRequired: "Datos de tarjeta requeridos",
+    validationInvalidCVV: "CVV inválido",
+    paymentProcessingError: "Error al procesar el pago",
+    paymentFailed: "Pago fallido",
+    unknownError: "Error desconocido",
+    cvv: "CVV",
+    cardName: "Nombre en la tarjeta",
+    cardholderName: "Nombre del titular de la tarjeta",
+    securePaymentNotice: "Pago seguro",
+    paymentProcessedSecurely: "Pago procesado de forma segura"
   },
 
   en: {
@@ -392,13 +415,36 @@ export const translations = {
 
     // Payment
     paymentError: "Payment error",
+    paymentDetails: "Payment Details",
+    redsysPaymentNotice: "You will be redirected to Redsys secure payment gateway to complete your transaction",
+    paymentSecureNotice: "All payments are processed securely through Redsys",
 
     // Store hours
     storeHoursTitle: "Pickup/Return Hours",
     storeHoursContent: "Monday to Friday: 10:00 - 18:00 | Saturdays: 10:00 - 14:00",
     rentalTermsTitle: "Rental Terms and Conditions",
     rentalTermsContent: "I accept the rental terms and conditions. The deposit will be returned upon completion of the return.",
-    downloadTerms: "Download Terms"
+    downloadTerms: "Download Terms",
+
+    // Card details
+    cardHolderName: "Cardholder name",
+    validationInvalidCardNumber: "Invalid card number",
+    validationCardNameRequired: "Cardholder name required",
+    validationInvalidExpiry: "Invalid expiry date",
+    validationInvalidCvc: "Invalid CVC",
+    validationZipRequired: "Zip code required",
+
+    // Newly added translations
+    validationCardDataRequired: "Card data required",
+    validationInvalidCVV: "Invalid CVV",
+    paymentProcessingError: "Payment processing error",
+    paymentFailed: "Payment failed",
+    unknownError: "Unknown error",
+    cvv: "CVV",
+    cardName: "Card name",
+    cardholderName: "Cardholder name",
+    securePaymentNotice: "Secure payment",
+    paymentProcessedSecurely: "Payment processed securely"
   },
 
   nl: {
@@ -594,13 +640,36 @@ export const translations = {
 
     // Payment
     paymentError: "Betalingsfout",
+    paymentDetails: "Betalingsdetails",
+    redsysPaymentNotice: "U wordt doorgestuurd naar het beveiligde betalingssysteem van Redsys om uw transactie te voltooien",
+    paymentSecureNotice: "Alle betalingen worden veilig verwerkt via Redsys",
 
     // Store hours
     storeHoursTitle: "Ophaal-/Retoururen",
     storeHoursContent: "Maandag tot vrijdag: 10:00 - 18:00 | Zaterdag: 10:00 - 14:00",
     rentalTermsTitle: "Huurvoorwaarden",
     rentalTermsContent: "Ik accepteer de huurvoorwaarden. De borg wordt terugbetaald bij voltooiing van de retour.",
-    downloadTerms: "Download Voorwaarden"
+    downloadTerms: "Download Voorwaarden",
+
+    // Card details
+    cardHolderName: "Naam kaarthouder",
+    validationInvalidCardNumber: "Ongeldig kaartnummer",
+    validationCardNameRequired: "Naam kaarthouder vereist",
+    validationInvalidExpiry: "Ongeldige vervaldatum",
+    validationInvalidCvc: "Ongeldige CVC",
+    validationZipRequired: "Postcode vereist",
+
+    // Newly added translations
+    validationCardDataRequired: "Kaartgegevens vereist",
+    validationInvalidCVV: "Ongeldige CVV",
+    paymentProcessingError: "Betalingsverwerkingsfout",
+    paymentFailed: "Betaling mislukt",
+    unknownError: "Onbekende fout",
+    cvv: "CVV",
+    cardName: "Naam op kaart",
+    cardholderName: "Naam kaarthouder",
+    securePaymentNotice: "Veilige betaling",
+    paymentProcessedSecurely: "Betaling veilig verwerkt"
   }
 };
 
