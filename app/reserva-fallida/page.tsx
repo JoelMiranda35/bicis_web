@@ -1,14 +1,14 @@
-export const dynamic = 'force-dynamic'; // ¡Solución clave!
-
+export const dynamic = 'force-dynamic';
 'use client';
 
+import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { useLanguage } from '@/lib/language-context';
 import { AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-export default function FailurePage() {
+function FailureContent() {
   const { t } = useLanguage();
   const searchParams = useSearchParams();
   const orderId = searchParams.get('order');
@@ -54,5 +54,13 @@ export default function FailurePage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function FailurePage() {
+  return (
+    <Suspense fallback={<div>Cargando...</div>}>
+      <FailureContent />
+    </Suspense>
   );
 }
