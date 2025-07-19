@@ -297,7 +297,7 @@ const PaymentForm = ({
       throw new Error(t("validationInvalidCardName"));
     }
 
-    // Preparar datos para el pago
+    // Preparar datos para el pagoo
     const [expMonth, expYear] = cardData.expiry.split('/');
     const paymentData = {
       amount: amount,
