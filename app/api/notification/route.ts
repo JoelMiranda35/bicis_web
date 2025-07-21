@@ -14,14 +14,14 @@ function padTo8Bytes(data: string): string {
 
 function encrypt3DES(key: Buffer, data: string): Buffer {
   const paddedData = padTo8Bytes(data);
-  const cipher = crypto.createCipheriv('des-ede3', key, null); // null = ECB mode sin IV
+  const cipher = crypto.createCipheriv('des-ede3', key, null); // ECB mode sin IV
   return Buffer.concat([cipher.update(paddedData, 'utf8'), cipher.final()]);
 }
 
 function generateSignature(secretKey: string, orderId: string, paramsBase64: string): string {
   const key = Buffer.from(secretKey, 'base64');
-  const paddedOrderId = padTo8Bytes(orderId);
-  const derivedKey = encrypt3DES(key, paddedOrderId);
+  // Usamos el orderId tal cual, sin padStart para coincidir con tu base
+  const derivedKey = encrypt3DES(key, orderId);
   const hmac = crypto.createHmac('sha256', derivedKey);
   hmac.update(paramsBase64);
   return hmac.digest('base64');
@@ -40,12 +40,10 @@ export async function POST(request: NextRequest) {
     const paramsJson = Buffer.from(paramsBase64, 'base64').toString('utf-8');
     const params = JSON.parse(paramsJson);
 
-    // Padding a 12 caracteres con ceros a la izquierda para orderId
-    const orderId = params.Ds_Order.padStart(12, '0');
+    const orderId = params.Ds_Order; // sin padding
 
     const signatureCalculated = generateSignature(process.env.REDSYS_SECRET_KEY!, orderId, paramsBase64);
 
-    // Logs para debug
     console.log('OrderId para firma:', orderId);
     console.log('Params Base64:', paramsBase64);
     console.log('Firma recibida:', signatureReceived);
@@ -56,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     const successCodes = ['0000', '0900', '0400'];
-    const status = successCodes.includes(params.Ds_Response) ? 'completed' : 'failed';
+    const status = successCodes.includes(params.Ds_Response) ? 'succeeded' : 'failed';
 
     const { data, error: supabaseError } = await supabase
       .from('reservations')
@@ -69,7 +67,7 @@ export async function POST(request: NextRequest) {
         redsys_notification_data: params,
         redsys_notification_received: true,
         updated_at: new Date().toISOString(),
-        ...(status === 'completed' && { status: 'confirmed' })
+        ...(status === 'succeeded' && { status: 'confirmed' })
       })
       .eq('redsys_order_id', orderId)
       .select();
@@ -83,6 +81,7 @@ export async function POST(request: NextRequest) {
   } catch (e) {
     const error = e instanceof Error ? e : new Error('Error desconocido');
     console.error('Error en notificación Redsys:', error.message);
+    console.error(error.stack);
     return new NextResponse(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
