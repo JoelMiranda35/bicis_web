@@ -28,48 +28,79 @@ export async function POST(request: NextRequest) {
     const paramsBase64 = formData.get('Ds_MerchantParameters')?.toString() || '';
     const signatureReceived = formData.get('Ds_Signature')?.toString() || '';
 
+    if (!paramsBase64 || !signatureReceived) {
+      throw new Error('Datos incompletos: faltan parámetros o firma');
+    }
+
     // 2. Validar firma
     const secretKey = process.env.REDSYS_SECRET_KEY;
     if (!secretKey) throw new Error('Clave secreta no configurada');
 
-    const hmac = crypto.createHmac('sha256', secretKey);
-    const signatureCalculated = hmac.update(paramsBase64).digest('base64');
+    const signatureCalculated = crypto
+      .createHmac('sha256', secretKey)
+      .update(paramsBase64)
+      .digest('base64url');
 
     if (signatureReceived !== signatureCalculated) {
-      throw new Error('Firma inválida');
+      throw new Error(`Firma inválida. Recibida: ${signatureReceived}, Calculada: ${signatureCalculated}`);
     }
 
     // 3. Decodificar parámetros
-    const paramsJson = Buffer.from(paramsBase64, 'base64').toString('utf-8');
-    const params: RedsysNotification = JSON.parse(paramsJson);
+    let params: RedsysNotification;
+    try {
+      const paramsJson = Buffer.from(paramsBase64, 'base64').toString('utf-8');
+      params = JSON.parse(paramsJson);
+    } catch (e) {
+      const error = e instanceof Error ? e : new Error('Error desconocido al decodificar parámetros');
+      throw new Error(`Error al decodificar parámetros: ${error.message}`);
+    }
 
     // 4. Determinar estado
-    const successCodes = ['0000', '0900'];
+    const successCodes = ['0000', '0900', '0400'];
     const status = successCodes.includes(params.Ds_Response) ? 'completed' : 'failed';
 
     // 5. Actualizar reserva
     const originalOrderId = params.Ds_Order.replace(/^DIRECT_/, '');
-    
-    const { error } = await supabase
+    if (!originalOrderId) throw new Error('OrderId inválido');
+
+    const { data, error: supabaseError } = await supabase
       .from('reservations')
       .update({
         payment_status: status,
         payment_response_code: params.Ds_Response,
         payment_amount: parseInt(params.Ds_Amount) / 100,
-        payment_date: params.Ds_Date && params.Ds_Hour ? `${params.Ds_Date}T${params.Ds_Hour}` : null,
+        payment_date: params.Ds_Date && params.Ds_Hour 
+          ? `${params.Ds_Date}T${params.Ds_Hour}:00`
+          : null,
         payment_authorization_code: params.Ds_AuthorisationCode,
         payment_raw_response: params,
         updated_at: new Date().toISOString(),
         ...(status === 'completed' && { status: 'confirmed' })
       })
-      .eq('redsys_order_id', originalOrderId);
+      .eq('redsys_order_id', originalOrderId)
+      .select();
 
-    if (error) throw error;
+    if (supabaseError) {
+      console.error('Error Supabase:', supabaseError);
+      throw new Error(`Error al actualizar Supabase: ${supabaseError.message}`);
+    }
 
+    console.log('Actualización exitosa:', data);
     return new NextResponse('OK', { status: 200 });
 
-  } catch (error) {
-    console.error('Error procesando notificación:', error);
-    return new NextResponse('Error procesando notificación', { status: 500 });
+  } catch (e) {
+    const error = e instanceof Error ? e : new Error('Error desconocido');
+    console.error('Error en /api/notification:', error.message);
+    
+    return new NextResponse(
+      JSON.stringify({ 
+        error: 'Error procesando notificación',
+        details: error.message 
+      }), 
+      { 
+        status: 500, 
+        headers: { 'Content-Type': 'application/json' } 
+      }
+    );
   }
 }
