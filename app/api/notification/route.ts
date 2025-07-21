@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     const paramsJson = Buffer.from(paramsBase64, 'base64').toString('utf-8');
     const params = JSON.parse(paramsJson);
 
-    // Aseguramos el orderId con padding igual que en create-payment
+    // Padding a 12 caracteres con ceros a la izquierda para orderId
     const orderId = params.Ds_Order.padStart(12, '0');
 
     const signatureCalculated = generateSignature(process.env.REDSYS_SECRET_KEY!, orderId, paramsBase64);
@@ -62,11 +62,12 @@ export async function POST(request: NextRequest) {
       .from('reservations')
       .update({
         payment_status: status,
-        payment_response_code: params.Ds_Response,
+        ds_response_code: params.Ds_Response,
         payment_amount: parseInt(params.Ds_Amount) / 100,
         payment_date: params.Ds_Date && params.Ds_Hour ? `${params.Ds_Date}T${params.Ds_Hour}:00` : null,
-        payment_authorization_code: params.Ds_AuthorisationCode,
-        payment_raw_response: params,
+        ds_authorisation_code: params.Ds_AuthorisationCode,
+        redsys_notification_data: params,
+        redsys_notification_received: true,
         updated_at: new Date().toISOString(),
         ...(status === 'completed' && { status: 'confirmed' })
       })
