@@ -36,7 +36,6 @@ CREATE TABLE IF NOT EXISTS reservations (
   total_amount DECIMAL(10,2) NOT NULL,
   deposit_amount DECIMAL(10,2) NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'in_process', 'completed', 'cancelled')),
-  stripe_payment_intent_id TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

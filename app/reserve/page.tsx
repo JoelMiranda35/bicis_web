@@ -208,266 +208,7 @@ const RentalTermsCheckbox = ({
   );
 };
 
-const PaymentForm = ({ 
-  amount, 
-  t,
-  onBack,
-  reservationId,
-  customerData
-}: {
-  amount: number,
-  t: (key: TranslationKey) => string,
-  onBack: () => void,
-  reservationId: string,
-  customerData: {
-    name: string;
-    email: string;
-    phone: string;
-    dni: string;
-  }
-}) => {
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [cardData, setCardData] = useState({
-    number: '',
-    expiry: '',
-    cvv: '',
-    name: ''
-  });
 
-  const handleCardDataChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    
-    if (name === 'number') {
-      const cleanedValue = value.replace(/\s+/g, '').replace(/[^0-9]/g, '');
-      const formattedValue = cleanedValue.replace(/(\d{4})/g, '$1 ').trim();
-      setCardData(prev => ({
-        ...prev,
-        [name]: formattedValue
-      }));
-    } 
-    else if (name === 'expiry') {
-      const cleanedValue = value.replace(/[^0-9]/g, '');
-      let formattedValue = cleanedValue;
-      if (cleanedValue.length > 2) {
-        formattedValue = `${cleanedValue.slice(0, 2)}/${cleanedValue.slice(2, 4)}`;
-      }
-      setCardData(prev => ({
-        ...prev,
-        [name]: formattedValue
-      }));
-    }
-    else if (name === 'cvv') {
-      setCardData(prev => ({
-        ...prev,
-        [name]: value.replace(/[^0-9]/g, '')
-      }));
-    } else {
-      setCardData(prev => ({
-        ...prev,
-        [name]: value
-      }));
-    }
-  };
-
-  const handlePayment = async () => {
-  setIsProcessing(true);
-  setError(null);
-
-  try {
-    // Validaciones de los datos de la tarjeta...
-    if (!cardData.number || !cardData.expiry || !cardData.cvv || !cardData.name) {
-      throw new Error(t("validationCardDataRequired"));
-    }
-
-    const cleanedCardNumber = cardData.number.replace(/\s+/g, '');
-    if (!/^\d{13,19}$/.test(cleanedCardNumber)) {
-      throw new Error(t("validationInvalidCardNumber"));
-    }
-
-    if (!/^\d{2}\/\d{2}$/.test(cardData.expiry)) {
-      throw new Error(t("validationInvalidExpiry"));
-    }
-
-    if (!/^\d{3,4}$/.test(cardData.cvv)) {
-      throw new Error(t("validationInvalidCVV"));
-    }
-
-    if (cardData.name.trim().length < 3) {
-      throw new Error(t("validationInvalidCardName"));
-    }
-
-    // Preparar datos para el pagoo
-    const [expMonth, expYear] = cardData.expiry.split('/');
-    const paymentData = {
-      amount: amount,
-      orderId: reservationId,
-      customerEmail: customerData.email,
-      customerName: customerData.name.trim(),
-      cardNumber: cleanedCardNumber,
-      cardExpiry: `${expMonth}${expYear}`,
-      cardCVV: cardData.cvv,
-      cardName: cardData.name.trim(),
-      currency: 'EUR'
-    };
-
-    // Enviar pago al servidor
-    const res = await fetch('/api/create-payment', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(paymentData),
-    });
-
-    const responseData = await res.json();
-
-    if (!res.ok || !responseData.success) {
-      throw new Error(responseData.error || t("paymentProcessingError"));
-    }
-
-    // Pago exitoso
-    window.location.href = `/reserva-exitosa?order=${reservationId}`;
-
-  } catch (err) {
-    console.error('Error en el proceso de pago:', err);
-    const errorMessage = err instanceof Error ? err.message : t("unknownError");
-    setError(errorMessage);
-    
-    // Registrar el error en Supabase
-    await supabase.from("payment_errors").insert({
-      reservation_id: reservationId,
-      error_type: "payment_processing",
-      error_data: JSON.stringify({
-        customer: customerData.email,
-        error: errorMessage,
-        card_data: {
-          last4: cardData.number.slice(-4),
-          expiry: cardData.expiry
-        }
-      })
-    });
-  } finally {
-    setIsProcessing(false);
-  }
-};
-
-  return (
-    <div className="border rounded-lg p-6 mt-6">
-      <h3 className="text-lg font-semibold mb-4">{t("paymentDetails")}</h3>
-      
-      <div className="bg-gray-50 p-4 rounded-lg my-6">
-        <div className="flex justify-between font-semibold">
-          <span>{t("amountToPay")}:</span>
-          <span>{amount.toFixed(2)}{t("euro")}</span>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div>
-          <Label htmlFor="cardNumber">{t("cardNumber")} *</Label>
-          <Input
-            id="cardNumber"
-            name="number"
-            value={cardData.number}
-            onChange={handleCardDataChange}
-            placeholder="1234 5678 9012 3456"
-            maxLength={19}
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="expiry">{t("expiryDate")} (MM/YY) *</Label>
-            <Input
-              id="expiry"
-              name="expiry"
-              value={cardData.expiry}
-              onChange={handleCardDataChange}
-              placeholder="MM/YY"
-              maxLength={5}
-            />
-          </div>
-          <div>
-            <Label htmlFor="cvv">{t("cvv")} *</Label>
-            <Input
-              id="cvv"
-              name="cvv"
-              value={cardData.cvv}
-              onChange={handleCardDataChange}
-              placeholder="123"
-              maxLength={4}
-              type="password"
-            />
-          </div>
-        </div>
-
-        <div>
-          <Label htmlFor="cardName">{t("cardName")} *</Label>
-          <Input
-            id="cardName"
-            name="name"
-            value={cardData.name}
-            onChange={handleCardDataChange}
-            placeholder={t("cardholderName")}
-          />
-        </div>
-      </div>
-
-      {error && (
-        <div className="bg-red-50 p-4 rounded-lg my-4">
-          <p className="text-red-600">{error}</p>
-          <p className="text-sm text-red-500 mt-1">
-            {t("paymentErrorHelpText")}
-          </p>
-          <Button
-            variant="link"
-            className="text-blue-600 p-0 h-auto"
-            onClick={() => window.location.reload()}
-          >
-            {t("tryAgain")}
-          </Button>
-        </div>
-      )}
-
-      <div className="bg-blue-50 p-4 rounded-lg my-6">
-        <p className="text-sm text-blue-700">
-          {t("securePaymentNotice")}
-        </p>
-        <p className="text-xs text-blue-600 mt-1">
-          {t("paymentProcessedSecurely")}
-        </p>
-      </div>
-
-      <div className="flex gap-4">
-        <Button
-          variant="outline"
-          onClick={onBack}
-          className="flex-1"
-        >
-          {t("back")}
-        </Button>
-        <Button
-          onClick={handlePayment}
-          className="flex-1"
-          disabled={isProcessing}
-        >
-          {isProcessing ? (
-            <span className="flex items-center">
-              <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              {t("processingPayment")}
-            </span>
-          ) : (
-            t("payNow")
-          )}
-        </Button>
-      </div>
-    </div>
-  );
-};
 
 export default function ReservePage() {
   const { t, language } = useLanguage();
@@ -792,43 +533,43 @@ export default function ReservePage() {
   };
 
   const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
-  if (!startDate || !endDate || selectedBikes.length === 0) {
-    return { available: false, unavailableBikes: [] };
-  }
+    if (!startDate || !endDate || selectedBikes.length === 0) {
+      return { available: false, unavailableBikes: [] };
+    }
 
-  try {
-    const { data: overlappingReservations, error } = await supabase
-      .from("reservations")
-      .select("bikes, status")
-      .or(
-        `and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`
-      )
-      .in("status", ["confirmed", "in_process", "pending_payment"]);
+    try {
+      const { data: overlappingReservations, error } = await supabase
+        .from("reservations")
+        .select("bikes, status")
+        .or(
+          `and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`
+        )
+        .in("status", ["confirmed", "in_process", "pending_payment"]);
 
-    if (error) throw error;
+      if (error) throw error;
 
-    const reservedBikeIds = new Set<string>();
-    overlappingReservations?.forEach((reservation) => {
-      reservation.bikes.forEach((bike: any) => {
-        bike.bike_ids?.forEach((id: string) => reservedBikeIds.add(id));
+      const reservedBikeIds = new Set<string>();
+      overlappingReservations?.forEach((reservation) => {
+        reservation.bikes.forEach((bike: any) => {
+          bike.bike_ids?.forEach((id: string) => reservedBikeIds.add(id));
+        });
       });
-    });
 
-    const unavailableBikes = selectedBikes.flatMap(bike => 
-      bike.bikes.filter(b => reservedBikeIds.has(b.id)).map(b => b.id)
-    );
+      const unavailableBikes = selectedBikes.flatMap(bike => 
+        bike.bikes.filter(b => reservedBikeIds.has(b.id)).map(b => b.id)
+      );
 
-    return {
-      available: unavailableBikes.length === 0,
-      unavailableBikes
-    };
-  } catch (error) {
-    console.error("Error checking bikes availability:", error);
-    return { available: false, unavailableBikes: [] };
-  }
-};
+      return {
+        available: unavailableBikes.length === 0,
+        unavailableBikes
+      };
+    } catch (error) {
+      console.error("Error checking bikes availability:", error);
+      return { available: false, unavailableBikes: [] };
+    }
+  };
 
-  const handleSubmitReservation = async () => {
+ const handleSubmitReservation = async () => {
   if (!startDate || !endDate) return;
 
   setIsSubmitting(true);
@@ -842,10 +583,8 @@ export default function ReservePage() {
     // 2. Verificar disponibilidad con detalle
     const { available, unavailableBikes } = await checkBikesAvailability();
     if (!available) {
-      // Actualizar el listado de bicis disponibles
       await fetchAvailableBikes();
       
-      // Crear mensaje de error específico
       const errorMessage = unavailableBikes.length > 0 
         ? t("specificBikesNoLongerAvailable", { count: unavailableBikes.length })
         : t("bikesNoLongerAvailable");
@@ -855,7 +594,6 @@ export default function ReservePage() {
         bikes: errorMessage
       });
       
-      // Mostrar bicicletas no disponibles
       const updatedSelectedBikes = selectedBikes.map(bike => ({
         ...bike,
         bikes: bike.bikes.filter(b => !unavailableBikes.includes(b.id))
@@ -869,7 +607,7 @@ export default function ReservePage() {
     // 3. Generar ID único para Redsys
     const redsysOrderId = generateRedsysOrderId();
 
-    // 4. Preparar datos de bicicletas para la base de datos
+    // 4. Preparar datos para la reserva
     const bikesForDB = selectedBikes.map(bike => ({
       model: {
         title_es: bike.title_es,
@@ -886,7 +624,6 @@ export default function ReservePage() {
       daily_price: calculatePrice(bike.category, 1)
     }));
 
-    // 5. Preparar datos de accesorios
     const accessoriesForDB = selectedAccessories.map(acc => ({
       id: acc.id,
       name_es: acc.name_es,
@@ -895,7 +632,6 @@ export default function ReservePage() {
       price: acc.price,
     }));
 
-    // 6. Formatear fechas y horas
     const pickupDate = new Date(startDate);
     const returnDate = new Date(endDate);
     const [pickupHour, pickupMinute] = pickupTime.split(':').map(Number);
@@ -904,7 +640,6 @@ export default function ReservePage() {
     pickupDate.setHours(pickupHour, pickupMinute, 0, 0);
     returnDate.setHours(returnHour, returnMinute, 0, 0);
 
-    // 7. Calcular días totales
     const totalDays = calculateTotalDays(
       new Date(startDate),
       new Date(endDate),
@@ -912,7 +647,10 @@ export default function ReservePage() {
       returnTime
     );
 
-    // 8. Crear objeto de datos de reserva
+    const totalAmount = calculateTotal();
+    const depositAmount = calculateTotalDeposit();
+
+    // 5. Crear objeto de datos de reserva
     const reservationData = {
       customer_name: customerData.name.trim(),
       customer_email: customerData.email.toLowerCase().trim(),
@@ -926,8 +664,8 @@ export default function ReservePage() {
       bikes: bikesForDB,
       accessories: accessoriesForDB,
       insurance: hasInsurance,
-      total_amount: calculateTotal(),
-      deposit_amount: calculateTotalDeposit(),
+      total_amount: totalAmount,
+      deposit_amount: depositAmount,
       paid_amount: 0,
       status: isAdminMode ? "confirmed" : "pending_payment",
       payment_gateway: "redsys",
@@ -940,31 +678,26 @@ export default function ReservePage() {
       locale: language
     };
 
-    // 9. Crear reserva en Supabase
+    // 6. Crear reserva en Supabase
     const { data, error: insertError } = await supabase
       .from("reservations")
       .insert([reservationData])
       .select()
       .single();
 
-    if (insertError) {
-      console.error("Error creating reservation:", insertError);
-      throw insertError;
-    }
+    if (insertError) throw insertError;
 
     setReservationId(data.id);
 
-    // 10. Registrar en logs
-    await supabase
-      .from("reservation_logs")
-      .insert({
-        reservation_id: data.id,
-        action: "created",
-        status: reservationData.status,
-        amount: reservationData.total_amount
-      });
+    // 7. Registrar en logs
+    await supabase.from("reservation_logs").insert({
+      reservation_id: data.id,
+      action: "created",
+      status: reservationData.status,
+      amount: reservationData.total_amount
+    });
 
-    // 11. Manejar flujo según modo (admin o usuario)
+    // 8. Manejar flujo según modo (admin o usuario)
     if (isAdminMode) {
       await sendConfirmationEmail({
         ...reservationData,
@@ -973,32 +706,77 @@ export default function ReservePage() {
       });
       setCurrentStep("confirmation");
     } else {
-      setCurrentStep("payment");
-    }
+      // Redirección directa a Redsys
+      const response = await fetch("/api/create-payment", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          amount: totalAmount,
+          orderId: redsysOrderId,
+          customerName: customerData.name,
+          customerEmail: customerData.email,
+          customerPhone: customerData.phone,
+          customerDni: customerData.dni,
+        }),
+      });
 
+      if (!response.ok) {
+        throw new Error(t("paymentError"));
+      }
+
+      const paymentData = await response.json();
+
+      if (paymentData.success) {
+        // Crear formulario para enviar a Redsys
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.action = paymentData.url;
+        
+        const signatureVersion = document.createElement("input");
+        signatureVersion.type = "hidden";
+        signatureVersion.name = "Ds_SignatureVersion";
+        signatureVersion.value = "HMAC_SHA256_V1";
+        form.appendChild(signatureVersion);
+
+        const merchantParams = document.createElement("input");
+        merchantParams.type = "hidden";
+        merchantParams.name = "Ds_MerchantParameters";
+        merchantParams.value = paymentData.params;
+        form.appendChild(merchantParams);
+
+        const signature = document.createElement("input");
+        signature.type = "hidden";
+        signature.name = "Ds_Signature";
+        signature.value = paymentData.signature;
+        form.appendChild(signature);
+
+        document.body.appendChild(form);
+        form.submit();
+      } else {
+        throw new Error(paymentData.error || t("paymentError"));
+      }
+    }
   } catch (error) {
     console.error("Error in reservation process:", error);
     const errorMessage = error instanceof Error ? error.message : t("reservationError");
     
-    // Registrar error detallado
-    await supabase
-      .from("reservation_errors")
-      .insert({
-        error_type: "reservation_creation",
-        error_data: JSON.stringify({
-          customer: customerData.email,
-          error: errorMessage,
-          selected_bikes: selectedBikes.map(b => ({
-            model: b.title_es,
-            size: b.size,
-            quantity: b.quantity,
-            bike_ids: b.bikes.map(bike => bike.id)
-          })),
-          timestamp: new Date().toISOString()
-        })
-      });
+    await supabase.from("reservation_errors").insert({
+      error_type: "reservation_creation",
+      error_data: JSON.stringify({
+        customer: customerData.email,
+        error: errorMessage,
+        selected_bikes: selectedBikes.map(b => ({
+          model: b.title_es,
+          size: b.size,
+          quantity: b.quantity,
+          bike_ids: b.bikes.map(bike => bike.id)
+        })),
+        timestamp: new Date().toISOString()
+      })
+    });
 
-    // Manejar error según contexto
     if (isAdminMode) {
       alert(`Error: ${errorMessage}`);
     } else if (errorMessage.includes("bikesNoLongerAvailable")) {
@@ -1758,6 +1536,59 @@ export default function ReservePage() {
             );
 
           case "payment":
+  if (isAdminMode) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-6">
+      <StoreHoursNotice t={t} />
+      
+      <div className="bg-yellow-50 p-4 rounded-lg">
+        <p className="text-sm text-yellow-800">
+          <strong>{t("important")}:</strong>{" "}
+          {t("depositMessage", { amount: calculateTotalDeposit() })}
+        </p>
+      </div>
+
+      <div className="bg-gray-50 p-4 rounded-lg">
+        <h4 className="font-semibold mb-2">{t("finalSummary")}</h4>
+        <div className="space-y-1 text-sm">
+          <div className="flex justify-between">
+            <span>{t("payWithCard")}</span>
+            <span className="font-semibold">
+              {calculateTotal()}
+              {t("euro")}
+            </span>
+          </div>
+          <div className="flex justify-between text-orange-600">
+            <span>{t("depositInStore")}</span>
+            <span>
+              {calculateTotalDeposit()}
+              {t("euro")}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex gap-4">
+        <Button
+          variant="outline"
+          onClick={() => setCurrentStep("customer")}
+          className="flex-1"
+        >
+          {t("back")}
+        </Button>
+        <Button
+          onClick={handleSubmitReservation}
+          className="flex-1"
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? t("processing") : t("payNow")}
+        </Button>
+      </div>
+    </div>
+  );
             if (isAdminMode) {
               return null;
             }
@@ -1792,14 +1623,6 @@ export default function ReservePage() {
                     </div>
                   </div>
                 </div>
-
-                <PaymentForm
-                  amount={calculateTotal()}
-                  t={t}
-                  onBack={() => setCurrentStep("customer")}
-                  reservationId={reservationId}
-                  customerData={customerData}
-                />
               </div>
             );
 
