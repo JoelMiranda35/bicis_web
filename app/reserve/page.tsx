@@ -208,8 +208,6 @@ const RentalTermsCheckbox = ({
   );
 };
 
-
-
 export default function ReservePage() {
   const { t, language } = useLanguage();
   const searchParams = useSearchParams();
@@ -569,225 +567,239 @@ export default function ReservePage() {
     }
   };
 
- const handleSubmitReservation = async () => {
-  if (!startDate || !endDate) return;
+  const handleSubmitReservation = async () => {
+    if (!startDate || !endDate) return;
 
-  setIsSubmitting(true);
+    setIsSubmitting(true);
 
-  try {
-    // 1. Validar datos del cliente
-    if (!validateCustomerData()) {
-      throw new Error(t("reservationValidationError"));
-    }
+    try {
+      // 1. Validar datos del cliente
+      if (!validateCustomerData()) {
+        throw new Error(t("reservationValidationError"));
+      }
 
-    // 2. Verificar disponibilidad con detalle
-    const { available, unavailableBikes } = await checkBikesAvailability();
-    if (!available) {
-      await fetchAvailableBikes();
-      
-      const errorMessage = unavailableBikes.length > 0 
-        ? t("specificBikesNoLongerAvailable", { count: unavailableBikes.length })
-        : t("bikesNoLongerAvailable");
-      
-      setValidationErrors({
-        ...validationErrors,
-        bikes: errorMessage
-      });
-      
-      const updatedSelectedBikes = selectedBikes.map(bike => ({
-        ...bike,
-        bikes: bike.bikes.filter(b => !unavailableBikes.includes(b.id))
-      })).filter(bike => bike.bikes.length > 0);
+      // 2. Verificar disponibilidad con detalle
+      const { available, unavailableBikes } = await checkBikesAvailability();
+      if (!available) {
+        await fetchAvailableBikes();
+        
+        const errorMessage = unavailableBikes.length > 0 
+          ? t("specificBikesNoLongerAvailable", { count: unavailableBikes.length })
+          : t("bikesNoLongerAvailable");
+        
+        setValidationErrors({
+          ...validationErrors,
+          bikes: errorMessage
+        });
+        
+        const updatedSelectedBikes = selectedBikes.map(bike => ({
+          ...bike,
+          bikes: bike.bikes.filter(b => !unavailableBikes.includes(b.id))
+        })).filter(bike => bike.bikes.length > 0);
 
-      setSelectedBikes(updatedSelectedBikes);
-      setCurrentStep("bikes");
-      return;
-    }
+        setSelectedBikes(updatedSelectedBikes);
+        setCurrentStep("bikes");
+        return;
+      }
 
-    // 3. Generar ID único para Redsys
-    const redsysOrderId = generateRedsysOrderId();
+      // 3. Generar ID único para Redsys
+      const redsysOrderId = generateRedsysOrderId();
 
-    // 4. Preparar datos para la reserva
-    const bikesForDB = selectedBikes.map(bike => ({
-      model: {
-        title_es: bike.title_es,
-        title_en: bike.title_en,
-        title_nl: bike.title_nl,
-        subtitle_es: bike.subtitle_es,
-        subtitle_en: bike.subtitle_en,
-        subtitle_nl: bike.subtitle_nl,
-        category: bike.category,
-      },
-      size: bike.size,
-      quantity: bike.quantity,
-      bike_ids: bike.bikes.map(b => b.id),
-      daily_price: calculatePrice(bike.category, 1)
-    }));
-
-    const accessoriesForDB = selectedAccessories.map(acc => ({
-      id: acc.id,
-      name_es: acc.name_es,
-      name_en: acc.name_en,
-      name_nl: acc.name_nl,
-      price: acc.price,
-    }));
-
-    const pickupDate = new Date(startDate);
-    const returnDate = new Date(endDate);
-    const [pickupHour, pickupMinute] = pickupTime.split(':').map(Number);
-    const [returnHour, returnMinute] = returnTime.split(':').map(Number);
-    
-    pickupDate.setHours(pickupHour, pickupMinute, 0, 0);
-    returnDate.setHours(returnHour, returnMinute, 0, 0);
-
-    const totalDays = calculateTotalDays(
-      new Date(startDate),
-      new Date(endDate),
-      pickupTime,
-      returnTime
-    );
-
-    const totalAmount = calculateTotal();
-    const depositAmount = calculateTotalDeposit();
-
-    // 5. Crear objeto de datos de reserva
-    const reservationData = {
-      customer_name: customerData.name.trim(),
-      customer_email: customerData.email.toLowerCase().trim(),
-      customer_phone: customerData.phone.trim(),
-      customer_dni: customerData.dni.toUpperCase().trim(),
-      start_date: pickupDate.toISOString(),
-      end_date: returnDate.toISOString(),
-      pickup_time: pickupTime,
-      return_time: returnTime,
-      total_days: totalDays,
-      bikes: bikesForDB,
-      accessories: accessoriesForDB,
-      insurance: hasInsurance,
-      total_amount: totalAmount,
-      deposit_amount: depositAmount,
-      paid_amount: 0,
-      status: isAdminMode ? "confirmed" : "pending_payment",
-      payment_gateway: "redsys",
-      payment_status: "pending",
-      payment_reference: redsysOrderId,
-      redsys_order_id: redsysOrderId,
-      redsys_merchant_code: process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE || '999008881',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      locale: language
-    };
-
-    // 6. Crear reserva en Supabase
-    const { data, error: insertError } = await supabase
-      .from("reservations")
-      .insert([reservationData])
-      .select()
-      .single();
-
-    if (insertError) throw insertError;
-
-    setReservationId(data.id);
-
-    // 7. Registrar en logs
-    await supabase.from("reservation_logs").insert({
-      reservation_id: data.id,
-      action: "created",
-      status: reservationData.status,
-      amount: reservationData.total_amount
-    });
-
-    // 8. Manejar flujo según modo (admin o usuario)
-    if (isAdminMode) {
-      await sendConfirmationEmail({
-        ...reservationData,
-        id: data.id,
-        status: "confirmed"
-      });
-      setCurrentStep("confirmation");
-    } else {
-      // Redirección directa a Redsys
-      const response = await fetch("/api/create-payment", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      // 4. Preparar datos para la reserva
+      const bikesForDB = selectedBikes.map(bike => ({
+        model: {
+          title_es: bike.title_es,
+          title_en: bike.title_en,
+          title_nl: bike.title_nl,
+          subtitle_es: bike.subtitle_es,
+          subtitle_en: bike.subtitle_en,
+          subtitle_nl: bike.subtitle_nl,
+          category: bike.category,
         },
-        body: JSON.stringify({
+        size: bike.size,
+        quantity: bike.quantity,
+        bike_ids: bike.bikes.map(b => b.id),
+        daily_price: calculatePrice(bike.category, 1)
+      }));
+
+      const accessoriesForDB = selectedAccessories.map(acc => ({
+        id: acc.id,
+        name_es: acc.name_es,
+        name_en: acc.name_en,
+        name_nl: acc.name_nl,
+        price: acc.price,
+      }));
+
+      const pickupDate = new Date(startDate);
+      const returnDate = new Date(endDate);
+      const [pickupHour, pickupMinute] = pickupTime.split(':').map(Number);
+      const [returnHour, returnMinute] = returnTime.split(':').map(Number);
+      
+      pickupDate.setHours(pickupHour, pickupMinute, 0, 0);
+      returnDate.setHours(returnHour, returnMinute, 0, 0);
+
+      const totalDays = calculateTotalDays(
+        new Date(startDate),
+        new Date(endDate),
+        pickupTime,
+        returnTime
+      );
+
+      const totalAmount = calculateTotal();
+      const depositAmount = calculateTotalDeposit();
+
+      // 5. Crear objeto de datos de reserva
+      const reservationData = {
+        customer_name: customerData.name.trim(),
+        customer_email: customerData.email.toLowerCase().trim(),
+        customer_phone: customerData.phone.trim(),
+        customer_dni: customerData.dni.toUpperCase().trim(),
+        start_date: pickupDate.toISOString(),
+        end_date: returnDate.toISOString(),
+        pickup_time: pickupTime,
+        return_time: returnTime,
+        total_days: totalDays,
+        bikes: bikesForDB,
+        accessories: accessoriesForDB,
+        insurance: hasInsurance,
+        total_amount: totalAmount,
+        deposit_amount: depositAmount,
+        paid_amount: 0,
+        status: isAdminMode ? "confirmed" : "pending_payment",
+        payment_gateway: "redsys",
+        payment_status: "pending",
+        payment_reference: redsysOrderId,
+        redsys_order_id: redsysOrderId,
+        redsys_merchant_code: process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE || '999008881',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        locale: language
+      };
+
+      // 6. Crear reserva en Supabase
+      const { data, error: insertError } = await supabase
+        .from("reservations")
+        .insert([reservationData])
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+
+      setReservationId(data.id);
+
+      // 7. Registrar en logs
+      await supabase.from("reservation_logs").insert({
+        reservation_id: data.id,
+        action: "created",
+        status: reservationData.status,
+        amount: reservationData.total_amount
+      });
+
+      // 8. Manejar flujo según modo (admin o usuario)
+      if (isAdminMode) {
+        await sendConfirmationEmail({
+          ...reservationData,
+          id: data.id,
+          status: "confirmed"
+        });
+        setCurrentStep("confirmation");
+      } else {
+        // Preparar datos para el pago
+        const paymentRequestData = {
           amount: totalAmount,
           orderId: redsysOrderId,
           customerName: customerData.name,
           customerEmail: customerData.email,
           customerPhone: customerData.phone,
           customerDni: customerData.dni,
-        }),
+          startDate: pickupDate.toISOString(),
+          endDate: returnDate.toISOString(),
+          totalDays: totalDays,
+          bikes: bikesForDB,
+          accessories: accessoriesForDB,
+          insurance: hasInsurance,
+          depositAmount: depositAmount,
+          pickupTime: pickupTime,
+          returnTime: returnTime,
+          locale: language
+        };
+
+        // Llamar a la API de pago
+        const response = await fetch("/api/create-payment", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(paymentRequestData),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || t("paymentError"));
+        }
+
+        const paymentData = await response.json();
+
+        if (paymentData.success) {
+          // Crear formulario para enviar a Redsys
+          const form = document.createElement("form");
+          form.method = "POST";
+          form.action = paymentData.url;
+          
+          const signatureVersion = document.createElement("input");
+          signatureVersion.type = "hidden";
+          signatureVersion.name = "Ds_SignatureVersion";
+          signatureVersion.value = "HMAC_SHA256_V1";
+          form.appendChild(signatureVersion);
+
+          const merchantParams = document.createElement("input");
+          merchantParams.type = "hidden";
+          merchantParams.name = "Ds_MerchantParameters";
+          merchantParams.value = paymentData.params;
+          form.appendChild(merchantParams);
+
+          const signature = document.createElement("input");
+          signature.type = "hidden";
+          signature.name = "Ds_Signature";
+          signature.value = paymentData.signature;
+          form.appendChild(signature);
+
+          document.body.appendChild(form);
+          form.submit();
+        } else {
+          throw new Error(paymentData.error || t("paymentError"));
+        }
+      }
+    } catch (error) {
+      console.error("Error in reservation process:", error);
+      const errorMessage = error instanceof Error ? error.message : t("reservationError");
+      
+      await supabase.from("reservation_errors").insert({
+        error_type: "reservation_creation",
+        error_data: JSON.stringify({
+          customer: customerData.email,
+          error: errorMessage,
+          selected_bikes: selectedBikes.map(b => ({
+            model: b.title_es,
+            size: b.size,
+            quantity: b.quantity,
+            bike_ids: b.bikes.map(bike => bike.id)
+          })),
+          timestamp: new Date().toISOString()
+        })
       });
 
-      if (!response.ok) {
-        throw new Error(t("paymentError"));
-      }
-
-      const paymentData = await response.json();
-
-      if (paymentData.success) {
-        // Crear formulario para enviar a Redsys
-        const form = document.createElement("form");
-        form.method = "POST";
-        form.action = paymentData.url;
-        
-        const signatureVersion = document.createElement("input");
-        signatureVersion.type = "hidden";
-        signatureVersion.name = "Ds_SignatureVersion";
-        signatureVersion.value = "HMAC_SHA256_V1";
-        form.appendChild(signatureVersion);
-
-        const merchantParams = document.createElement("input");
-        merchantParams.type = "hidden";
-        merchantParams.name = "Ds_MerchantParameters";
-        merchantParams.value = paymentData.params;
-        form.appendChild(merchantParams);
-
-        const signature = document.createElement("input");
-        signature.type = "hidden";
-        signature.name = "Ds_Signature";
-        signature.value = paymentData.signature;
-        form.appendChild(signature);
-
-        document.body.appendChild(form);
-        form.submit();
+      if (isAdminMode) {
+        alert(`Error: ${errorMessage}`);
+      } else if (errorMessage.includes("bikesNoLongerAvailable")) {
+        // Ya manejado en el flujo principal
       } else {
-        throw new Error(paymentData.error || t("paymentError"));
+        window.location.href = `/reserva-fallida?order=${reservationId || 'none'}&error=${encodeURIComponent(errorMessage)}`;
       }
+    } finally {
+      setIsSubmitting(false);
     }
-  } catch (error) {
-    console.error("Error in reservation process:", error);
-    const errorMessage = error instanceof Error ? error.message : t("reservationError");
-    
-    await supabase.from("reservation_errors").insert({
-      error_type: "reservation_creation",
-      error_data: JSON.stringify({
-        customer: customerData.email,
-        error: errorMessage,
-        selected_bikes: selectedBikes.map(b => ({
-          model: b.title_es,
-          size: b.size,
-          quantity: b.quantity,
-          bike_ids: b.bikes.map(bike => bike.id)
-        })),
-        timestamp: new Date().toISOString()
-      })
-    });
-
-    if (isAdminMode) {
-      alert(`Error: ${errorMessage}`);
-    } else if (errorMessage.includes("bikesNoLongerAvailable")) {
-      // Ya manejado en el flujo principal
-    } else {
-      window.location.href = `/reserva-fallida?order=${reservationId || 'none'}&error=${encodeURIComponent(errorMessage)}`;
-    }
-  } finally {
-    setIsSubmitting(false);
-  }
-};
+  };
 
   const getCategoryName = (category: BikeCategory): string => {
     switch (category) {
@@ -1536,59 +1548,6 @@ export default function ReservePage() {
             );
 
           case "payment":
-  if (isAdminMode) {
-    return null;
-  }
-
-  return (
-    <div className="space-y-6">
-      <StoreHoursNotice t={t} />
-      
-      <div className="bg-yellow-50 p-4 rounded-lg">
-        <p className="text-sm text-yellow-800">
-          <strong>{t("important")}:</strong>{" "}
-          {t("depositMessage", { amount: calculateTotalDeposit() })}
-        </p>
-      </div>
-
-      <div className="bg-gray-50 p-4 rounded-lg">
-        <h4 className="font-semibold mb-2">{t("finalSummary")}</h4>
-        <div className="space-y-1 text-sm">
-          <div className="flex justify-between">
-            <span>{t("payWithCard")}</span>
-            <span className="font-semibold">
-              {calculateTotal()}
-              {t("euro")}
-            </span>
-          </div>
-          <div className="flex justify-between text-orange-600">
-            <span>{t("depositInStore")}</span>
-            <span>
-              {calculateTotalDeposit()}
-              {t("euro")}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex gap-4">
-        <Button
-          variant="outline"
-          onClick={() => setCurrentStep("customer")}
-          className="flex-1"
-        >
-          {t("back")}
-        </Button>
-        <Button
-          onClick={handleSubmitReservation}
-          className="flex-1"
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? t("processing") : t("payNow")}
-        </Button>
-      </div>
-    </div>
-  );
             if (isAdminMode) {
               return null;
             }
@@ -1622,6 +1581,23 @@ export default function ReservePage() {
                       </span>
                     </div>
                   </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => setCurrentStep("customer")}
+                    className="flex-1"
+                  >
+                    {t("back")}
+                  </Button>
+                  <Button
+                    onClick={handleSubmitReservation}
+                    className="flex-1"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? t("processing") : t("payNow")}
+                  </Button>
                 </div>
               </div>
             );
