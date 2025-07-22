@@ -20,9 +20,23 @@ function sign3DES(
   orderId: string,
   paramsB64: string
 ): string {
-  const key        = Buffer.from(secretKeyB64, 'base64')
-  const derivedKey = encrypt3DES(key, orderId)
-  return crypto.createHmac('sha256', derivedKey).update(paramsB64).digest('base64')
+  // 1. Asegurar que la clave tenga el formato correcto
+  const key = Buffer.from(secretKeyB64, 'base64');
+  
+  // 2. Codificación adecuada del orderId (padding a 8 bytes)
+  const paddedOrderId = orderId.padEnd(8, '\0').slice(0, 8); // Redsys espera exactamente 8 bytes
+  
+  // 3. Cifrado 3DES del orderId
+  const derivedKey = encrypt3DES(key, paddedOrderId);
+  
+  // 4. Generación HMAC-SHA256 con reemplazo de caracteres especiales
+  return crypto
+    .createHmac('sha256', derivedKey)
+    .update(paramsB64)
+    .digest('base64')
+    .replace(/\//g, '_')  // Redsys requiere estos reemplazos
+    .replace(/\+/g, '-')
+    .replace(/=+$/, '');  // Eliminar padding '=' final
 }
 
 export async function POST(req: Request) {
@@ -80,7 +94,8 @@ export async function POST(req: Request) {
     }
 
     // Preparar Redsys
-    const amountCents = Math.round(amount * 100).toString()
+    // En route.ts, asegurar que el importe es numérico y en céntimos
+const amountCents = Math.round(Number(amount) * 100).toString();
     const merchantParams = {
       DS_MERCHANT_AMOUNT:           amountCents,
       DS_MERCHANT_ORDER:            orderId,

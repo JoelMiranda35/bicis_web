@@ -524,11 +524,12 @@ export default function ReservePage() {
     }
   };
 
-  const generateRedsysOrderId = () => {
-    return Array.from({ length: 12 }, () => 
-      Math.floor(Math.random() * 36).toString(36).toUpperCase()
-    ).join('').replace(/[^A-Z0-9]/g, '0').slice(0, 12).padStart(12, '0');
-  };
+  // En la función generateRedsysOrderId(), asegurar que siempre tenga 12 caracteres
+const generateRedsysOrderId = () => {
+  return Array.from({ length: 12 }, () => 
+    Math.floor(Math.random() * 10).toString() // Solo números
+  ).join('').padStart(12, '0');
+};
 
   const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
     if (!startDate || !endDate || selectedBikes.length === 0) {
