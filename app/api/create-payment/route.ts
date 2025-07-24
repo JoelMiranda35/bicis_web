@@ -15,6 +15,7 @@ function calculateSignature(secretKeyB64: string, orderId: string, paramsB64: st
   const cipher = crypto.createCipheriv('des-ede3-cbc', key, iv)
   cipher.setAutoPadding(false)
 
+  // orderId debe ser 8 caracteres (bytes), padEnd con '\0' si es menor
   const orderIdPadded = orderId.slice(0, 8).padEnd(8, '\0')
 
   const derivedKey = Buffer.concat([
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
   try {
     data = await req.json()
 
+    // Campos obligatorios (sin orderId, se genera solo)
     const requiredFields = [
       'amount', 'customerName', 'customerEmail',
       'customerPhone', 'customerDni', 'locale'
@@ -54,13 +56,13 @@ export async function POST(req: Request) {
       throw new Error('El importe debe ser un número positivo mayor a cero')
     }
 
-    // ✅ Generamos el Order ID automáticamente (12 dígitos)
+    // Generamos Order ID automáticamente (12 dígitos)
     const rawOrderId = Date.now().toString()
     const orderId = rawOrderId.slice(-12)
 
-    // ✅ Leemos variables Redsys
-    const merchantCode = process.env.REDSYS_MERCHANT_CODE
-    const terminal = process.env.REDSYS_TERMINAL?.padStart(3, '0') // Asegura 3 dígitos
+    // Leemos variables Redsys de entorno
+    const merchantCode = process.env.REDSYS_MERCHANT_CODE // ej: "367064094"
+    const terminal = process.env.REDSYS_TERMINAL?.padStart(3, '0') // ej: "001"
     const secretKeyB64 = process.env.REDSYS_SECRET_KEY
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
 
@@ -70,6 +72,7 @@ export async function POST(req: Request) {
 
     const redsysUrl = process.env.NODE_ENV === 'production' ? REDSYS_PROD_URL : REDSYS_TEST_URL
 
+    // Preparamos los parámetros para Redsys
     const merchantParams = {
       Ds_Merchant_Amount: amountInCents.toString(),
       Ds_Merchant_Order: orderId,
@@ -85,7 +88,10 @@ export async function POST(req: Request) {
       Ds_Merchant_ProductDescription: `Reserva ${orderId}`.substring(0, 125),
     }
 
+    // Codificamos params a Base64
     const paramsB64 = Buffer.from(JSON.stringify(merchantParams)).toString('base64')
+
+    // Calculamos la firma
     const signature = calculateSignature(secretKeyB64, orderId, paramsB64)
 
     if (process.env.NODE_ENV === 'development') {
@@ -98,6 +104,7 @@ export async function POST(req: Request) {
       })
     }
 
+    // Devolvemos los datos para hacer el pago
     return NextResponse.json({
       success: true,
       url: redsysUrl,
@@ -106,7 +113,7 @@ export async function POST(req: Request) {
       Ds_SignatureVersion: 'HMAC_SHA256_V1',
     })
   } catch (error: any) {
-    console.error('Error en create-payment:', error)
+    console.error('Error en realizarPago:', error)
 
     return NextResponse.json(
       {
