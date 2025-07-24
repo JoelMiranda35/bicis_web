@@ -1,161 +1,122 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { supabase } from '@/lib/supabase'
+
+export const dynamic = 'force-dynamic'
 
 const REDSYS_TEST_URL = 'https://sis-t.redsys.es:25443/sis/realizarPago'
+const REDSYS_PROD_URL = 'https://sis.redsys.es/sis/realizarPago'
 
-function padTo8Bytes(data: string): Buffer {
-  const buf = Buffer.from(data, 'utf8')
-  const padLen = (8 - (buf.length % 8)) % 8
-  return Buffer.concat([buf, Buffer.alloc(padLen)])
-}
-
-function encrypt3DES(key: Buffer, data: string): Buffer {
-  // 🔥 CAMBIO: Mejorado el padding y desactivado auto-padding
-  const cipher = crypto.createCipheriv('des-ede3', key, null)
+// ✅ Clave en Base64 (como la que da el portal Redsys)
+function calculateSignature(secretKeyB64: string, orderId: string, paramsB64: string): string {
+  const key = Buffer.from(secretKeyB64, 'base64') // <- decode base64
+  const iv = Buffer.alloc(8, 0)
+  const cipher = crypto.createCipheriv('des-ede3-cbc', key, iv)
   cipher.setAutoPadding(false)
-  const paddedData = data.padEnd(8, '\0').slice(0, 8)
-  return Buffer.concat([cipher.update(paddedData, 'utf8'), cipher.final()])
-}
 
-function sign3DES(
-  secretKeyB64: string,
-  orderId: string,
-  paramsB64: string
-): string {
-  // 🔥 CAMBIO: Implementación más robusta con normalización de firma
-  if (!secretKeyB64 || !orderId || !paramsB64) {
-    throw new Error('Parámetros requeridos faltantes para firma')
-  }
+  const orderIdPadded = orderId.slice(0, 8).padEnd(8, '\0')
+  const derivedKey = Buffer.concat([
+    cipher.update(orderIdPadded, 'utf8'),
+    cipher.final()
+  ])
 
-  const key = Buffer.from(secretKeyB64, 'base64')
-  const paddedOrderId = orderId.padEnd(8, '\0').slice(0, 8)
-  const derivedKey = encrypt3DES(key, paddedOrderId)
+  const hmac = crypto.createHmac('sha256', derivedKey)
+  hmac.update(paramsB64)
 
-  return crypto
-    .createHmac('sha256', derivedKey)
-    .update(paramsB64)
-    .digest('base64')
-    .replace(/\//g, '_')
+  return hmac.digest('base64')
     .replace(/\+/g, '-')
+    .replace(/\//g, '_')
     .replace(/=+$/, '')
 }
 
+function validateNumericField(value: string, length: number, fieldName: string): string {
+  if (!value) throw new Error(`El campo ${fieldName} es requerido`)
+  if (!/^\d+$/.test(value)) throw new Error(`El campo ${fieldName} debe contener solo dígitos`)
+  if (value.length > length) throw new Error(`El campo ${fieldName} no puede exceder ${length} dígitos`)
+  return value.padStart(length, '0')
+}
+
 export async function POST(req: Request) {
+  let data: any = null
+
   try {
-    const {
-      amount,
-      orderId,
-      customerName,
-      customerEmail,
-      customerPhone,
-      customerDni,
-      startDate,
-      endDate,
-      totalDays,
-      bikes,
-      accessories = [],
-      insurance = false,
-      depositAmount = 0,
-      pickupTime,
-      returnTime,
-      locale = 'es'
-    } = await req.json()
+    data = await req.json()
 
-    // 🔥 CAMBIO: Validación estricta del importe
-    const amountNumber = Number(amount)
-    if (isNaN(amountNumber) || amountNumber <= 0) {
-      throw new Error('El importe debe ser un número mayor que 0')
-    }
-    const amountCents = Math.round(amountNumber * 100).toString()
+    const requiredFields = [
+      'orderId', 'amount', 'customerName', 'customerEmail',
+      'customerPhone', 'customerDni', 'locale'
+    ]
 
-    // 🔥 CAMBIO: Validación del orderId
-    if (!orderId || orderId.length !== 12 || !/^\d+$/.test(orderId)) {
-      throw new Error('El orderId debe tener exactamente 12 dígitos numéricos')
+    for (const field of requiredFields) {
+      if (!data[field]) {
+        throw new Error(`Campo requerido faltante: ${field}`)
+      }
     }
 
-    // Insertar reserva
-    const { data: inserted, error: insertError } = await supabase
-      .from('reservations')
-      .insert({
-        customer_name: customerName,
-        customer_email: customerEmail,
-        customer_phone: customerPhone,
-        customer_dni: customerDni,
-        start_date: startDate,
-        end_date: endDate,
-        total_days: totalDays,
-        bikes: JSON.stringify(bikes),
-        accessories: JSON.stringify(accessories),
-        insurance: insurance,
-        total_amount: amountNumber,
-        deposit_amount: Number(depositAmount),
-        status: 'pending_payment',
-        payment_gateway: 'redsys',
-        payment_status: 'pending',
-        payment_reference: orderId,
-        redsys_order_id: orderId,
-        // 🔥 CAMBIO: Aseguramos que el código de comercio sea numérico
-        redsys_merchant_code: process.env.REDSYS_MERCHANT_CODE || '999008881',
-        locale: locale,
-        pickup_time: pickupTime,
-        return_time: returnTime
-      })
-      .select()
-      .single()
-
-    if (insertError) {
-      throw new Error(`Error insertando reserva: ${insertError.message}`)
+    const orderId = validateNumericField(data.orderId, 12, 'orderId')
+    const amountInCents = Math.round(Number(data.amount) * 100)
+    if (isNaN(amountInCents) || amountInCents <= 0) {
+      throw new Error('El importe debe ser un número positivo')
     }
 
-    // 🔥 CAMBIO: Parámetros merchant mejor validados
+    // 🔒 Usamos los datos que te dio Redsys directamente
+    const merchantCode = '367064094'
+    const terminal = '001'
+    const secretKeyB64 = 'JvJ4AULO/uZjBnFqWS8s46g94SbVJ4iG' // ya en base64
+
+    const redsysUrl = process.env.NODE_ENV === 'production' ? REDSYS_PROD_URL : REDSYS_TEST_URL
+
     const merchantParams = {
-      DS_MERCHANT_AMOUNT: amountCents,
-      DS_MERCHANT_ORDER: orderId,
-      // 🔥 CAMBIO: Código de comercio numérico
-      DS_MERCHANT_MERCHANTCODE: process.env.REDSYS_MERCHANT_CODE || '999008881',
-      DS_MERCHANT_CURRENCY: '978',
-      DS_MERCHANT_TRANSACTIONTYPE: '0',
-      // 🔥 CAMBIO: Terminal fijado a '001' si no está configurado
-      DS_MERCHANT_TERMINAL: process.env.REDSYS_TERMINAL || '001',
-      DS_MERCHANT_MERCHANTURL: `${process.env.NEXT_PUBLIC_SITE_URL}/api/notification`,
-      DS_MERCHANT_URLOK: `${process.env.NEXT_PUBLIC_SITE_URL}/reserva-exitosa`,
-      DS_MERCHANT_URLKO: `${process.env.NEXT_PUBLIC_SITE_URL}/reserva-fallida`,
-      DS_MERCHANT_CONSUMERLANGUAGE: locale === 'es' ? '001' : '002',
-      DS_MERCHANT_DESCRIPTION: `Reserva ${orderId}`.slice(0, 125), // 🔥 CAMBIO: Limitado a 125 chars
-      DS_MERCHANT_MERCHANTNAME: customerName.slice(0, 25), // 🔥 CAMBIO: Limitado a 25 chars
-      DS_MERCHANT_MERCHANTDATA: JSON.stringify({ email: customerEmail })
+      Ds_Merchant_Amount: amountInCents.toString(),
+      Ds_Merchant_Order: orderId,
+      Ds_Merchant_MerchantCode: merchantCode,
+      Ds_Merchant_Currency: '978',
+      Ds_Merchant_TransactionType: '0',
+      Ds_Merchant_Terminal: terminal,
+      Ds_Merchant_MerchantURL: `${process.env.NEXT_PUBLIC_SITE_URL}/api/notification`,
+      Ds_Merchant_UrlOK: `${process.env.NEXT_PUBLIC_SITE_URL}/reserva-exitosa`,
+      Ds_Merchant_UrlKO: `${process.env.NEXT_PUBLIC_SITE_URL}/reserva-fallida`,
+      Ds_Merchant_ConsumerLanguage:
+        data.locale === 'es' ? '001' : data.locale === 'en' ? '002' : '003',
+      Ds_Merchant_ProductDescription: `Reserva ${orderId}`.substring(0, 125),
     }
 
     const paramsB64 = Buffer.from(JSON.stringify(merchantParams)).toString('base64')
-    
-    // 🔥 CAMBIO: Verificación de clave secreta antes de usarla
-    if (!process.env.REDSYS_SECRET_KEY) {
-      throw new Error('REDSYS_SECRET_KEY no configurada')
-    }
-    const signature = sign3DES(process.env.REDSYS_SECRET_KEY, orderId, paramsB64)
 
-    // 🔥 CAMBIO: Log de depuración (eliminar en producción)
-    console.debug('Redirección a Redsys con:', {
-      amount: amountCents,
-      orderId,
-      merchantCode: merchantParams.DS_MERCHANT_MERCHANTCODE,
-      terminal: merchantParams.DS_MERCHANT_TERMINAL,
-      paramsB64: paramsB64,
-      signature: signature
-    })
+    const signature = calculateSignature(secretKeyB64, orderId, paramsB64)
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Datos enviados a Redsys:', {
+        url: redsysUrl,
+        merchantParams,
+        paramsB64,
+        signature,
+        secretKey: secretKeyB64.slice(0, 5) + '...',
+      })
+    }
 
     return NextResponse.json({
       success: true,
-      reservation: inserted,
-      url: REDSYS_TEST_URL,
-      params: paramsB64,
-      signature
+      url: redsysUrl,
+      Ds_MerchantParameters: paramsB64,
+      Ds_Signature: signature,
+      Ds_SignatureVersion: 'HMAC_SHA256_V1',
     })
-  } catch (err: any) {
-    console.error('create-payment error:', err)
+  } catch (error: any) {
+    console.error('Error en create-payment:', error)
+
     return NextResponse.json(
-      { success: false, error: err.message || 'Error interno' },
+      {
+        success: false,
+        error: error.message,
+        details: process.env.NODE_ENV === 'development'
+          ? {
+              message: error.message,
+              stack: error.stack,
+              receivedData: data,
+              timestamp: new Date().toISOString(),
+            }
+          : undefined,
+      },
       { status: 500 }
     )
   }

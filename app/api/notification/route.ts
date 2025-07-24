@@ -4,124 +4,110 @@ import { supabase } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
-function padTo8Bytes(data: string): string {
-  while (Buffer.byteLength(data) % 8 !== 0) data += '\0'
-  return data
-}
-
-function encrypt3DES(key: Buffer, data: string): Buffer {
-  const cipher = crypto.createCipheriv('des-ede3', key, null)
-  cipher.setAutoPadding(false)
-  const padded = padTo8Bytes(data)
-  return Buffer.concat([cipher.update(padded, 'utf8'), cipher.final()])
-}
-
-function generateSignature(
+function verifySignature(
   secretKeyB64: string,
   orderId: string,
-  paramsBase64: string
-): string {
-  if (!secretKeyB64) throw new Error('REDSYS_SECRET_KEY no definida')
-  if (!orderId) throw new Error('orderId no definido')
-  if (!paramsBase64) throw new Error('paramsBase64 no definido')
+  paramsB64: string,
+  receivedSignature: string
+): boolean {
+  try {
+    // 1. Decodificar clave
+    const key = Buffer.from(secretKeyB64, 'base64')
+    const iv = Buffer.alloc(8, 0)
+    
+    // 2. Derivar clave HMAC
+    const cipher = crypto.createCipheriv('des-ede3-cbc', key, iv)
+    cipher.setAutoPadding(false)
+    const derivedKey = Buffer.concat([
+      cipher.update(orderId.slice(0, 8).padEnd(8, '\0'), 'utf8'),
+      cipher.final()
+    ])
 
-  const key = Buffer.from(secretKeyB64, 'base64')
-  const derivedKey = encrypt3DES(key, orderId.padEnd(8, '\0').slice(0, 8))
-  return crypto
-    .createHmac('sha256', derivedKey)
-    .update(paramsBase64)
-    .digest('base64')
-    .replace(/\//g, '_')
-    .replace(/\+/g, '-')
+    // 3. Calcular firma esperada
+    const expectedSignature = crypto
+      .createHmac('sha256', derivedKey)
+      .update(paramsB64)
+      .digest('base64')
+      .replace(/\//g, '_')
+      .replace(/\+/g, '-')
+
+    // 4. Comparación segura contra ataques de timing
+    return crypto.timingSafeEqual(
+      Buffer.from(expectedSignature),
+      Buffer.from(receivedSignature)
+    )
+
+  } catch (error) {
+    console.error('Error verifying signature:', error)
+    return false
+  }
 }
 
 export async function POST(request: NextRequest) {
+  let paramsB64: string | null = null;
+  let signatureRecvd: string | null = null;
+
   try {
     const formData = await request.formData()
-    const paramsB64 = formData.get('Ds_MerchantParameters')?.toString()
-    const signatureRecvd = formData.get('Ds_Signature')?.toString()
+    paramsB64 = formData.get('Ds_MerchantParameters')?.toString() || null
+    signatureRecvd = formData.get('Ds_Signature')?.toString() || null
     const signatureVer = formData.get('Ds_SignatureVersion')?.toString()
 
-    if (!paramsB64) throw new Error('Falta Ds_MerchantParameters')
-    if (!signatureRecvd) throw new Error('Falta Ds_Signature')
-    if (!signatureVer) throw new Error('Falta Ds_SignatureVersion')
-    if (!process.env.REDSYS_SECRET_KEY) throw new Error('REDSYS_SECRET_KEY no definida')
-
-    const rawJson = Buffer.from(paramsB64, 'base64').toString('utf8')
-    const params = JSON.parse(rawJson)
-
-    if (!params.DS_MERCHANT_ORDER) throw new Error('DS_MERCHANT_ORDER no presente')
-
-    const signatureCalc = generateSignature(
-      process.env.REDSYS_SECRET_KEY,
-      params.DS_MERCHANT_ORDER,
-      paramsB64
-    )
-
-    if (signatureCalc !== signatureRecvd) {
-      throw new Error(`Firma inválida. Recibida: ${signatureRecvd}, Calculada: ${signatureCalc}`)
+    if (!paramsB64 || !signatureRecvd || !signatureVer) {
+      throw new Error('Faltan parámetros requeridos en la notificación')
     }
 
-    const { data: existing, error: fetchErr } = await supabase
-      .from('reservations')
-      .select('deposit_amount')
-      .eq('redsys_order_id', params.DS_MERCHANT_ORDER)
-      .single()
+    // Parsear parámetros
+    const params = JSON.parse(Buffer.from(paramsB64, 'base64').toString())
+    const orderId = params.DS_MERCHANT_ORDER
 
-    if (fetchErr) throw new Error(`Error leyendo depósito: ${fetchErr.message}`)
+    // Verificar firma
+    if (!verifySignature(
+      process.env.REDSYS_SECRET_KEY!,
+      orderId,
+      paramsB64,
+      signatureRecvd
+    )) {
+      throw new Error('Firma inválida en la notificación')
+    }
 
-    const deposit = existing?.deposit_amount ?? 0
-    const onlinePaid = Number(params.Ds_Amount) / 100
-    const totalPaid = deposit + onlinePaid
+    // Procesar notificación
+    const responseCode = params.Ds_Response
+    const isSuccess = ['0000', '0900', '0400'].includes(responseCode)
 
-    const successCodes = ['0000', '0900', '0400']
-    const status = successCodes.includes(params.Ds_Response) ? 'succeeded' : 'failed'
-
-    const { data, error: supabaseError } = await supabase
+    await supabase
       .from('reservations')
       .update({
-        payment_status: status,
-        ds_response_code: params.Ds_Response,
-        paid_amount: totalPaid,
-        paid_at: params.Ds_Date && params.Ds_Hour ? `${params.Ds_Date}T${params.Ds_Hour}:00` : null,
+        payment_status: isSuccess ? 'succeeded' : 'failed',
+        ds_response_code: responseCode,
+        paid_amount: isSuccess ? Number(params.Ds_Amount) / 100 : 0,
+        paid_at: params.Ds_Date && params.Ds_Hour 
+          ? `${params.Ds_Date}T${params.Ds_Hour}:00` 
+          : null,
         ds_authorisation_code: params.Ds_AuthorisationCode,
         redsys_notification_data: params,
-        redsys_notification_received: true,
-        updated_at: new Date().toISOString(),
-        ...(status === 'succeeded' && { status: 'confirmed' })
+        updated_at: new Date().toISOString()
       })
-      .eq('redsys_order_id', params.DS_MERCHANT_ORDER)
-      .select()
-
-    if (supabaseError) throw new Error(`Error al actualizar Supabase: ${supabaseError.message}`)
-
-    if (status === 'succeeded' && data?.[0]?.customer_email) {
-      try {
-        await fetch('/api/send-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: data[0].customer_email,
-            subject: 'Confirmación de pago',
-            reservationData: data[0]
-          })
-        })
-      } catch (emailError) {
-        console.error('Error enviando email:', emailError)
-      }
-    }
+      .eq('redsys_order_id', orderId)
 
     return new NextResponse('OK', { status: 200 })
-  } catch (err: any) {
-    console.error('Error Redsys webhook:', err.message)
-    await supabase.from('reservation_errors').insert({
+
+  } catch (error: any) {
+    console.error('Error processing notification:', error)
+    
+    await supabase.from('payment_errors').insert({
       error_type: 'redsys_notification',
+      error_message: error.message,
       error_data: JSON.stringify({
-        message: err.message,
-        stack: err.stack,
+        params: paramsB64,
+        signature: signatureRecvd,
         timestamp: new Date().toISOString()
       })
     })
-    return NextResponse.json({ error: err.message }, { status: 500 })
+
+    return NextResponse.json(
+      { error: error.message },
+      { status: 500 }
+    )
   }
 }

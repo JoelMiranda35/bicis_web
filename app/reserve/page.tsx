@@ -680,7 +680,7 @@ const handleSubmitReservation = async () => {
       payment_status: "pending",
       payment_reference: redsysOrderId,
       redsys_order_id: redsysOrderId,
-      redsys_merchant_code: process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE || '999008881',
+      redsys_merchant_code: process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE || '367064094',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       locale: language
