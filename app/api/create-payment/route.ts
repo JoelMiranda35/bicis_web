@@ -32,14 +32,6 @@ function calculateSignature(secretKeyB64: string, orderId: string, paramsB64: st
     .replace(/=+$/, '')
 }
 
-// Valida que un campo sea sólo dígitos y tenga la longitud correcta
-function validateNumericField(value: string, length: number, fieldName: string): string {
-  if (!value) throw new Error(`El campo ${fieldName} es requerido`)
-  if (!/^\d+$/.test(value)) throw new Error(`El campo ${fieldName} debe contener solo dígitos`)
-  if (value.length > length) throw new Error(`El campo ${fieldName} no puede exceder ${length} dígitos`)
-  return value.padStart(length, '0')
-}
-
 export async function POST(req: Request) {
   let data: any = null
 
@@ -47,7 +39,7 @@ export async function POST(req: Request) {
     data = await req.json()
 
     const requiredFields = [
-      'orderId', 'amount', 'customerName', 'customerEmail',
+      'amount', 'customerName', 'customerEmail',
       'customerPhone', 'customerDni', 'locale'
     ]
 
@@ -57,19 +49,23 @@ export async function POST(req: Request) {
       }
     }
 
-    const orderId = validateNumericField(data.orderId, 12, 'orderId')
     const amountInCents = Math.round(Number(data.amount) * 100)
     if (isNaN(amountInCents) || amountInCents <= 0) {
-      throw new Error('El importe debe ser un número positivo')
+      throw new Error('El importe debe ser un número positivo mayor a cero')
     }
 
-    // Leer variables de entorno
-    const merchantCode = process.env.REDSYS_MERCHANT_CODE
-    const terminal = process.env.REDSYS_TERMINAL
-    const secretKeyB64 = process.env.REDSYS_SECRET_KEY
+    // ✅ Generamos el Order ID automáticamente (12 dígitos)
+    const rawOrderId = Date.now().toString()
+    const orderId = rawOrderId.slice(-12)
 
-    if (!merchantCode || !terminal || !secretKeyB64) {
-      throw new Error('Faltan variables de entorno para Redsys')
+    // ✅ Leemos variables Redsys
+    const merchantCode = process.env.REDSYS_MERCHANT_CODE
+    const terminal = process.env.REDSYS_TERMINAL?.padStart(3, '0') // Asegura 3 dígitos
+    const secretKeyB64 = process.env.REDSYS_SECRET_KEY
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+
+    if (!merchantCode || !terminal || !secretKeyB64 || !siteUrl) {
+      throw new Error('Faltan variables de entorno necesarias para Redsys')
     }
 
     const redsysUrl = process.env.NODE_ENV === 'production' ? REDSYS_PROD_URL : REDSYS_TEST_URL
@@ -81,16 +77,15 @@ export async function POST(req: Request) {
       Ds_Merchant_Currency: '978',
       Ds_Merchant_TransactionType: '0',
       Ds_Merchant_Terminal: terminal,
-      Ds_Merchant_MerchantURL: `${process.env.NEXT_PUBLIC_SITE_URL}/api/notification`,
-      Ds_Merchant_UrlOK: `${process.env.NEXT_PUBLIC_SITE_URL}/reserva-exitosa`,
-      Ds_Merchant_UrlKO: `${process.env.NEXT_PUBLIC_SITE_URL}/reserva-fallida`,
+      Ds_Merchant_MerchantURL: `${siteUrl}/api/notification`,
+      Ds_Merchant_UrlOK: `${siteUrl}/reserva-exitosa`,
+      Ds_Merchant_UrlKO: `${siteUrl}/reserva-fallida`,
       Ds_Merchant_ConsumerLanguage:
         data.locale === 'es' ? '001' : data.locale === 'en' ? '002' : '003',
       Ds_Merchant_ProductDescription: `Reserva ${orderId}`.substring(0, 125),
     }
 
     const paramsB64 = Buffer.from(JSON.stringify(merchantParams)).toString('base64')
-
     const signature = calculateSignature(secretKeyB64, orderId, paramsB64)
 
     if (process.env.NODE_ENV === 'development') {
@@ -99,7 +94,7 @@ export async function POST(req: Request) {
         merchantParams,
         paramsB64,
         signature,
-        secretKey: secretKeyB64.slice(0, 5) + '...',
+        orderId,
       })
     }
 
