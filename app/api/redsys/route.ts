@@ -64,10 +64,10 @@ export async function POST(request: Request) {
     }
 
     // Configuración de Redsys
-    const merchantCode = process.env.REDSYS_MERCHANT_CODE || '999008881'
+    const merchantCode = process.env.REDSYS_MERCHANT_CODE || '367064094'
     const terminal = process.env.REDSYS_TERMINAL?.padStart(3, '0') || '001'
     const secretKeyB64 = process.env.REDSYS_SECRET_KEY
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://tu-dominio.com'
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://AlteaBikeShop.com'
 
     if (!secretKeyB64) {
       throw new Error('La clave secreta de Redsys (REDSYS_SECRET_KEY) no está configurada')
@@ -104,7 +104,8 @@ export async function POST(request: Request) {
     }
 
     // Convertir parámetros a JSON y luego a Base64
-    const paramsB64 = Buffer.from(JSON.stringify(merchantParams)).toString('base64')
+    const paramsJson = JSON.stringify(merchantParams)
+    const paramsB64 = Buffer.from(paramsJson).toString('base64')
     
     // Calcular firma HMAC
     const signature = calculateSignature(secretKeyB64, orderId, paramsB64)
@@ -132,7 +133,8 @@ export async function POST(request: Request) {
     console.log(`Redirigiendo a Redsys (${isDevelopment ? 'TEST' : 'PROD'}):`, {
       orderId,
       amount: amountInCents,
-      url: redsysUrl
+      url: redsysUrl,
+      paramsJson // Para debug
     })
 
     return NextResponse.json({
