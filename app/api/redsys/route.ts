@@ -1,15 +1,17 @@
-import { NextResponse } from 'next/server'
-import crypto from 'crypto'
-import { createClient } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server';
+import crypto from 'crypto';
+import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-// URL fija para pruebas (eliminada la URL de producción)
-const REDSYS_TEST_URL = 'https://sis-t.redsys.es:25443/sis/realizarPago'
-
-export const dynamic = 'force-dynamic'
+// Configuración para pruebas
+const REDSYS_TEST_URL = 'https://sis-t.redsys.es:25443/sis/realizarPago';
+const MERCHANT_CODE = '367064094'; // Tu código de comercio
+const TERMINAL = '001'; // Terminal de pruebas
+const SECRET_KEY = 'JvJ4AULO/uZjBnFqWS8s46g94SbVJ4iG'; // Clave de pruebas
 
 interface MerchantParams {
   DS_MERCHANT_AMOUNT: string;
@@ -27,146 +29,65 @@ interface MerchantParams {
   DS_MERCHANT_MERCHANTDATA: string;
 }
 
-function calculateSignature(secretKeyB64: string, orderId: string, paramsB64: string): string {
-  try {
-    // 1. Decodificar clave secreta desde Base64
-    const key = Buffer.from(secretKeyB64, 'base64')
-    
-    // 2. Cifrado 3DES (ECB) del orderId (primeros 8 dígitos)
-    const cipher = crypto.createCipheriv('des-ede3', key, Buffer.alloc(0))
-    const orderIdPadded = orderId.padStart(12, '0').slice(0, 8)
-    const derivedKey = Buffer.concat([
-      cipher.update(orderIdPadded, 'utf8'),
-      cipher.final()
-    ])
-
-    // 3. Calcular HMAC-SHA256 de los parámetros
-    const hmac = crypto.createHmac('sha256', derivedKey)
-    hmac.update(paramsB64)
-
-    // 4. Formatear según requerimientos Redsys
-    return hmac.digest('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '')
-  } catch (error) {
-    console.error('❌ Error calculando firma:', error)
-    throw new Error('SIS0042 - Error en cálculo de firma')
-  }
-}
-
 export async function POST(request: Request) {
   try {
-    const requestData = await request.json()
+    const { amount, orderId, locale } = await request.json();
 
-    // Validación de campos requeridos
-    if (!requestData.amount || !requestData.orderId || !requestData.locale) {
-      throw new Error('Faltan parámetros requeridos: amount, orderId o locale')
-    }
+    // Validación básica
+    if (!amount || !orderId) throw new Error('Faltan amount u orderId');
 
-    // Obtener reserva desde Supabase
-    const { data: reservation, error: dbError } = await supabase
-      .from('reservations')
-      .select('id, customer_name, redsys_order_id')
-      .eq('id', requestData.orderId)
-      .single()
+    // Configuración de URLs (¡sin route.ts!)
+    const notificationUrl = 'https://alteabikeshop.com/api/notification'; // ← Punto clave
+    const siteUrl = 'https://alteabikeshop.com';
 
-    if (dbError || !reservation) {
-      throw new Error('No se encontró la reserva')
-    }
-
-    // Configuración de Redsys
-    const merchantCode = process.env.REDSYS_MERCHANT_CODE || '367064094'
-    const terminal = process.env.REDSYS_TERMINAL?.padStart(3, '0') || '001'
-    const secretKeyB64 = process.env.REDSYS_SECRET_KEY
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://AlteaBikeShop.com'
-
-    if (!secretKeyB64) {
-      throw new Error('La clave secreta de Redsys (REDSYS_SECRET_KEY) no está configurada')
-    }
-
-    // Validar y formatear el monto
-    const amount = parseFloat(requestData.amount)
-    if (isNaN(amount) || amount <= 0) {
-      throw new Error('El monto debe ser un número positivo')
-    }
-    const amountInCents = Math.round(amount * 100)
-
-    // Validar orderId (12 dígitos)
-    const orderId = reservation.redsys_order_id
-    if (!/^\d{12}$/.test(orderId)) {
-      throw new Error(`El orderId ${orderId} no es válido (debe tener 12 dígitos)`)
-    }
-
-    // Parámetros para Redsys (formato exacto requerido)
+    // Parámetros para Redsys
     const merchantParams: MerchantParams = {
-      DS_MERCHANT_AMOUNT: amountInCents.toString(),
-      DS_MERCHANT_ORDER: orderId,
-      DS_MERCHANT_MERCHANTCODE: merchantCode,
-      DS_MERCHANT_CURRENCY: '978', // EUR
-      DS_MERCHANT_TRANSACTIONTYPE: '0', // Pago estándar
-      DS_MERCHANT_TERMINAL: terminal,
-      DS_MERCHANT_MERCHANTURL: `${siteUrl}/api/redsys/notification`,
+      DS_MERCHANT_AMOUNT: Math.round(Number(amount) * 100).toString(),
+      DS_MERCHANT_ORDER: orderId.padStart(12, '0').slice(0, 12),
+      DS_MERCHANT_MERCHANTCODE: MERCHANT_CODE,
+      DS_MERCHANT_CURRENCY: '978',
+      DS_MERCHANT_TRANSACTIONTYPE: '0',
+      DS_MERCHANT_TERMINAL: TERMINAL,
+      DS_MERCHANT_MERCHANTURL: notificationUrl, // URL limpia
       DS_MERCHANT_URLOK: `${siteUrl}/reserva-exitosa?order=${orderId}`,
       DS_MERCHANT_URLKO: `${siteUrl}/reserva-fallida?order=${orderId}`,
-      DS_MERCHANT_CONSUMERLANGUAGE: requestData.locale === 'es' ? '002' : '001', // 002=ES, 001=EN
+      DS_MERCHANT_CONSUMERLANGUAGE: locale === 'es' ? '002' : '001',
       DS_MERCHANT_PRODUCTDESCRIPTION: 'Alquiler de bicicletas',
-      DS_MERCHANT_TITULAR: reservation.customer_name || '',
-      DS_MERCHANT_MERCHANTDATA: reservation.id
-    }
+      DS_MERCHANT_TITULAR: 'Cliente de prueba',
+      DS_MERCHANT_MERCHANTDATA: orderId
+    };
 
-    // Convertir parámetros a JSON asegurando formato correcto
-    const paramsJson = JSON.stringify(merchantParams)
-    const paramsB64 = Buffer.from(paramsJson).toString('base64')
-    
-    // Calcular firma HMAC
-    const signature = calculateSignature(secretKeyB64, orderId, paramsB64)
+    // Codificación segura para Redsys
+    const paramsJson = JSON.stringify(merchantParams).replace(/\s+/g, '');
+    const paramsB64 = Buffer.from(paramsJson).toString('base64').replace(/\n/g, '');
 
-    // Actualizar reserva en Supabase
-    const { error: updateError } = await supabase
-      .from('reservations')
-      .update({
-        redsys_amount: amountInCents,
-        redsys_currency: '978',
-        redsys_merchant_params: paramsB64,
-        redsys_signature: signature,
-        updated_at: new Date().toISOString(),
-        payment_status: 'pending',
-        status: 'pending_payment'
-      })
-      .eq('id', reservation.id)
-
-    if (updateError) throw updateError
-
-    console.log('Datos enviados a Redsys:', {
-      orderId,
-      amount: amountInCents,
-      url: REDSYS_TEST_URL,
-      paramsJson,
-      paramsB64,
-      signature
-    })
+    // Firma HMAC-SHA256
+    const key = Buffer.from(SECRET_KEY, 'base64');
+    const cipher = crypto.createCipheriv('des-ede3', key, Buffer.alloc(0));
+    const derivedKey = Buffer.concat([
+      cipher.update(merchantParams.DS_MERCHANT_ORDER.slice(0, 8), 'utf8'),
+      cipher.final()
+    ]);
+    const hmac = crypto.createHmac('sha256', derivedKey);
+    hmac.update(paramsB64);
+    const signature = hmac.digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
     return NextResponse.json({
       success: true,
-      url: REDSYS_TEST_URL, // Siempre usamos la URL de pruebas
+      url: REDSYS_TEST_URL,
       params: paramsB64,
       signature,
-      signatureVersion: 'HMAC_SHA256_V1',
-      orderId
-    })
+      testCard: {
+        number: '4548812049400004',
+        expiry: '12/2025',
+        cvv: '123'
+      }
+    });
 
   } catch (error) {
-    console.error('❌ Error en el procesamiento del pago:', error)
-    
     return NextResponse.json(
-      {
-        success: false,
-        error: 'Error al procesar el pago',
-        details: error instanceof Error ? error.message : String(error),
-        code: 'SIS0042'
-      },
+      { success: false, error: error instanceof Error ? error.message : 'Error desconocido' },
       { status: 500 }
-    )
+    );
   }
 }
