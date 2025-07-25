@@ -531,10 +531,10 @@ export default function ReservePage() {
 
   // En la función generateRedsysOrderId(), asegurar que siempre tenga 12 caracteres
 const generateRedsysOrderId = () => {
-  const timestamp = Date.now().toString().slice(-6); // Últimos 6 dígitos del timestamp
-  const random = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-  return (timestamp + random).slice(0, 12); // Aseguramos 12 dígitos
-};
+  const datePart = new Date().getTime().toString().slice(-6)
+  const randomPart = Math.floor(Math.random() * 1000000).toString().padStart(6, '0')
+  return (datePart + randomPart).slice(0, 12)
+}
 
   const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
     if (!startDate || !endDate || selectedBikes.length === 0) {
@@ -572,45 +572,24 @@ const generateRedsysOrderId = () => {
       return { available: false, unavailableBikes: [] };
     }
   };
-
 const handleSubmitReservation = async () => {
   if (!startDate || !endDate) return;
 
   setIsSubmitting(true);
-
-  // Guardar el console.error original para restaurarlo después
-  const originalConsoleError = console.error;
   
-  // Silenciar errores de CSS/JS de Redsys que no afectan la funcionalidad
-  console.error = (message) => {
-    if (typeof message === 'string' && 
-        (message.includes('redsys.es') || 
-         message.includes('MIME') || 
-         message.includes('stylesheet'))) {
-      return; // Silenciar estos errores específicos
-    }
-    originalConsoleError(message); // Mostrar otros errores normalmente
-  };
-
   try {
-    // 1. Validar datos del cliente
     if (!validateCustomerData()) {
       throw new Error(t("reservationValidationError"));
     }
 
-    // 2. Verificar disponibilidad con detalle
     const { available, unavailableBikes } = await checkBikesAvailability();
     if (!available) {
       await fetchAvailableBikes();
-      
       const errorMessage = unavailableBikes.length > 0 
         ? t("specificBikesNoLongerAvailable", { count: unavailableBikes.length })
         : t("bikesNoLongerAvailable");
       
-      setValidationErrors({
-        ...validationErrors,
-        bikes: errorMessage
-      });
+      setValidationErrors({ ...validationErrors, bikes: errorMessage });
       
       const updatedSelectedBikes = selectedBikes.map(bike => ({
         ...bike,
@@ -622,10 +601,10 @@ const handleSubmitReservation = async () => {
       return;
     }
 
-    // 3. Generar ID único para Redsys que cumpla con los requisitos
+    // Generar orderId de 12 dígitos una sola vez
     const redsysOrderId = generateRedsysOrderId();
 
-    // 4. Preparar datos para la reserva
+    // Preparar datos de la reserva
     const bikesForDB = selectedBikes.map(bike => ({
       model: {
         title_es: bike.title_es,
@@ -642,15 +621,7 @@ const handleSubmitReservation = async () => {
       daily_price: calculatePrice(bike.category, 1)
     }));
 
-    const accessoriesForDB = selectedAccessories.map(acc => ({
-      id: acc.id,
-      name_es: acc.name_es,
-      name_en: acc.name_en,
-      name_nl: acc.name_nl,
-      price: acc.price,
-    }));
-
-    // Configurar fechas y horas exactas
+    // Configurar fechas y horas
     const pickupDate = new Date(startDate);
     const returnDate = new Date(endDate);
     const [pickupHour, pickupMinute] = pickupTime.split(':').map(Number);
@@ -669,38 +640,41 @@ const handleSubmitReservation = async () => {
     const totalAmount = calculateTotal();
     const depositAmount = calculateTotalDeposit();
 
-    // 5. Crear objeto de datos de reserva
-    const reservationData = {
-      customer_name: customerData.name.trim(),
-      customer_email: customerData.email.toLowerCase().trim(),
-      customer_phone: customerData.phone.trim(),
-      customer_dni: customerData.dni.toUpperCase().trim(),
-      start_date: pickupDate.toISOString(),
-      end_date: returnDate.toISOString(),
-      pickup_time: pickupTime,
-      return_time: returnTime,
-      total_days: totalDays,
-      bikes: bikesForDB,
-      accessories: accessoriesForDB,
-      insurance: hasInsurance,
-      total_amount: totalAmount,
-      deposit_amount: depositAmount,
-      paid_amount: 0,
-      status: isAdminMode ? "confirmed" : "pending_payment",
-      payment_gateway: "redsys",
-      payment_status: "pending",
-      payment_reference: redsysOrderId,
-      redsys_order_id: redsysOrderId,
-      redsys_merchant_code: process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE || '367064094',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      locale: language
-    };
-
-    // 6. Crear reserva en Supabase
+    // Crear reserva en Supabase
     const { data, error: insertError } = await supabase
       .from("reservations")
-      .insert([reservationData])
+      .insert([{
+        customer_name: customerData.name.trim(),
+        customer_email: customerData.email.toLowerCase().trim(),
+        customer_phone: customerData.phone.trim(),
+        customer_dni: customerData.dni.toUpperCase().trim(),
+        start_date: pickupDate.toISOString(),
+        end_date: returnDate.toISOString(),
+        pickup_time: pickupTime,
+        return_time: returnTime,
+        total_days: totalDays,
+        bikes: bikesForDB,
+        accessories: selectedAccessories.map(acc => ({
+          id: acc.id,
+          name_es: acc.name_es,
+          name_en: acc.name_en,
+          name_nl: acc.name_nl,
+          price: acc.price,
+        })),
+        insurance: hasInsurance,
+        total_amount: totalAmount,
+        deposit_amount: depositAmount,
+        paid_amount: 0,
+        status: isAdminMode ? "confirmed" : "pending_payment",
+        payment_gateway: "redsys",
+        payment_status: "pending",
+        payment_reference: redsysOrderId,
+        redsys_order_id: redsysOrderId,
+        redsys_merchant_code: process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE || '367064094',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        locale: language
+      }])
       .select()
       .single();
 
@@ -708,43 +682,38 @@ const handleSubmitReservation = async () => {
 
     setReservationId(data.id);
 
-    // 7. Registrar en logs
+    // Registrar en logs
     await supabase.from("reservation_logs").insert({
       reservation_id: data.id,
       action: "created",
-      status: reservationData.status,
-      amount: reservationData.total_amount,
+      status: isAdminMode ? "confirmed" : "pending_payment",
+      amount: totalAmount,
       redsys_order_id: redsysOrderId
     });
 
-    // 8. Manejar flujo según modo (admin o usuario)
     if (isAdminMode) {
       await sendConfirmationEmail({
-        ...reservationData,
-        id: data.id,
+        ...data,
         status: "confirmed"
       });
       setCurrentStep("confirmation");
     } else {
       // Mostrar datos de prueba en desarrollo
       if (process.env.NODE_ENV === 'development') {
-        alert(`MODO PRUEBA ACTIVADO\nUsa estos datos:\nTarjeta: ${REDSYS_TEST_CARD.number}\nFecha: ${REDSYS_TEST_CARD.expiry}\nCVV: ${REDSYS_TEST_CARD.cvv}\nCódigo 3DS: 1234 (si lo pide)`);
+        alert(`MODO PRUEBA ACTIVADO\nUsa estos datos:\nTarjeta: ${REDSYS_TEST_CARD.number}\nFecha: ${REDSYS_TEST_CARD.expiry}\nCVV: ${REDSYS_TEST_CARD.cvv}\nCódigo 3DS: 1234`);
       }
 
-      // Preparar datos para el pago
-      const paymentRequestData = {
-        amount: totalAmount,
-        orderId: data.id,
-        locale: language
-      };
-
-      // Llamar a la API de pago
+      // Llamar a la API de pago con el orderId generado
       const response = await fetch("/api/redsys", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(paymentRequestData),
+        body: JSON.stringify({
+          amount: totalAmount,
+          orderId: redsysOrderId, // Enviar el orderId de 12 dígitos
+          locale: language
+        }),
       });
 
       if (!response.ok) {
@@ -778,11 +747,6 @@ const handleSubmitReservation = async () => {
         signature.value = paymentData.signature;
         form.appendChild(signature);
 
-        // Restaurar console.error después de enviar
-        setTimeout(() => {
-          console.error = originalConsoleError;
-        }, 3000);
-
         document.body.appendChild(form);
         form.submit();
       } else {
@@ -790,13 +754,9 @@ const handleSubmitReservation = async () => {
       }
     }
   } catch (error) {
-    // Restaurar console.error en caso de error
-    console.error = originalConsoleError;
-    
     console.error("Error in reservation process:", error);
     const errorMessage = error instanceof Error ? error.message : t("reservationError");
     
-    // Manejo específico para errores de firma SIS0042
     if (error instanceof Error && error.message.includes("SIS0042")) {
       setValidationErrors({
         ...validationErrors,
@@ -805,7 +765,6 @@ const handleSubmitReservation = async () => {
       setCurrentStep("customer");
     }
     
-    // Registrar error en Supabase
     await supabase.from("reservation_errors").insert({
       error_type: "reservation_creation",
       error_data: JSON.stringify({
@@ -822,19 +781,14 @@ const handleSubmitReservation = async () => {
       })
     });
 
-    if (isAdminMode) {
-      alert(`Error: ${errorMessage}`);
-    } else if (errorMessage.includes("bikesNoLongerAvailable")) {
-      // Ya manejado en el flujo principal
-    } else {
+    if (!isAdminMode && !errorMessage.includes("bikesNoLongerAvailable")) {
       window.location.href = `/reserva-fallida?order=${reservationId || 'none'}&error=${encodeURIComponent(errorMessage)}`;
     }
   } finally {
     setIsSubmitting(false);
-    // Asegurarse de restaurar console.error
-    console.error = originalConsoleError;
   }
 };
+
 
   const getCategoryName = (category: BikeCategory): string => {
     switch (category) {
