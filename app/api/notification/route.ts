@@ -1,112 +1,87 @@
-import { type NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 
-export const dynamic = 'force-dynamic'
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-function verifySignature(
-  secretKeyB64: string,
-  orderId: string,
-  paramsB64: string,
-  receivedSignature: string
-): boolean {
-  try {
-    // 1. Decodificar clave
-    const key = Buffer.from(secretKeyB64, 'base64')
-    const iv = Buffer.alloc(8, 0)
-    
-    // 2. Derivar clave HMAC
-    const cipher = crypto.createCipheriv('des-ede3-cbc', key, iv)
-    cipher.setAutoPadding(false)
-    const derivedKey = Buffer.concat([
-      cipher.update(orderId.slice(0, 8).padEnd(8, '\0'), 'utf8'),
-      cipher.final()
-    ])
+function calculateSignature(secretKeyB64: string, orderId: string, paramsB64: string): string {
+  const key = Buffer.from(secretKeyB64, 'base64')
+  const cipher = crypto.createCipheriv('des-ede3', key, Buffer.alloc(0))
+  const orderIdPadded = orderId.padStart(12, '0').slice(0, 8)
+  const derivedKey = Buffer.concat([
+    cipher.update(orderIdPadded, 'utf8'),
+    cipher.final()
+  ])
 
-    // 3. Calcular firma esperada
-    const expectedSignature = crypto
-      .createHmac('sha256', derivedKey)
-      .update(paramsB64)
-      .digest('base64')
-      .replace(/\//g, '_')
-      .replace(/\+/g, '-')
-
-    // 4. Comparación segura contra ataques de timing
-    return crypto.timingSafeEqual(
-      Buffer.from(expectedSignature),
-      Buffer.from(receivedSignature)
-    )
-
-  } catch (error) {
-    console.error('Error verifying signature:', error)
-    return false
-  }
+  const hmac = crypto.createHmac('sha256', derivedKey)
+  hmac.update(paramsB64)
+  
+  return hmac.digest('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
 }
 
-export async function POST(request: NextRequest) {
-  let paramsB64: string | null = null;
-  let signatureRecvd: string | null = null;
-
+export async function POST(request: Request) {
   try {
     const formData = await request.formData()
-    paramsB64 = formData.get('Ds_MerchantParameters')?.toString() || null
-    signatureRecvd = formData.get('Ds_Signature')?.toString() || null
-    const signatureVer = formData.get('Ds_SignatureVersion')?.toString()
+    
+    const paramsB64 = formData.get('Ds_MerchantParameters')?.toString()
+    const signature = formData.get('Ds_Signature')?.toString()
+    const signatureVersion = formData.get('Ds_SignatureVersion')?.toString()
 
-    if (!paramsB64 || !signatureRecvd || !signatureVer) {
-      throw new Error('Faltan parámetros requeridos en la notificación')
+    if (!paramsB64 || !signature || !signatureVersion) {
+      return NextResponse.json(
+        { error: 'Missing required parameters from Redsys' },
+        { status: 400 }
+      )
     }
 
-    // Parsear parámetros
-    const params = JSON.parse(Buffer.from(paramsB64, 'base64').toString())
-    const orderId = params.DS_MERCHANT_ORDER
+    const paramsJson = Buffer.from(paramsB64, 'base64').toString('utf-8')
+    const params = JSON.parse(paramsJson)
 
-    // Verificar firma
-    if (!verifySignature(
-      process.env.REDSYS_SECRET_KEY!,
-      orderId,
-      paramsB64,
-      signatureRecvd
-    )) {
-      throw new Error('Firma inválida en la notificación')
+    const secretKeyB64 = process.env.REDSYS_SECRET_KEY || ''
+    const calculatedSignature = calculateSignature(secretKeyB64, params.Ds_Order, paramsB64)
+
+    if (calculatedSignature !== signature) {
+      return NextResponse.json(
+        { error: 'Invalid signature' },
+        { status: 403 }
+      )
     }
 
-    // Procesar notificación
-    const responseCode = params.Ds_Response
-    const isSuccess = ['0000', '0900', '0400'].includes(responseCode)
-
-    await supabase
+    const { error } = await supabase
       .from('reservations')
       .update({
-        payment_status: isSuccess ? 'succeeded' : 'failed',
-        ds_response_code: responseCode,
-        paid_amount: isSuccess ? Number(params.Ds_Amount) / 100 : 0,
-        paid_at: params.Ds_Date && params.Ds_Hour 
-          ? `${params.Ds_Date}T${params.Ds_Hour}:00` 
-          : null,
-        ds_authorisation_code: params.Ds_AuthorisationCode,
+        payment_status: params.Ds_Response <= 99 ? 'succeeded' : 'failed',
+        status: params.Ds_Response <= 99 ? 'confirmed' : 'failed',
+        ds_response_code: params.Ds_Response,
+        ds_authorisation_code: params.Ds_AuthorisationCode || null,
+        redsys_notification_received: true,
         redsys_notification_data: params,
+        paid_amount: parseInt(params.Ds_Amount) / 100,
+        paid_at: new Date().toISOString(),
+        payment_date: params.Ds_Date ? new Date(params.Ds_Date).toISOString() : null,
         updated_at: new Date().toISOString()
       })
-      .eq('redsys_order_id', orderId)
+      .eq('id', params.Ds_MerchantData)
 
-    return new NextResponse('OK', { status: 200 })
+    if (error) {
+      console.error('Error updating reservation:', error)
+      return NextResponse.json(
+        { error: 'Error updating reservation' },
+        { status: 500 }
+      )
+    }
 
-  } catch (error: any) {
+    return NextResponse.json({ success: true })
+
+  } catch (error) {
     console.error('Error processing notification:', error)
-    
-    await supabase.from('payment_errors').insert({
-      error_type: 'redsys_notification',
-      error_message: error.message,
-      error_data: JSON.stringify({
-        params: paramsB64,
-        signature: signatureRecvd,
-        timestamp: new Date().toISOString()
-      })
-    })
-
     return NextResponse.json(
-      { error: error.message },
+      { error: 'Error processing notification', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     )
   }
