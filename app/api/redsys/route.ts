@@ -7,11 +7,13 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// Configuración para pruebas
+// URL de Redsys (modo pruebas)
 const REDSYS_TEST_URL = 'https://sis-t.redsys.es:25443/sis/realizarPago';
-const MERCHANT_CODE = '367064094'; // Tu código de comercio
-const TERMINAL = '001'; // Terminal de pruebas
-const SECRET_KEY = 'JvJ4AULO/uZjBnFqWS8s46g94SbVJ4iG'; // Clave de pruebas
+const MERCHANT_CODE = '367064094';
+const TERMINAL = '001';
+
+// 🔐 Clave oficial de pruebas de Redsys
+const SECRET_KEY = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7';
 
 interface MerchantParams {
   DS_MERCHANT_AMOUNT: string;
@@ -33,22 +35,24 @@ export async function POST(request: Request) {
   try {
     const { amount, orderId, locale } = await request.json();
 
-    // Validación básica
-    if (!amount || !orderId) throw new Error('Faltan amount u orderId');
+    if (!amount || !orderId) {
+      throw new Error('Faltan amount u orderId');
+    }
 
-    // Configuración de URLs (¡sin route.ts!)
-    const notificationUrl = 'https://alteabikeshop.com/api/notification'; // ← Punto clave
+    const notificationUrl = 'https://alteabikeshop.com/api/notification';
     const siteUrl = 'https://alteabikeshop.com';
 
-    // Parámetros para Redsys
+    const orderCode = orderId.padStart(12, '0').slice(0, 12);
+    const amountInCents = Math.round(Number(amount) * 100).toString();
+
     const merchantParams: MerchantParams = {
-      DS_MERCHANT_AMOUNT: Math.round(Number(amount) * 100).toString(),
-      DS_MERCHANT_ORDER: orderId.padStart(12, '0').slice(0, 12),
+      DS_MERCHANT_AMOUNT: amountInCents,
+      DS_MERCHANT_ORDER: orderCode,
       DS_MERCHANT_MERCHANTCODE: MERCHANT_CODE,
       DS_MERCHANT_CURRENCY: '978',
       DS_MERCHANT_TRANSACTIONTYPE: '0',
       DS_MERCHANT_TERMINAL: TERMINAL,
-      DS_MERCHANT_MERCHANTURL: notificationUrl, // URL limpia
+      DS_MERCHANT_MERCHANTURL: notificationUrl,
       DS_MERCHANT_URLOK: `${siteUrl}/reserva-exitosa?order=${orderId}`,
       DS_MERCHANT_URLKO: `${siteUrl}/reserva-fallida?order=${orderId}`,
       DS_MERCHANT_CONSUMERLANGUAGE: locale === 'es' ? '002' : '001',
@@ -57,27 +61,32 @@ export async function POST(request: Request) {
       DS_MERCHANT_MERCHANTDATA: orderId
     };
 
-    // Codificación segura para Redsys
+    // ✅ NO eliminar espacios del JSON
     const paramsJson = JSON.stringify(merchantParams);
+    const paramsB64 = Buffer.from(paramsJson).toString('base64');
 
-    const paramsB64 = Buffer.from(paramsJson).toString('base64').replace(/\n/g, '');
-
-    // Firma HMAC-SHA256
-    const key = Buffer.from(SECRET_KEY, 'base64');
-    const cipher = crypto.createCipheriv('des-ede3', key, Buffer.alloc(0));
+    // 🔐 Derivar clave con 3DES
+    const keyBase64 = Buffer.from(SECRET_KEY, 'base64');
+    const cipher = crypto.createCipheriv('des-ede3', keyBase64, null);
     const derivedKey = Buffer.concat([
-      cipher.update(merchantParams.DS_MERCHANT_ORDER.slice(0, 8), 'utf8'),
+      cipher.update(orderCode.slice(0, 8), 'utf8'),
       cipher.final()
     ]);
+
+    // 🔐 HMAC-SHA256 con clave derivada
     const hmac = crypto.createHmac('sha256', derivedKey);
     hmac.update(paramsB64);
-    const signature = hmac.digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const signature = hmac.digest('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
 
     return NextResponse.json({
       success: true,
       url: REDSYS_TEST_URL,
       params: paramsB64,
       signature,
+      signatureVersion: 'HMAC_SHA256_V1',
       testCard: {
         number: '4548812049400004',
         expiry: '12/2025',
