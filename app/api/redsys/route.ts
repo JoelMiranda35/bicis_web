@@ -23,13 +23,13 @@ function calculateSignature(secretKeyB64: string, orderId: string, paramsB64: st
 
     const hmac = crypto.createHmac('sha256', derivedKey)
     hmac.update(paramsB64)
-    
+
     return hmac.digest('base64')
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=+$/, '')
   } catch (error) {
-    console.error('Error calculating signature:', error)
+    console.error('❌ Error calculating signature:', error)
     throw error
   }
 }
@@ -37,8 +37,7 @@ function calculateSignature(secretKeyB64: string, orderId: string, paramsB64: st
 export async function POST(request: Request) {
   try {
     const requestData = await request.json()
-    
-    // Validar datos requeridos
+
     if (!requestData.amount || !requestData.orderId) {
       return NextResponse.json(
         { error: 'Faltan parámetros requeridos: amount y orderId' },
@@ -46,7 +45,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Obtener la reserva de la base de datos
     const { data: reservation, error: dbError } = await supabase
       .from('reservations')
       .select('*')
@@ -60,7 +58,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Configuración Redsys desde variables de entorno
     const merchantCode = process.env.REDSYS_MERCHANT_CODE || '999008881'
     const terminal = process.env.REDSYS_TERMINAL?.padStart(3, '0') || '001'
     const secretKeyB64 = process.env.REDSYS_SECRET_KEY || ''
@@ -73,35 +70,39 @@ export async function POST(request: Request) {
       )
     }
 
-    // Convertir amount a céntimos (Redsys espera sin decimales)
     const amountInCents = Math.round(parseFloat(requestData.amount) * 100)
-    const orderId = reservation.id.replace(/-/g, '').slice(0, 12).padStart(12, '0')
 
-    // Parámetros para Redsys según tu configuración
+    const orderId = reservation.redsys_order_id // ✅ YA está generado correctamente en page.tsx
+
+    if (!/^\d{12}$/.test(orderId)) {
+      return NextResponse.json(
+        { error: `El redsys_order_id no es válido: "${orderId}"` },
+        { status: 400 }
+      )
+    }
+
     const merchantParams = {
       DS_MERCHANT_AMOUNT: amountInCents.toString(),
       DS_MERCHANT_ORDER: orderId,
       DS_MERCHANT_MERCHANTCODE: merchantCode,
-      DS_MERCHANT_CURRENCY: '978', // EUR
-      DS_MERCHANT_TRANSACTIONTYPE: '0', // Pago normal
+      DS_MERCHANT_CURRENCY: '978',
+      DS_MERCHANT_TRANSACTIONTYPE: '0',
       DS_MERCHANT_TERMINAL: terminal,
-      DS_MERCHANT_MERCHANTURL: `${siteUrl}/api/notification`, // URL de notificación configurada
-      DS_MERCHANT_URLOK: `${siteUrl}/reserva-exitosa`, // URL OK configurada
-      DS_MERCHANT_URLKO: `${siteUrl}/reserva-fallida`, // URL KO configurada
+      DS_MERCHANT_MERCHANTURL: `${siteUrl}/api/notification`,
+      DS_MERCHANT_URLOK: `${siteUrl}/reserva-exitosa`,
+      DS_MERCHANT_URLKO: `${siteUrl}/reserva-fallida`,
       DS_MERCHANT_CONSUMERLANGUAGE: requestData.locale === 'es' ? '002' : '001',
       DS_MERCHANT_PRODUCTDESCRIPTION: 'Alquiler de bicicletas',
       DS_MERCHANT_TITULAR: reservation.customer_name || '',
       DS_MERCHANT_MERCHANTDATA: reservation.id
     }
 
-    // Convertir a JSON y luego a Base64
+    console.log("🔍 Params enviados a Redsys:", merchantParams)
+
     const jsonString = JSON.stringify(merchantParams)
     const paramsB64 = Buffer.from(jsonString).toString('base64')
-
-    // Calcular firma
     const signature = calculateSignature(secretKeyB64, orderId, paramsB64)
 
-    // Actualizar reserva con datos de Redsys
     const { error: updateError } = await supabase
       .from('reservations')
       .update({
@@ -117,26 +118,23 @@ export async function POST(request: Request) {
       })
       .eq('id', reservation.id)
 
-    if (updateError) {
-      throw updateError
-    }
+    if (updateError) throw updateError
 
-    // Respuesta con datos para redirección a Redsys
     return NextResponse.json({
       success: true,
       url: process.env.NODE_ENV === 'development' ? REDSYS_TEST_URL : REDSYS_PROD_URL,
       params: paramsB64,
       signature,
       signatureVersion: 'HMAC_SHA256_V1',
-      orderId: orderId
+      orderId
     })
 
   } catch (error) {
-    console.error('Error en el procesamiento del pago:', error)
+    console.error('❌ Error en el procesamiento del pago:', error)
     return NextResponse.json(
-      { 
-        error: 'Error al procesar el pago', 
-        details: error instanceof Error ? error.message : String(error) 
+      {
+        error: 'Error al procesar el pago',
+        details: error instanceof Error ? error.message : String(error)
       },
       { status: 500 }
     )
