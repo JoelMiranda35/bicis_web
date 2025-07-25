@@ -58,7 +58,8 @@ export async function POST(request: Request) {
     };
 
     // Codificación segura para Redsys
-    const paramsJson = JSON.stringify(merchantParams).replace(/\s+/g, '');
+    const paramsJson = JSON.stringify(merchantParams);
+
     const paramsB64 = Buffer.from(paramsJson).toString('base64').replace(/\n/g, '');
 
     // Firma HMAC-SHA256
