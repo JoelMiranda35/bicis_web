@@ -727,7 +727,7 @@ const handleSubmitReservation = async () => {
       };
 
       // Llamar a la API de pago
-      const response = await fetch("/api/create-payment", {
+      const response = await fetch("/api/redsys", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
