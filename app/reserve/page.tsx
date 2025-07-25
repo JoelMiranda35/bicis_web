@@ -731,12 +731,12 @@ const handleSubmitReservation = async () => {
         alert(`MODO PRUEBA ACTIVADO\nUsa estos datos:\nTarjeta: ${REDSYS_TEST_CARD.number}\nFecha: ${REDSYS_TEST_CARD.expiry}\nCVV: ${REDSYS_TEST_CARD.cvv}\nCódigo 3DS: 1234 (si lo pide)`);
       }
 
-      // Preparar datos para el pago
-      const paymentRequestData = {
-        amount: totalAmount,
-        orderId: data.id,
-        locale: language
-      };
+    // En handleSubmitReservation, modifica el paymentRequestData:
+const paymentRequestData = {
+  amount: Math.round(totalAmount * 100), // Convertir a céntimos
+  orderId: data.id,
+  locale: language
+};
 const parsedAmount = parseFloat(String(paymentRequestData.amount).replace(',', '.'));
 
 if (isNaN(parsedAmount) || parsedAmount <= 0) {
