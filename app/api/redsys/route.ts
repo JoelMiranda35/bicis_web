@@ -7,12 +7,11 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// URL de Redsys (modo pruebas)
 const REDSYS_TEST_URL = 'https://sis-t.redsys.es:25443/sis/realizarPago';
 const MERCHANT_CODE = '367064094';
 const TERMINAL = '001';
 
-// 🔐 Clave oficial de pruebas de Redsys
+// 🔐 Clave de firma oficial de entorno de pruebas
 const SECRET_KEY = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7';
 
 interface MerchantParams {
@@ -39,11 +38,19 @@ export async function POST(request: Request) {
       throw new Error('Faltan amount u orderId');
     }
 
+    // 🔍 Validación robusta del amount
+    const parsedAmount = parseFloat(
+      String(amount).replace(',', '.')
+    );
+
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      throw new Error(`Amount inválido (${amount}). Verificá que no sea 0 o NaN`);
+    }
+
+    const amountInCents = Math.round(parsedAmount * 100).toString();
+    const orderCode = orderId.padStart(12, '0').slice(0, 12);
     const notificationUrl = 'https://alteabikeshop.com/api/notification';
     const siteUrl = 'https://alteabikeshop.com';
-
-    const orderCode = orderId.padStart(12, '0').slice(0, 12);
-    const amountInCents = Math.round(Number(amount) * 100).toString();
 
     const merchantParams: MerchantParams = {
       DS_MERCHANT_AMOUNT: amountInCents,
@@ -61,11 +68,10 @@ export async function POST(request: Request) {
       DS_MERCHANT_MERCHANTDATA: orderId
     };
 
-    // ✅ NO eliminar espacios del JSON
     const paramsJson = JSON.stringify(merchantParams);
     const paramsB64 = Buffer.from(paramsJson).toString('base64');
 
-    // 🔐 Derivar clave con 3DES
+    // Derivación de clave 3DES
     const keyBase64 = Buffer.from(SECRET_KEY, 'base64');
     const cipher = crypto.createCipheriv('des-ede3', keyBase64, null);
     const derivedKey = Buffer.concat([
@@ -73,7 +79,7 @@ export async function POST(request: Request) {
       cipher.final()
     ]);
 
-    // 🔐 HMAC-SHA256 con clave derivada
+    // Firma HMAC-SHA256
     const hmac = crypto.createHmac('sha256', derivedKey);
     hmac.update(paramsB64);
     const signature = hmac.digest('base64')
