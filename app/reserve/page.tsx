@@ -527,7 +527,7 @@ export default function ReservePage() {
   // En la función generateRedsysOrderId(), asegurar que siempre tenga 12 caracteres
 const generateRedsysOrderId = () => {
   return Array.from({ length: 12 }, () => 
-    Math.floor(Math.random() * 10).toString() // Solo números
+    Math.floor(Math.random() * 10).toString()
   ).join('').padStart(12, '0');
 };
 
@@ -721,22 +721,9 @@ const handleSubmitReservation = async () => {
 
       // Preparar datos para el pago
       const paymentRequestData = {
-        amount: totalAmount,
-        orderId: redsysOrderId,
-        customerName: customerData.name,
-        customerEmail: customerData.email,
-        customerPhone: customerData.phone,
-        customerDni: customerData.dni,
-        startDate: pickupDate.toISOString(),
-        endDate: returnDate.toISOString(),
-        totalDays: totalDays,
-        bikes: bikesForDB,
-        accessories: accessoriesForDB,
-        insurance: hasInsurance,
-        depositAmount: depositAmount,
-        pickupTime: pickupTime,
-        returnTime: returnTime,
-        locale: language
+  amount: totalAmount,
+  orderId: data.id,
+  locale: language
       };
 
       // Llamar a la API de pago
