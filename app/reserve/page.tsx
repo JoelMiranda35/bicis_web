@@ -46,6 +46,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { addDays, isSameDay, isSunday, isSaturday } from "date-fns";
+const REDSYS_TEST_CARD = {
+  number: '4548812049400004',
+  expiry: '12/2025',
+  cvv: '123'
+};
 
 type Step =
   | "dates"
@@ -526,9 +531,9 @@ export default function ReservePage() {
 
   // En la función generateRedsysOrderId(), asegurar que siempre tenga 12 caracteres
 const generateRedsysOrderId = () => {
-  return Array.from({ length: 12 }, () => 
-    Math.floor(Math.random() * 10).toString()
-  ).join('').padStart(12, '0');
+  const timestamp = Date.now().toString().slice(-6); // Últimos 6 dígitos del timestamp
+  const random = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+  return (timestamp + random).slice(0, 12); // Aseguramos 12 dígitos
 };
 
   const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
@@ -573,13 +578,18 @@ const handleSubmitReservation = async () => {
 
   setIsSubmitting(true);
 
-  // 🔥 Nuevo: Silenciador de errores de Redsys
-  const originalError = console.error;
-  console.error = (err: any) => {
-    if (typeof err === 'string' && /redsys\.es|css|MIME/i.test(err)) {
-      return; // Silencia solo errores de Redsys
+  // Guardar el console.error original para restaurarlo después
+  const originalConsoleError = console.error;
+  
+  // Silenciar errores de CSS/JS de Redsys que no afectan la funcionalidad
+  console.error = (message) => {
+    if (typeof message === 'string' && 
+        (message.includes('redsys.es') || 
+         message.includes('MIME') || 
+         message.includes('stylesheet'))) {
+      return; // Silenciar estos errores específicos
     }
-    originalError(err); // Muestra otros errores
+    originalConsoleError(message); // Mostrar otros errores normalmente
   };
 
   try {
@@ -612,7 +622,7 @@ const handleSubmitReservation = async () => {
       return;
     }
 
-    // 3. Generar ID único para Redsys
+    // 3. Generar ID único para Redsys que cumpla con los requisitos
     const redsysOrderId = generateRedsysOrderId();
 
     // 4. Preparar datos para la reserva
@@ -640,6 +650,7 @@ const handleSubmitReservation = async () => {
       price: acc.price,
     }));
 
+    // Configurar fechas y horas exactas
     const pickupDate = new Date(startDate);
     const returnDate = new Date(endDate);
     const [pickupHour, pickupMinute] = pickupTime.split(':').map(Number);
@@ -702,7 +713,8 @@ const handleSubmitReservation = async () => {
       reservation_id: data.id,
       action: "created",
       status: reservationData.status,
-      amount: reservationData.total_amount
+      amount: reservationData.total_amount,
+      redsys_order_id: redsysOrderId
     });
 
     // 8. Manejar flujo según modo (admin o usuario)
@@ -714,16 +726,16 @@ const handleSubmitReservation = async () => {
       });
       setCurrentStep("confirmation");
     } else {
-      // 🚀 Mostrar datos de prueba en desarrollo
+      // Mostrar datos de prueba en desarrollo
       if (process.env.NODE_ENV === 'development') {
-        alert(`MODO PRUEBA ACTIVADO\nUsa estos datos:\nTarjeta: 4548 8120 4940 0004\nFecha: 12/2025\nCVV: 123`);
+        alert(`MODO PRUEBA ACTIVADO\nUsa estos datos:\nTarjeta: ${REDSYS_TEST_CARD.number}\nFecha: ${REDSYS_TEST_CARD.expiry}\nCVV: ${REDSYS_TEST_CARD.cvv}\nCódigo 3DS: 1234 (si lo pide)`);
       }
 
       // Preparar datos para el pago
       const paymentRequestData = {
-  amount: totalAmount,
-  orderId: data.id,
-  locale: language
+        amount: totalAmount,
+        orderId: data.id,
+        locale: language
       };
 
       // Llamar a la API de pago
@@ -766,9 +778,9 @@ const handleSubmitReservation = async () => {
         signature.value = paymentData.signature;
         form.appendChild(signature);
 
-        // ✅ Restaurar console.error después de enviar
+        // Restaurar console.error después de enviar
         setTimeout(() => {
-          console.error = originalError;
+          console.error = originalConsoleError;
         }, 3000);
 
         document.body.appendChild(form);
@@ -778,10 +790,22 @@ const handleSubmitReservation = async () => {
       }
     }
   } catch (error) {
-    console.error = originalError; // Restaurar si hay error
+    // Restaurar console.error en caso de error
+    console.error = originalConsoleError;
+    
     console.error("Error in reservation process:", error);
     const errorMessage = error instanceof Error ? error.message : t("reservationError");
     
+    // Manejo específico para errores de firma SIS0042
+    if (error instanceof Error && error.message.includes("SIS0042")) {
+      setValidationErrors({
+        ...validationErrors,
+        payment: t("paymentSignatureError")
+      });
+      setCurrentStep("customer");
+    }
+    
+    // Registrar error en Supabase
     await supabase.from("reservation_errors").insert({
       error_type: "reservation_creation",
       error_data: JSON.stringify({
@@ -793,7 +817,8 @@ const handleSubmitReservation = async () => {
           quantity: b.quantity,
           bike_ids: b.bikes.map(bike => bike.id)
         })),
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        redsys_order_id: reservationId || 'none'
       })
     });
 
@@ -806,6 +831,8 @@ const handleSubmitReservation = async () => {
     }
   } finally {
     setIsSubmitting(false);
+    // Asegurarse de restaurar console.error
+    console.error = originalConsoleError;
   }
 };
 
