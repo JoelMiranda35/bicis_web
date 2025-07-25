@@ -6,15 +6,27 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-// URLs para desarrollo y producción
+// URL fija para pruebas (eliminada la URL de producción)
 const REDSYS_TEST_URL = 'https://sis-t.redsys.es:25443/sis/realizarPago'
-const REDSYS_PROD_URL = 'https://sis.redsys.es/sis/realizarPago'
 
 export const dynamic = 'force-dynamic'
 
-/**
- * Calcula la firma HMAC SHA256 según especificación Redsys
- */
+interface MerchantParams {
+  DS_MERCHANT_AMOUNT: string;
+  DS_MERCHANT_ORDER: string;
+  DS_MERCHANT_MERCHANTCODE: string;
+  DS_MERCHANT_CURRENCY: string;
+  DS_MERCHANT_TRANSACTIONTYPE: string;
+  DS_MERCHANT_TERMINAL: string;
+  DS_MERCHANT_MERCHANTURL: string;
+  DS_MERCHANT_URLOK: string;
+  DS_MERCHANT_URLKO: string;
+  DS_MERCHANT_CONSUMERLANGUAGE: string;
+  DS_MERCHANT_PRODUCTDESCRIPTION: string;
+  DS_MERCHANT_TITULAR: string;
+  DS_MERCHANT_MERCHANTDATA: string;
+}
+
 function calculateSignature(secretKeyB64: string, orderId: string, paramsB64: string): string {
   try {
     // 1. Decodificar clave secreta desde Base64
@@ -87,7 +99,7 @@ export async function POST(request: Request) {
     }
 
     // Parámetros para Redsys (formato exacto requerido)
-    const merchantParams = {
+    const merchantParams: MerchantParams = {
       DS_MERCHANT_AMOUNT: amountInCents.toString(),
       DS_MERCHANT_ORDER: orderId,
       DS_MERCHANT_MERCHANTCODE: merchantCode,
@@ -103,7 +115,7 @@ export async function POST(request: Request) {
       DS_MERCHANT_MERCHANTDATA: reservation.id
     }
 
-    // Convertir parámetros a JSON y luego a Base64
+    // Convertir parámetros a JSON asegurando formato correcto
     const paramsJson = JSON.stringify(merchantParams)
     const paramsB64 = Buffer.from(paramsJson).toString('base64')
     
@@ -126,20 +138,18 @@ export async function POST(request: Request) {
 
     if (updateError) throw updateError
 
-    // Determinar URL según entorno
-    const isDevelopment = process.env.NODE_ENV === 'development'
-    const redsysUrl = isDevelopment ? REDSYS_TEST_URL : REDSYS_PROD_URL
-
-    console.log(`Redirigiendo a Redsys (${isDevelopment ? 'TEST' : 'PROD'}):`, {
+    console.log('Datos enviados a Redsys:', {
       orderId,
       amount: amountInCents,
-      url: redsysUrl,
-      paramsJson // Para debug
+      url: REDSYS_TEST_URL,
+      paramsJson,
+      paramsB64,
+      signature
     })
 
     return NextResponse.json({
       success: true,
-      url: redsysUrl,
+      url: REDSYS_TEST_URL, // Siempre usamos la URL de pruebas
       params: paramsB64,
       signature,
       signatureVersion: 'HMAC_SHA256_V1',
