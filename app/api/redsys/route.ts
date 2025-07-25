@@ -72,12 +72,15 @@ export async function POST(request: Request) {
     const paramsB64 = Buffer.from(paramsJson).toString('base64');
 
     // Derivación de clave 3DES
-    const keyBase64 = Buffer.from(SECRET_KEY, 'base64');
-    const cipher = crypto.createCipheriv('des-ede3', keyBase64, null);
-    const derivedKey = Buffer.concat([
-      cipher.update(orderCode.slice(0, 8), 'utf8'),
-      cipher.final()
-    ]);
+   const keyBase64 = Buffer.from(SECRET_KEY, 'base64');
+const iv = Buffer.alloc(0); // Sin IV (ECB)
+const cipher = crypto.createCipheriv('des-ede3', keyBase64, iv);
+cipher.setAutoPadding(false);
+
+// Asegurar longitud de 8 bytes con padding manual si es necesario
+const orderPadded = Buffer.from(orderCode.slice(0, 8).padEnd(8, ' '), 'utf8');
+const derivedKey = Buffer.concat([cipher.update(orderPadded), cipher.final()]);
+
 
     // Firma HMAC-SHA256
     const hmac = crypto.createHmac('sha256', derivedKey);

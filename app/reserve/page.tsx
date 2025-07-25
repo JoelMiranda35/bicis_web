@@ -737,6 +737,14 @@ const handleSubmitReservation = async () => {
         orderId: data.id,
         locale: language
       };
+const parsedAmount = parseFloat(String(paymentRequestData.amount).replace(',', '.'));
+
+if (isNaN(parsedAmount) || parsedAmount <= 0) {
+  throw new Error('Amount inválido o no numérico');
+}
+
+paymentRequestData.amount = Math.round(parsedAmount * 100); // ✔️ CENTAVOS (entero)
+
 
       // Llamar a la API de pago
       const response = await fetch("/api/redsys", {
