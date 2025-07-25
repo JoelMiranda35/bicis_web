@@ -1,15 +1,18 @@
 <!DOCTYPE html>
 <html>
+<head>
+    <title>Prueba Redsys</title>
+</head>
 <body>
-  <form id="redsysForm" action="https://sis-t.redsys.es:25443/sis/realizarPago" method="POST">
-    <input type="hidden" name="Ds_SignatureVersion" value="HMAC_SHA256_V1"/>
-    <input type="hidden" name="Ds_MerchantParameters" value="eyJEU19NRVJDSEFOVF9BTU9VTlQiOiIxMDA1MCIsIkRTX01FUkNIQU5UX09SREVSIjoiMTIzNDU2Nzg5MDEyIiwiRFNfTUVSQ0hBTlRfTUVSQ0hBTlRDT0RFIjoiMzY3MDY0MDk0IiwiRFNfTUVSQ0hBTlRfQ1VSUkVOQ1kiOiI5NzgiLCJEU19NRVJDSEFOVF9UUkFOU0FDVElPTlRZUEUiOiIwIiwiRFNfTUVSQ0hBTlRfVEVSTUlOQUwiOiIwMDEiLCJEU19NRVJDSEFOVF9NRVJDSEFOVFVSTCI6Imh0dHBzOi8vYWx0ZWFiaWtlc2hvcC5jb20vYXBpL25vdGlmaWNhdGlvbiIsIkRTX01FUkNIQU5UX1VSTE9LIjoiaHR0cHM6Ly9hbHRlYWJpa2VzaG9wLmNvbS9yZXNlcnZhLWV4aXRvc2E/b3JkZXI9MTIzNDU2Nzg5MDEyIiwiRFNfTUVSQ0hBTlRfVVJMS08iOiJodHRwczovL2FsdGVhYmlrZXNob3AuY29tL3Jlc2VydmEtZmFsbGlkYT9vcmRlcj0xMjM0NTY3ODkwMTIiLCJEU19NRVJDSEFOVF9DT05TVU1FUkxBTkdVQUdFIjoiMDAyIiwiRFNfTUVSQ0hBTlRfUFJPRFVDVERFU0NSSVBUSU9OIjoiQWxxdWlsZXIgZGUgYmljaWNsZXRhcyIsIkRTX01FUkNIQU5UX1RJVFVMQVIiOiJDbGllbnRlIGRlIHBydWViYSIsIkRTX01FUkNIQU5UX01FUkNIQU5UREFUQSI6IjEyMzQ1Njc4OTAxMiJ9"/>
-    <input type="hidden" name="Ds_Signature" value="IotpATb6heGAr2iQ13eN5bYynYxm5FNy_8m5zQGY9iA"/>
-    <input type="submit" value="Pagar ahora"/>
-  </form>
-  <script>
-    // Envía el formulario automáticamente al cargar la página
-    document.getElementById('redsysForm').submit();
-  </script>
+    <form id="redsysForm" action="https://sis-t.redsys.es:25443/sis/realizarPago" method="POST">
+        <input type="hidden" name="Ds_SignatureVersion" value="HMAC_SHA256_V1"/>
+        <input type="hidden" name="Ds_MerchantParameters" value="eyJEU19NRVJDSEFOVF9BTU9VTlQiOiI1MDUwIiwiRFNfTUVSQ0hBTlRfT1JERVIiOiIwMDAwMDAxMjM0NTYiLCJEU19NRVJDSEFOVF9NRVJDSEFOVENPREUiOiIzNjcwNjQwOTQiLCJEU19NRVJDSEFOVF9DVVJSRU5DWSI6Ijk3OCIsIkRTX01FUkNIQU5UX1RSQU5TQUNUSU9OVFlQRSI6IjAiLCJEU19NRVJDSEFOVF9URVJNSU5BTCI6IjAwMSIsIkRTX01FUkNIQU5UX01FUkNIQU5UVVJMIjoiaHR0cHM6Ly9hbHRlYWJpa2VzaG9wLmNvbS9hcGkvbm90aWZpY2F0aW9uIiwiRFNfTUVSQ0hBTlRfVVJMT0siOiJodHRwczovL2FsdGVhYmlrZXNob3AuY29tL3Jlc2VydmEtZXhpdG9zYT9vcmRlcj0xMjM0NTYiLCJEU19NRVJDSEFOVF9VUkxLTyI6Imh0dHBzOi8vYWx0ZWFiaWtlc2hvcC5jb20vcmVzZXJ2YS1mYWxsaWRhP29yZGVyPTEyMzQ1NiIsIkRTX01FUkNIQU5UX0NPTlNVTUVSTEFOR1VBR0UiOiIwMDIiLCJEU19NRVJDSEFOVF9QUk9EVUNUREVTQ1JJUFRJT04iOiJBbHF1aWxlciBkZSBiaWNpY2xldGFzIiwiRFNfTUVSQ0hBTlRfVElUVUxBUiI6IkFsdGVhIEJpa2UgU2hvcCIsIkRTX01FUkNIQU5UX01FUkNIQU5UREFUQSI6IjEyMzQ1NiJ9"/>
+        <input type="hidden" name="Ds_Signature" value="bcRdjFtCsUFkgs14au2AZ5yF_VEV3wn5rEKNJJOxikM"/>
+    </form>
+
+    <script>
+        // Envía el formulario automáticamente al cargar la página
+        document.getElementById('redsysForm').submit();
+    </script>
 </body>
 </html>

@@ -1,79 +1,56 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 
+// Configuración - Deberían ser variables de entorno
 const REDSYS_TEST_URL = 'https://sis-t.redsys.es:25443/sis/realizarPago';
-const MERCHANT_CODE = '367064094'; // Reemplaza con tu código real
-const TERMINAL = '001'; // Reemplaza con tu terminal real
-const SECRET_KEY = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7'; // Clave de pruebas
-
-// URLs - ¡VERIFICA QUE ESTAS URLS SEAN ACCESIBLES POR REDSYS!
-const notificationUrl = 'https://alteabikeshop.com/api/notification'; // Debe ser pública
-const siteUrl = 'https://alteabikeshop.com'; // Tu dominio principal
-
-interface MerchantParams {
-  DS_MERCHANT_AMOUNT: string;
-  DS_MERCHANT_ORDER: string;
-  DS_MERCHANT_MERCHANTCODE: string;
-  DS_MERCHANT_CURRENCY: string;
-  DS_MERCHANT_TRANSACTIONTYPE: string;
-  DS_MERCHANT_TERMINAL: string;
-  DS_MERCHANT_MERCHANTURL: string;
-  DS_MERCHANT_URLOK: string;
-  DS_MERCHANT_URLKO: string;
-  DS_MERCHANT_CONSUMERLANGUAGE?: string;
-  DS_MERCHANT_PRODUCTDESCRIPTION?: string;
-  DS_MERCHANT_TITULAR?: string;
-  DS_MERCHANT_MERCHANTDATA?: string;
-}
+const MERCHANT_CODE = process.env.REDSYS_MERCHANT_CODE || '367064094';
+const TERMINAL = process.env.REDSYS_TERMINAL || '001';
+const SECRET_KEY = process.env.REDSYS_SECRET_KEY || 'sq7HjrUOBfKmC576ILgskD5srU870gJ7';
 
 export async function POST(request: Request) {
   try {
     const { amount, orderId, locale } = await request.json();
 
     // Validaciones robustas
-    if (!amount || !orderId || !locale) {
-      throw new Error('Faltan parámetros requeridos: amount, orderId o locale');
+    if (!amount || !orderId) {
+      throw new Error('Missing required parameters: amount or orderId');
     }
 
     // Validación y conversión del amount
-    const parsedAmount = parseFloat(String(amount).replace(',', '.'));
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      throw new Error(`Amount inválido (${amount}). Debe ser mayor que 0`);
+    const amountInCents = Math.round(Number(amount) * 100);
+    if (isNaN(amountInCents) || amountInCents <= 0) {
+      throw new Error(`Invalid amount: ${amount}`);
     }
 
-    // Convertir a céntimos (sin decimales)
-    const amountInCents = Math.round(parsedAmount * 100).toString();
-    
     // Formatear orderId (12 dígitos)
-    const orderCode = orderId.toString().padStart(12, '0').slice(-12);
+    const orderCode = orderId.toString().replace(/\D/g, '').padStart(12, '0').slice(-12);
+    if (orderCode.length !== 12) {
+      throw new Error('Order ID must be convertible to 12 digits');
+    }
 
-    // Parámetros obligatorios para Redsys
-    const merchantParams: MerchantParams = {
-      DS_MERCHANT_AMOUNT: amountInCents,
+    // Parámetros obligatorios
+    const merchantParams = {
+      DS_MERCHANT_AMOUNT: amountInCents.toString(),
       DS_MERCHANT_ORDER: orderCode,
       DS_MERCHANT_MERCHANTCODE: MERCHANT_CODE,
-      DS_MERCHANT_CURRENCY: '978', // 978 = EUR
-      DS_MERCHANT_TRANSACTIONTYPE: '0', // 0 = Pago estándar
+      DS_MERCHANT_CURRENCY: '978', // EUR
+      DS_MERCHANT_TRANSACTIONTYPE: '0', // Pago estándar
       DS_MERCHANT_TERMINAL: TERMINAL,
-      DS_MERCHANT_MERCHANTURL: notificationUrl,
-      DS_MERCHANT_URLOK: `${siteUrl}/reserva-exitosa?order=${orderId}`,
-      DS_MERCHANT_URLKO: `${siteUrl}/reserva-fallida?order=${orderId}`,
-      DS_MERCHANT_CONSUMERLANGUAGE: locale === 'es' ? '002' : '001', // 002=Español, 001=Inglés
-      DS_MERCHANT_PRODUCTDESCRIPTION: 'Alquiler de bicicletas',
-      DS_MERCHANT_TITULAR: 'Altea Bike Shop',
-      DS_MERCHANT_MERCHANTDATA: orderId
+      DS_MERCHANT_MERCHANTURL: `${process.env.SITE_URL}/api/redsys/notification`,
+      DS_MERCHANT_URLOK: `${process.env.SITE_URL}/reservation/success?order=${orderId}`,
+      DS_MERCHANT_URLKO: `${process.env.SITE_URL}/reservation/failed?order=${orderId}`,
+      DS_MERCHANT_CONSUMERLANGUAGE: locale === 'es' ? '002' : '001',
     };
 
     // Convertir a JSON y luego a Base64
     const paramsJson = JSON.stringify(merchantParams);
     const paramsB64 = Buffer.from(paramsJson).toString('base64');
 
-    // 1. Derivación de clave 3DES (Paso crítico)
-    const key = Buffer.from(SECRET_KEY, 'base64');
-    const cipher = crypto.createCipheriv('des-ede3', key, Buffer.alloc(0)); // ECB mode
+    // 1. Derivación de clave 3DES
+    const key = Buffer.from(SECRET_KEY, 'utf8');
+    const cipher = crypto.createCipheriv('des-ede3', key, Buffer.alloc(0));
     cipher.setAutoPadding(false);
     
-    // Asegurar que orderCode tenga 8 bytes (rellenar con ceros si es necesario)
     const orderPadded = Buffer.alloc(8, 0);
     Buffer.from(orderCode.slice(0, 8)).copy(orderPadded);
     
@@ -85,12 +62,8 @@ export async function POST(request: Request) {
     // 2. Calcular HMAC-SHA256
     const hmac = crypto.createHmac('sha256', derivedKey);
     hmac.update(paramsB64);
-    const signature = hmac.digest('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
+    const signature = hmac.digest('base64');
 
-    // Respuesta exitosa
     return NextResponse.json({
       success: true,
       url: REDSYS_TEST_URL,
@@ -101,21 +74,17 @@ export async function POST(request: Request) {
         number: '4548812049400004',
         expiry: '12/2025',
         cvv: '123'
-      },
-      debug: { // Solo para desarrollo
-        derivedKey: derivedKey.toString('hex'),
-        paramsJson,
-        orderCode
       }
     });
 
   } catch (error) {
-    console.error('Error en /api/redsys:', error);
+    console.error('Redsys API Error:', error);
     return NextResponse.json(
       { 
         success: false, 
-        error: error instanceof Error ? error.message : 'Error desconocido',
+        error: error instanceof Error ? error.message : 'Unknown error',
         debug: process.env.NODE_ENV === 'development' ? {
+          message: error instanceof Error ? error.message : null,
           stack: error instanceof Error ? error.stack : null
         } : undefined
       },
