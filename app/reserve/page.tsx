@@ -573,28 +573,10 @@ const generateRedsysOrderId = () => {
     }
   };
 
-// Importante: Este código reemplaza la función handleSubmitReservation en tu page.tsx
-
-
-
 const handleSubmitReservation = async () => {
   if (!startDate || !endDate) return;
 
   setIsSubmitting(true);
-
-  // Guardar el console.error original para restaurarlo después
-  const originalConsoleError = console.error;
-  
-  // Silenciar errores de CSS/JS de Redsys que no afectan la funcionalidad
-  console.error = (message) => {
-    if (typeof message === 'string' && 
-        (message.includes('redsys.es') || 
-         message.includes('MIME') || 
-         message.includes('stylesheet'))) {
-      return; // Silenciar estos errores específicos
-    }
-    originalConsoleError(message); // Mostrar otros errores normalmente
-  };
 
   try {
     // 1. Validar datos del cliente
@@ -602,7 +584,7 @@ const handleSubmitReservation = async () => {
       throw new Error(t("reservationValidationError"));
     }
 
-    // 2. Verificar disponibilidad con detalle
+    // 2. Verificar disponibilidad de bicicletas
     const { available, unavailableBikes } = await checkBikesAvailability();
     if (!available) {
       await fetchAvailableBikes();
@@ -626,10 +608,10 @@ const handleSubmitReservation = async () => {
       return;
     }
 
-    // 3. Generar ID único para Redsys que cumpla con los requisitos
-    const redsysOrderId = generateRedsysOrderId();
+    // 3. Generar ID único para Redsys (12 dígitos)
+    const redsysOrderId = new Date().getTime().toString().slice(-12);
 
-    // 4. Preparar datos para la reserva
+    // 4. Preparar datos para la reserva en Supabase
     const bikesForDB = selectedBikes.map(bike => ({
       model: {
         title_es: bike.title_es,
@@ -701,6 +683,13 @@ const handleSubmitReservation = async () => {
       locale: language
     };
 
+    // DEBUG: Mostrar datos de reserva antes de enviar a Supabase
+    console.groupCollapsed("Datos de Reserva (Pre-Supabase)");
+    console.log("Reservation Data:", reservationData);
+    console.log("Total Amount:", totalAmount);
+    console.log("Redsys Order ID:", redsysOrderId);
+    console.groupEnd();
+
     // 6. Crear reserva en Supabase
     const { data, error: insertError } = await supabase
       .from("reservations")
@@ -729,86 +718,99 @@ const handleSubmitReservation = async () => {
         status: "confirmed"
       });
       setCurrentStep("confirmation");
-    } else {
-      // Mostrar datos de prueba en desarrollo
-      if (process.env.NODE_ENV === 'development') {
-        alert(`MODO PRUEBA ACTIVADO\nUsa estos datos:\nTarjeta: ${REDSYS_TEST_CARD.number}\nFecha: ${REDSYS_TEST_CARD.expiry}\nCVV: ${REDSYS_TEST_CARD.cvv}\nCódigo 3DS: 1234 (si lo pide)`);
-      }
+      return;
+    }
 
-      // Preparar datos para el pago con Redsys
-      const paymentRequestData = {
-        amount: totalAmount,
-        orderId: data.id,
-        locale: language
-      };
+    // 9. Preparar datos para el pago con Redsys
+    const paymentRequestData = {
+      amount: Math.round(totalAmount * 100), // Convertir a céntimos
+      orderId: data.id,
+      locale: language
+    };
 
-      // Validar y convertir amount a céntimos
-      const parsedAmount = parseFloat(String(paymentRequestData.amount).replace(',', '.'));
-      if (isNaN(parsedAmount)) {
-        throw new Error('Invalid amount format');
-      }
-      paymentRequestData.amount = Math.round(parsedAmount * 100); // Convertir a céntimos
+    // DEBUG: Mostrar datos de pago antes de enviar a la API
+    console.groupCollapsed("Datos de Pago (Pre-Redsys API)");
+    console.log("Payment Request Data:", paymentRequestData);
+    console.log("Amount in cents:", paymentRequestData.amount);
+    console.log("Order ID:", paymentRequestData.orderId);
+    console.groupEnd();
 
-      // Llamar a la API de pago
-      const response = await fetch("/api/redsys", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(paymentRequestData),
-      });
+    // 10. Llamar a la API de Redsys
+    const response = await fetch("/api/redsys", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(paymentRequestData),
+    });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error("Error en la respuesta de Redsys:", errorData);
-        throw new Error(errorData.error || t("paymentError"));
-      }
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error("Error en la respuesta de Redsys:", errorData);
+      throw new Error(errorData.error || t("paymentError"));
+    }
 
-      const paymentData = await response.json();
-      console.log("Datos de pago recibidos:", paymentData);
+    const paymentData = await response.json();
 
-      if (paymentData.success) {
-        // Crear formulario para enviar a Redsys
-        const form = document.createElement("form");
-        form.method = "POST";
-        form.action = paymentData.url;
-        
-        const signatureVersion = document.createElement("input");
-        signatureVersion.type = "hidden";
-        signatureVersion.name = "Ds_SignatureVersion";
-        signatureVersion.value = paymentData.signatureVersion || "HMAC_SHA256_V1";
-        form.appendChild(signatureVersion);
+    // DEBUG: Mostrar respuesta de Redsys
+    console.groupCollapsed("Respuesta de Redsys API");
+    console.log("Payment Data:", paymentData);
+    console.log("URL:", paymentData.url);
+    console.log("Params Length:", paymentData.params?.length);
+    console.log("Signature Length:", paymentData.signature?.length);
+    console.groupEnd();
 
-        const merchantParams = document.createElement("input");
-        merchantParams.type = "hidden";
-        merchantParams.name = "Ds_MerchantParameters";
-        merchantParams.value = paymentData.params;
-        form.appendChild(merchantParams);
+    // 11. Crear formulario para enviar a Redsys
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = paymentData.url;
+    
+    const addHiddenField = (name: string, value: string) => {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    };
 
-        const signature = document.createElement("input");
-        signature.type = "hidden";
-        signature.name = "Ds_Signature";
-        signature.value = paymentData.signature;
-        form.appendChild(signature);
+    addHiddenField("Ds_SignatureVersion", paymentData.signatureVersion);
+    addHiddenField("Ds_MerchantParameters", paymentData.params);
+    addHiddenField("Ds_Signature", paymentData.signature);
 
-        // Restaurar console.error después de enviar
-        setTimeout(() => {
-          console.error = originalConsoleError;
-        }, 3000);
+    // DEBUG: Mostrar formulario completo antes de enviar
+    console.group("Formulario Final a Redsys");
+    console.log("Action:", form.action);
+    console.log("Method:", form.method);
+    console.log("Ds_SignatureVersion:", paymentData.signatureVersion);
+    console.log("Ds_MerchantParameters (first 100 chars):", paymentData.params.substring(0, 100));
+    console.log("Ds_Signature (first 50 chars):", paymentData.signature.substring(0, 50));
+    console.groupEnd();
 
-        document.body.appendChild(form);
-        form.submit();
-      } else {
-        throw new Error(paymentData.error || t("paymentError"));
+    // 12. Mostrar confirmación antes de redirigir (solo en desarrollo)
+    if (process.env.NODE_ENV === 'development') {
+      const shouldProceed = confirm(
+        `¿Continuar a Redsys?\n\nTarjeta prueba: ${REDSYS_TEST_CARD.number}\n` +
+        `Fecha: ${REDSYS_TEST_CARD.expiry}\nCVV: ${REDSYS_TEST_CARD.cvv}`
+      );
+      
+      if (!shouldProceed) {
+        setIsSubmitting(false);
+        return;
       }
     }
+
+    // 13. Enviar formulario a Redsys
+    document.body.appendChild(form);
+    form.submit();
+
   } catch (error) {
-    // Restaurar console.error en caso de error
-    console.error = originalConsoleError;
-    
-    console.error("Error in reservation process:", error);
-    const errorMessage = error instanceof Error ? error.message : t("reservationError");
-    
+    console.error("Error en el proceso de reserva:", {
+      error,
+      customerData,
+      selectedBikes,
+      reservationId
+    });
+
     // Manejo específico para errores de firma SIS0042
     if (error instanceof Error && error.message.includes("SIS0042")) {
       setValidationErrors({
@@ -816,38 +818,41 @@ const handleSubmitReservation = async () => {
         payment: t("paymentSignatureError")
       });
       setCurrentStep("customer");
+    } else {
+      setValidationErrors({
+        ...validationErrors,
+        payment: error instanceof Error ? error.message : t("reservationError")
+      });
     }
-    
+
     // Registrar error en Supabase
     await supabase.from("reservation_errors").insert({
       error_type: "reservation_creation",
       error_data: JSON.stringify({
         customer: customerData.email,
-        error: errorMessage,
+        error: error instanceof Error ? error.message : String(error),
         selected_bikes: selectedBikes.map(b => ({
           model: b.title_es,
           size: b.size,
           quantity: b.quantity,
           bike_ids: b.bikes.map(bike => bike.id)
         })),
-        timestamp: new Date().toISOString(),
-        redsys_order_id: reservationId || 'none'
+        timestamp: new Date().toISOString()
       })
     });
 
-    if (isAdminMode) {
-      alert(`Error: ${errorMessage}`);
-    } else if (errorMessage.includes("bikesNoLongerAvailable")) {
-      // Ya manejado en el flujo principal
-    } else {
-      window.location.href = `/reserva-fallida?order=${reservationId || 'none'}&error=${encodeURIComponent(errorMessage)}`;
+    if (!isAdminMode) {
+      window.location.href = `/reserva-fallida?order=${reservationId || 'none'}&error=${
+        encodeURIComponent(error instanceof Error ? error.message : t("reservationError"))
+      }`;
     }
   } finally {
     setIsSubmitting(false);
-    // Asegurarse de restaurar console.error
-    console.error = originalConsoleError;
   }
 };
+
+
+
   const getCategoryName = (category: BikeCategory): string => {
     switch (category) {
       case "ROAD":
