@@ -728,11 +728,14 @@ const handleSubmitReservation = async () => {
       locale: language
     };
 
-    // DEBUG: Mostrar datos de pago antes de enviar a la API
-    console.groupCollapsed("Datos de Pago (Pre-Redsys API)");
-    console.log("Payment Request Data:", paymentRequestData);
-    console.log("Amount in cents:", paymentRequestData.amount);
-    console.log("Order ID:", paymentRequestData.orderId);
+    // 🆕 NUEVO: Mostrar datos de pago en consola de forma persistente
+    console.group("📦 Datos enviados a Redsys API");
+    console.log("Endpoint:", "/api/redsys");
+    console.log("Method:", "POST");
+    console.log("Headers:", {
+      "Content-Type": "application/json"
+    });
+    console.log("Body:", JSON.stringify(paymentRequestData, null, 2));
     console.groupEnd();
 
     // 10. Llamar a la API de Redsys
@@ -752,12 +755,12 @@ const handleSubmitReservation = async () => {
 
     const paymentData = await response.json();
 
-    // DEBUG: Mostrar respuesta de Redsys
-    console.groupCollapsed("Respuesta de Redsys API");
-    console.log("Payment Data:", paymentData);
-    console.log("URL:", paymentData.url);
-    console.log("Params Length:", paymentData.params?.length);
-    console.log("Signature Length:", paymentData.signature?.length);
+    // 🆕 NUEVO: Mostrar respuesta de Redsys de forma persistente
+    console.group("🔔 Respuesta de Redsys API");
+    console.log("URL de Redsys:", paymentData.url);
+    console.log("Parámetros (Ds_MerchantParameters):", paymentData.params);
+    console.log("Firma (Ds_Signature):", paymentData.signature);
+    console.log("Versión de Firma:", paymentData.signatureVersion);
     console.groupEnd();
 
     // 11. Crear formulario para enviar a Redsys
@@ -777,20 +780,23 @@ const handleSubmitReservation = async () => {
     addHiddenField("Ds_MerchantParameters", paymentData.params);
     addHiddenField("Ds_Signature", paymentData.signature);
 
-    // DEBUG: Mostrar formulario completo antes de enviar
-    console.group("Formulario Final a Redsys");
+    // 🆕 NUEVO: Mostrar formulario completo antes de enviar
+    console.group("📝 Formulario Final a Redsys");
     console.log("Action:", form.action);
     console.log("Method:", form.method);
     console.log("Ds_SignatureVersion:", paymentData.signatureVersion);
-    console.log("Ds_MerchantParameters (first 100 chars):", paymentData.params.substring(0, 100));
-    console.log("Ds_Signature (first 50 chars):", paymentData.signature.substring(0, 50));
+    console.log("Ds_MerchantParameters:", paymentData.params);
+    console.log("Ds_Signature:", paymentData.signature);
     console.groupEnd();
 
     // 12. Mostrar confirmación antes de redirigir (solo en desarrollo)
     if (process.env.NODE_ENV === 'development') {
       const shouldProceed = confirm(
-        `¿Continuar a Redsys?\n\nTarjeta prueba: ${REDSYS_TEST_CARD.number}\n` +
-        `Fecha: ${REDSYS_TEST_CARD.expiry}\nCVV: ${REDSYS_TEST_CARD.cvv}`
+        `¿Continuar a Redsys?\n\n` +
+        `Se mostrarán los datos en consola primero.\n\n` +
+        `Tarjeta prueba: ${REDSYS_TEST_CARD.number}\n` +
+        `Fecha: ${REDSYS_TEST_CARD.expiry}\nCVV: ${REDSYS_TEST_CARD.cvv}\n\n` +
+        `Revisa la consola (F12) para ver los datos enviados.`
       );
       
       if (!shouldProceed) {
@@ -799,7 +805,10 @@ const handleSubmitReservation = async () => {
       }
     }
 
-    // 13. Enviar formulario a Redsys
+    // 13. Retrasar ligeramente el envío para permitir ver los logs
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // 14. Enviar formulario a Redsys
     document.body.appendChild(form);
     form.submit();
 
@@ -850,7 +859,6 @@ const handleSubmitReservation = async () => {
     setIsSubmitting(false);
   }
 };
-
 
 
   const getCategoryName = (category: BikeCategory): string => {
