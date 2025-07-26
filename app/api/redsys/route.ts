@@ -2,10 +2,10 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 
 // Configuración FIJA para entorno de prueba
-const REDSYS_URL = 'https://sis-t.redsys.es:25443/sis/realizarPago'; // URL de prueba
-const MERCHANT_CODE = process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE || '367064094'; // Tu código de comercio de prueba
-const TERMINAL = '001';
-const SECRET_KEY = process.env.REDSYS_SECRET_KEY || 'sq7HjrUOBfKmC576ILgskDSsrU870gJ7'; // Tu clave secreta de prueba
+const REDSYS_URL = 'https://sis-t.redsys.es:25443/sis/realizarPago';
+const MERCHANT_CODE = '367064094'; // Tu código de comercio real
+const TERMINAL = '001'; // Terminal real
+const SECRET_KEY = 'JvJ4AULO/uZjBnFqWS8s46g94SbVJ4iG'; // Tu clave secreta real
 
 // Tipos
 interface MerchantParams {
@@ -49,16 +49,10 @@ export async function POST(request: Request) {
 
     const amountInCents = Math.round(amountNumber * 100).toString();
 
-    // Validación y formateo del orderId
-    const orderIdStr = orderId.toString();
-    if (!orderIdStr || orderIdStr.length !== 12) {
-      throw new Error('El orderId debe tener exactamente 12 dígitos');
-    }
-
     // Construcción de parámetros para Redsys
     const merchantParams: MerchantParams = {
       DS_MERCHANT_AMOUNT: amountInCents,
-      DS_MERCHANT_ORDER: orderIdStr,
+      DS_MERCHANT_ORDER: orderId,
       DS_MERCHANT_MERCHANTCODE: MERCHANT_CODE,
       DS_MERCHANT_CURRENCY: '978', // EUR
       DS_MERCHANT_TRANSACTIONTYPE: '0', // Pago estándar
@@ -88,7 +82,7 @@ export async function POST(request: Request) {
     
     // Preparar orderCode para cifrado (8 bytes)
     const orderPadded = Buffer.alloc(8, 0);
-    Buffer.from(orderIdStr.slice(0, 8)).copy(orderPadded);
+    Buffer.from(orderId.slice(0, 8)).copy(orderPadded);
     
     const derivedKey = Buffer.concat([
       cipher.update(orderPadded),
@@ -100,12 +94,12 @@ export async function POST(request: Request) {
     hmac.update(paramsB64);
     const signature = hmac.digest('base64');
 
-    // Datos de depuración (siempre activos en este modo)
+    // Datos de depuración
     const debugInfo = {
       requestData: { amount, orderId, locale },
       processedData: {
         amountInCents,
-        orderCode: orderIdStr,
+        orderCode: orderId,
         merchantParams,
         paramsJson,
         paramsB64,
@@ -115,25 +109,25 @@ export async function POST(request: Request) {
       environment: {
         merchantCode: MERCHANT_CODE,
         terminal: TERMINAL,
-        secretKey: '***' + SECRET_KEY.slice(-4), // Muestra solo últimos 4 caracteres por seguridad
+        secretKey: '***' + SECRET_KEY.slice(-4),
         redsysUrl: REDSYS_URL,
-        note: 'MODO PRUEBA ACTIVADO - Siempre usando entorno de pruebas'
+        note: 'MODO PRUEBA ACTIVADO'
       }
     };
 
     return NextResponse.json({
       success: true,
-      url: REDSYS_URL, // Siempre usa la URL de prueba
+      url: REDSYS_URL,
       params: paramsB64,
       signature,
       signatureVersion: 'HMAC_SHA256_V1',
-      debug: debugInfo // Siempre muestra datos de depuración
+      debug: debugInfo
     });
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
     
-    console.error('Error en integración Redsys (Pruebas):', {
+    console.error('Error en integración Redsys:', {
       error: errorMessage,
       timestamp: new Date().toISOString()
     });
