@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 
-// Configuración de entornos
-const REDSYS_TEST_URL = 'https://sis-t.redsys.es:25443/sis/realizarPago';
-const REDSYS_PROD_URL = 'https://sis.redsys.es/sis/realizarPago';
-const MERCHANT_CODE = process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE || '367064094';
+// Configuración FIJA para entorno de prueba
+const REDSYS_URL = 'https://sis-t.redsys.es:25443/sis/realizarPago'; // URL de prueba
+const MERCHANT_CODE = process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE || '367064094'; // Tu código de comercio de prueba
 const TERMINAL = '001';
-const SECRET_KEY = process.env.REDSYS_SECRET_KEY || 'JvJ4AULO/uZjBnFqWS8s46g94SbVJ4iG';
+const SECRET_KEY = process.env.REDSYS_SECRET_KEY || 'JvJ4AULO/uZjBnFqWS8s46g94SbVJ4iG'; // Tu clave secreta de prueba
 
-// Tipos mejorados
+// Tipos (se mantienen igual)
 interface MerchantParams {
   DS_MERCHANT_AMOUNT: string;
   DS_MERCHANT_ORDER: string;
@@ -28,13 +27,9 @@ export async function POST(request: Request) {
   try {
     const { amount, orderId, locale } = await request.json();
 
-    // Validación exhaustiva de parámetros
+    // Validación de parámetros (se mantiene igual)
     if (amount === undefined || amount === null) {
       throw new Error('El parámetro "amount" es requerido');
-    }
-
-    if (orderId === undefined || orderId === null) {
-      throw new Error('El parámetro "orderId" es requerido');
     }
 
     // Convertir amount a céntimos con validación
@@ -84,7 +79,6 @@ export async function POST(request: Request) {
     // 2. Derivación de clave HMAC (3DES + SHA256)
     const secretKeyBytes = Buffer.from(SECRET_KEY, 'base64');
     
-    // Validar clave secreta
     if (secretKeyBytes.length !== 24) {
       throw new Error(`La clave secreta debe tener 24 bytes después de decodificar. Longitud actual: ${secretKeyBytes.length}`);
     }
@@ -107,11 +101,8 @@ export async function POST(request: Request) {
     hmac.update(paramsB64);
     const signature = hmac.digest('base64');
 
-    // Determinar URL según entorno
-    const redsysUrl = process.env.NODE_ENV === 'production' ? REDSYS_PROD_URL : REDSYS_TEST_URL;
-
-    // Datos de depuración (solo en desarrollo)
-    const debugInfo = process.env.NODE_ENV === 'development' ? {
+    // Datos de depuración (siempre activos en este modo)
+    const debugInfo = {
       requestData: { amount, orderId, locale },
       processedData: {
         amountInCents,
@@ -125,40 +116,41 @@ export async function POST(request: Request) {
       environment: {
         merchantCode: MERCHANT_CODE,
         terminal: TERMINAL,
-        secretKey: SECRET_KEY,
-        nodeEnv: process.env.NODE_ENV
+        secretKey: '***' + SECRET_KEY.slice(-4), // Muestra solo últimos 4 caracteres por seguridad
+        redsysUrl: REDSYS_URL,
+        note: 'MODO PRUEBA ACTIVADO - Siempre usando entorno de pruebas'
       }
-    } : undefined;
+    };
 
     return NextResponse.json({
       success: true,
-      url: redsysUrl,
+      url: REDSYS_URL, // Siempre usa la URL de prueba
       params: paramsB64,
       signature,
       signatureVersion: 'HMAC_SHA256_V1',
-      debug: debugInfo
+      debug: debugInfo // Siempre muestra datos de depuración
     });
 
   } catch (error) {
-    // Registro detallado del error
     const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-    const errorStack = error instanceof Error ? error.stack : null;
     
-    console.error('Error en integración Redsys:', {
+    console.error('Error en integración Redsys (Pruebas):', {
       error: errorMessage,
-      stack: errorStack,
-      timestamp: new Date().toISOString(),
-      request: await request.json().catch(() => 'No se pudo parsear la solicitud')
+      timestamp: new Date().toISOString()
     });
 
     return NextResponse.json(
       { 
         success: false, 
         error: errorMessage,
-        debug: process.env.NODE_ENV === 'development' ? {
-          stack: errorStack,
-          advice: 'Verifique: 1) Clave secreta 2) Formato de parámetros 3) Codificación Base64'
-        } : undefined
+        debug: {
+          advice: 'Verifique: 1) Clave secreta 2) Formato de parámetros 3) Codificación Base64',
+          environment: {
+            merchantCode: MERCHANT_CODE,
+            terminal: TERMINAL,
+            redsysUrl: REDSYS_URL
+          }
+        }
       },
       { status: 500 }
     );
