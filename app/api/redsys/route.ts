@@ -7,7 +7,7 @@ const MERCHANT_CODE = process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE || '367064094
 const TERMINAL = '001';
 const SECRET_KEY = process.env.REDSYS_SECRET_KEY || 'JvJ4AULO/uZjBnFqWS8s46g94SbVJ4iG'; // Tu clave secreta de prueba
 
-// Tipos (se mantienen igual)
+// Tipos
 interface MerchantParams {
   DS_MERCHANT_AMOUNT: string;
   DS_MERCHANT_ORDER: string;
@@ -27,9 +27,14 @@ export async function POST(request: Request) {
   try {
     const { amount, orderId, locale } = await request.json();
 
-    // Validación de parámetros (se mantiene igual)
+    // Validación de parámetros
     if (amount === undefined || amount === null) {
       throw new Error('El parámetro "amount" es requerido');
+    }
+
+    // Validación del orderId (12 dígitos numéricos)
+    if (!orderId || typeof orderId !== 'string' || !/^\d{12}$/.test(orderId)) {
+      throw new Error('El orderId debe ser una cadena de exactamente 12 dígitos numéricos');
     }
 
     // Convertir amount a céntimos con validación
@@ -46,20 +51,14 @@ export async function POST(request: Request) {
 
     // Validación y formateo del orderId
     const orderIdStr = orderId.toString();
-    if (!orderIdStr || orderIdStr.length === 0) {
-      throw new Error('El orderId no puede estar vacío');
-    }
-
-    // Limpiar orderId y asegurar 12 dígitos
-    const orderCode = orderIdStr.replace(/\D/g, '').padStart(12, '0').slice(-12);
-    if (orderCode.length !== 12) {
-      throw new Error(`El orderId debe poder convertirse a 12 dígitos. Valor recibido: ${orderId}`);
+    if (!orderIdStr || orderIdStr.length !== 12) {
+      throw new Error('El orderId debe tener exactamente 12 dígitos');
     }
 
     // Construcción de parámetros para Redsys
     const merchantParams: MerchantParams = {
       DS_MERCHANT_AMOUNT: amountInCents,
-      DS_MERCHANT_ORDER: orderCode,
+      DS_MERCHANT_ORDER: orderIdStr,
       DS_MERCHANT_MERCHANTCODE: MERCHANT_CODE,
       DS_MERCHANT_CURRENCY: '978', // EUR
       DS_MERCHANT_TRANSACTIONTYPE: '0', // Pago estándar
@@ -89,7 +88,7 @@ export async function POST(request: Request) {
     
     // Preparar orderCode para cifrado (8 bytes)
     const orderPadded = Buffer.alloc(8, 0);
-    Buffer.from(orderCode.slice(0, 8)).copy(orderPadded);
+    Buffer.from(orderIdStr.slice(0, 8)).copy(orderPadded);
     
     const derivedKey = Buffer.concat([
       cipher.update(orderPadded),
@@ -106,7 +105,7 @@ export async function POST(request: Request) {
       requestData: { amount, orderId, locale },
       processedData: {
         amountInCents,
-        orderCode,
+        orderCode: orderIdStr,
         merchantParams,
         paramsJson,
         paramsB64,

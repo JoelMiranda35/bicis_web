@@ -530,11 +530,6 @@ export default function ReservePage() {
   };
 
   // En la función generateRedsysOrderId(), asegurar que siempre tenga 12 caracteres
-const generateRedsysOrderId = () => {
-  const datePart = new Date().getTime().toString().slice(-6);
-  const randomPart = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-  return (datePart + randomPart).slice(0, 12);
-};
 
   const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
     if (!startDate || !endDate || selectedBikes.length === 0) {
@@ -573,6 +568,17 @@ const generateRedsysOrderId = () => {
     }
   };
 
+const generateRedsysOrderId = (): string => {
+  // Obtener los últimos 4 dígitos del timestamp (evita colisiones en el mismo segundo)
+  const timestampPart = Date.now().toString().slice(-4);
+  
+  // Generar 8 dígitos aleatorios (asegura unicidad)
+  const randomPart = Math.floor(Math.random() * 100000000).toString().padStart(8, '0');
+  
+  // Combinar y asegurar exactamente 12 dígitos
+  return (timestampPart + randomPart).slice(0, 12);
+};
+
 const handleSubmitReservation = async () => {
   if (!startDate || !endDate) return;
 
@@ -608,8 +614,8 @@ const handleSubmitReservation = async () => {
       return;
     }
 
-    // 3. Generar ID único para Redsys (12 dígitos)
-    const redsysOrderId = new Date().getTime().toString().slice(-12);
+    // 3. Generar ID único para Redsys (12 dígitos numéricos)
+    const redsysOrderId = generateRedsysOrderId();
 
     // 4. Preparar datos para la reserva en Supabase
     const bikesForDB = selectedBikes.map(bike => ({
@@ -724,11 +730,10 @@ const handleSubmitReservation = async () => {
     // 9. Preparar datos para el pago con Redsys
     const paymentRequestData = {
       amount: Math.round(totalAmount * 100), // Convertir a céntimos
-      orderId: data.id,
+      orderId: redsysOrderId, // Usar el mismo ID generado
       locale: language
     };
 
-    // 🆕 NUEVO: Mostrar datos de pago en consola de forma persistente
     console.group("📦 Datos enviados a Redsys API");
     console.log("Endpoint:", "/api/redsys");
     console.log("Method:", "POST");
@@ -755,7 +760,6 @@ const handleSubmitReservation = async () => {
 
     const paymentData = await response.json();
 
-    // 🆕 NUEVO: Mostrar respuesta de Redsys de forma persistente
     console.group("🔔 Respuesta de Redsys API");
     console.log("URL de Redsys:", paymentData.url);
     console.log("Parámetros (Ds_MerchantParameters):", paymentData.params);
@@ -780,7 +784,6 @@ const handleSubmitReservation = async () => {
     addHiddenField("Ds_MerchantParameters", paymentData.params);
     addHiddenField("Ds_Signature", paymentData.signature);
 
-    // 🆕 NUEVO: Mostrar formulario completo antes de enviar
     console.group("📝 Formulario Final a Redsys");
     console.log("Action:", form.action);
     console.log("Method:", form.method);
