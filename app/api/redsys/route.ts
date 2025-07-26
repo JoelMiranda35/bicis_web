@@ -5,7 +5,7 @@ import crypto from 'crypto';
 const REDSYS_URL = 'https://sis-t.redsys.es:25443/sis/realizarPago'; // URL de prueba
 const MERCHANT_CODE = process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE || '367064094'; // Tu código de comercio de prueba
 const TERMINAL = '001';
-const SECRET_KEY = process.env.REDSYS_SECRET_KEY || 'JvJ4AULO/uZjBnFqWS8s46g94SbVJ4iG'; // Tu clave secreta de prueba
+const SECRET_KEY = process.env.REDSYS_SECRET_KEY || 'sq7HjrUOBfKmC576ILgskDSsrU870gJ7'; // Tu clave secreta de prueba
 
 // Tipos
 interface MerchantParams {
