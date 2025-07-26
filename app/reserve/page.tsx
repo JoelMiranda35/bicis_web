@@ -531,10 +531,10 @@ export default function ReservePage() {
 
   // En la función generateRedsysOrderId(), asegurar que siempre tenga 12 caracteres
 const generateRedsysOrderId = () => {
-  const datePart = new Date().getTime().toString().slice(-6)
-  const randomPart = Math.floor(Math.random() * 1000000).toString().padStart(6, '0')
-  return (datePart + randomPart).slice(0, 12)
-}
+  const datePart = new Date().getTime().toString().slice(-6);
+  const randomPart = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+  return (datePart + randomPart).slice(0, 12);
+};
 
   const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
     if (!startDate || !endDate || selectedBikes.length === 0) {
@@ -572,6 +572,10 @@ const generateRedsysOrderId = () => {
       return { available: false, unavailableBikes: [] };
     }
   };
+
+// Importante: Este código reemplaza la función handleSubmitReservation en tu page.tsx
+
+
 
 const handleSubmitReservation = async () => {
   if (!startDate || !endDate) return;
@@ -731,20 +735,19 @@ const handleSubmitReservation = async () => {
         alert(`MODO PRUEBA ACTIVADO\nUsa estos datos:\nTarjeta: ${REDSYS_TEST_CARD.number}\nFecha: ${REDSYS_TEST_CARD.expiry}\nCVV: ${REDSYS_TEST_CARD.cvv}\nCódigo 3DS: 1234 (si lo pide)`);
       }
 
-    // En handleSubmitReservation, modifica el paymentRequestData:
-const paymentRequestData = {
-  amount: Math.round(totalAmount * 100), // Convertir a céntimos
-  orderId: data.id,
-  locale: language
-};
-const parsedAmount = parseFloat(String(paymentRequestData.amount).replace(',', '.'));
+      // Preparar datos para el pago con Redsys
+      const paymentRequestData = {
+        amount: totalAmount,
+        orderId: data.id,
+        locale: language
+      };
 
-if (isNaN(parsedAmount) || parsedAmount <= 0) {
-  throw new Error('Amount inválido o no numérico');
-}
-
-paymentRequestData.amount = Math.round(parsedAmount * 100); // ✔️ CENTAVOS (entero)
-
+      // Validar y convertir amount a céntimos
+      const parsedAmount = parseFloat(String(paymentRequestData.amount).replace(',', '.'));
+      if (isNaN(parsedAmount)) {
+        throw new Error('Invalid amount format');
+      }
+      paymentRequestData.amount = Math.round(parsedAmount * 100); // Convertir a céntimos
 
       // Llamar a la API de pago
       const response = await fetch("/api/redsys", {
