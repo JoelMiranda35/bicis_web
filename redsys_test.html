@@ -1,18 +1,23 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-    <title>Prueba Redsys</title>
+  <meta charset="UTF-8">
+  <title>Test Redsys</title>
 </head>
 <body>
-    <form id="redsysForm" action="https://sis-t.redsys.es:25443/sis/realizarPago" method="POST">
-        <input type="hidden" name="Ds_SignatureVersion" value="HMAC_SHA256_V1"/>
-        <input type="hidden" name="Ds_MerchantParameters" value="eyJEU19NRVJDSEFOVF9BTU9VTlQiOiI1MDUwIiwiRFNfTUVSQ0hBTlRfT1JERVIiOiIwMDAwMDAxMjM0NTYiLCJEU19NRVJDSEFOVF9NRVJDSEFOVENPREUiOiIzNjcwNjQwOTQiLCJEU19NRVJDSEFOVF9DVVJSRU5DWSI6Ijk3OCIsIkRTX01FUkNIQU5UX1RSQU5TQUNUSU9OVFlQRSI6IjAiLCJEU19NRVJDSEFOVF9URVJNSU5BTCI6IjAwMSIsIkRTX01FUkNIQU5UX01FUkNIQU5UVVJMIjoiaHR0cHM6Ly9hbHRlYWJpa2VzaG9wLmNvbS9hcGkvbm90aWZpY2F0aW9uIiwiRFNfTUVSQ0hBTlRfVVJMT0siOiJodHRwczovL2FsdGVhYmlrZXNob3AuY29tL3Jlc2VydmEtZXhpdG9zYT9vcmRlcj0xMjM0NTYiLCJEU19NRVJDSEFOVF9VUkxLTyI6Imh0dHBzOi8vYWx0ZWFiaWtlc2hvcC5jb20vcmVzZXJ2YS1mYWxsaWRhP29yZGVyPTEyMzQ1NiIsIkRTX01FUkNIQU5UX0NPTlNVTUVSTEFOR1VBR0UiOiIwMDIiLCJEU19NRVJDSEFOVF9QUk9EVUNUREVTQ1JJUFRJT04iOiJBbHF1aWxlciBkZSBiaWNpY2xldGFzIiwiRFNfTUVSQ0hBTlRfVElUVUxBUiI6IkFsdGVhIEJpa2UgU2hvcCIsIkRTX01FUkNIQU5UX01FUkNIQU5UREFUQSI6IjEyMzQ1NiJ9"/>
-        <input type="hidden" name="Ds_Signature" value="bcRdjFtCsUFkgs14au2AZ5yF_VEV3wn5rEKNJJOxikM"/>
-    </form>
+  <form name="pago" action="https://sis-t.redsys.es:25443/sis/realizarPago" method="POST">
+    <h3>Test de integración Redsys</h3>
+    
+    <label>Ds_MerchantParameters:</label><br>
+    <textarea name="Ds_MerchantParameters" cols="100" rows="5">eyJEU19NRVJDSEFOVF9BTU9VTlQiOiIxNDUwMCIsIkRTX01FUkNIQU5UX09SREVSIjoiMTIzNDU2Nzg5MDEyIiwiRFNfTUVSQ0hBTlRfTUVSQ0hBTlRDT0RFIjoiMzY3MDY0MDk0IiwiRFNfTUVSQ0hBTlRfQ1VSUkVOQ1kiOiI5NzgiLCJEU19NRVJDSEFOVF9UUkFOU0FDVElPTlRZUEUiOiIwIiwiRFNfTUVSQ0hBTlRfVEVSTUlOQUwiOiIwMDEiLCJEU19NRVJDSEFOVF9NRVJDSEFOVFVSTCI6Imh0dHBzOi8vYWx0ZWFiaWtlc2hvcC5jb20vYXBpL25vdGlmaWNhdGlvbiIsIkRTX01FUkNIQU5UX1VSTE9LIjoiaHR0cHM6Ly9hbHRlYWJpa2VzaG9wLmNvbS9yZXNlcnZhLWV4aXRvc2E/b3JkZXI9MTIzNDU2Nzg5MDEyIiwiRFNfTUVSQ0hBTlRfVVJMS08iOiJodHRwczovL2FsdGVhYmlrZXNob3AuY29tL3Jlc2VydmEtZmFsbGlkYT9vcmRlcj0xMjM0NTY3ODkwMTIiLCJEU19NRVJDSEFOVF9DT05TVU1FUkxBTkdVQUdFIjoiMDAyIiwiRFNfTUVSQ0hBTlRfUFJPRFVDVERFU0NSSVBUSU9OIjoiQWxxdWlsZXIgZGUgYmljaWNsZXRhcyIsIkRTX01FUkNIQU5UX1RJVFVMQVIiOiJBbHRlYSBCaWtlIFNob3AifQ==</textarea><br><br>
 
-    <script>
-        // Envía el formulario automáticamente al cargar la página
-        document.getElementById('redsysForm').submit();
-    </script>
+    <label>Ds_Signature:</label><br>
+    <input type="text" name="Ds_Signature" value="l1DVgbCPjAT1U7u2dh5cLBNWBkpeUB+cbLmKZ+hqvQE=" size="100"><br><br>
+
+    <label>Ds_SignatureVersion:</label><br>
+    <input type="text" name="Ds_SignatureVersion" value="HMAC_SHA256_V1"><br><br>
+
+    <input type="submit" value="Probar contra entorno de test de Redsys">
+  </form>
 </body>
 </html>
