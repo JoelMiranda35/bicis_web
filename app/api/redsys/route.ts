@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     merchantCode: process.env.REDSYS_MERCHANT_CODE || '999008881',
     terminal: process.env.REDSYS_TERMINAL || '1',
     secretKey: process.env.REDSYS_SECRET_KEY || 'JvJ4AULO/uZjBnFqWS8s46g94SbVJ4iG',
-    siteUrl: process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+    siteUrl: process.env.NEXT_PUBLIC_SITE_URL || 'http://alteabikeshop.com',
   };
 
   try {
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       DS_MERCHANT_CURRENCY: '978', // EUR
       DS_MERCHANT_TRANSACTIONTYPE: '0', // Autorización
       DS_MERCHANT_TERMINAL: config.terminal,
-      DS_MERCHANT_MERCHANTURL: `${config.siteUrl}/api/redsys-notification`,
+      DS_MERCHANT_MERCHANTURL: `${config.siteUrl}/api/notification`,
       DS_MERCHANT_URLOK: `${config.siteUrl}/reserva-exitosa?order=${orderId}`,
       DS_MERCHANT_URLKO: `${config.siteUrl}/reserva-fallida?order=${orderId}`,
       DS_MERCHANT_CONSUMERLANGUAGE: locale === 'es' ? '002' : '001' // 002=español, 001=inglés
