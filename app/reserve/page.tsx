@@ -582,19 +582,25 @@ const generateRedsysOrderId = (): string => {
 };
 
 const handleSubmitReservation = async () => {
-  if (!startDate || !endDate) return;
+  console.log('🔹 Iniciando proceso de reserva...');
+  
+  if (!startDate || !endDate) {
+    console.error('❌ Fechas no definidas');
+    return;
+  }
 
   setIsSubmitting(true);
 
   try {
-    // 1. Validar datos del cliente
+    console.log('🔹 Validando datos del cliente...');
     if (!validateCustomerData()) {
       throw new Error(t("reservationValidationError"));
     }
 
-    // 2. Verificar disponibilidad de bicicletas
+    console.log('🔹 Verificando disponibilidad de bicicletas...');
     const { available, unavailableBikes } = await checkBikesAvailability();
     if (!available) {
+      console.error('❌ Bicicletas no disponibles:', unavailableBikes);
       await fetchAvailableBikes();
       
       const errorMessage = unavailableBikes.length > 0 
@@ -616,7 +622,9 @@ const handleSubmitReservation = async () => {
       return;
     }
 
-    // 3. Calcular días totales (considerando horas)
+    console.log('✅ Bicicletas disponibles confirmadas');
+
+    // Calcular días totales (considerando horas)
     const totalDays = calculateTotalDays(
       new Date(startDate),
       new Date(endDate),
@@ -624,29 +632,40 @@ const handleSubmitReservation = async () => {
       returnTime
     );
 
-    // 4. Calcular montos (en céntimos)
-    // a) Alquiler de bicicletas
+    console.log('🔹 Calculando montos para:', {
+      totalDays,
+      selectedBikesCount: selectedBikes.reduce((sum, bike) => sum + bike.quantity, 0),
+      hasInsurance,
+      selectedAccessoriesCount: selectedAccessories.length
+    });
+
+    // Calcular montos (en euros)
     const rentalAmount = selectedBikes.reduce((total, bike) => {
-      return total + (calculatePrice(bike.category, totalDays) * bike.quantity);
+      return total + (calculatePrice(bike.category, totalDays)) * bike.quantity;
     }, 0);
 
-    // b) Seguro (opcional)
     const insuranceAmount = hasInsurance
       ? calculateInsurance(totalDays) * selectedBikes.reduce((sum, bike) => sum + bike.quantity, 0)
       : 0;
 
-    // c) Accesorios
     const accessoriesAmount = selectedAccessories.reduce((total, acc) => {
       return total + (acc.price * totalDays);
     }, 0);
 
-    // d) Total para Redsys (sin depósito)
     const totalAmount = rentalAmount + insuranceAmount + accessoriesAmount;
 
-    // 5. Generar ID de pedido para Redsys (12 dígitos)
-    const redsysOrderId = generateRedsysOrderId();
+    console.log('🔹 Montos calculados:', {
+      rentalAmount,
+      insuranceAmount,
+      accessoriesAmount,
+      totalAmount
+    });
 
-    // 6. Preparar datos para Supabase
+    // Generar ID de pedido para Redsys (12 dígitos)
+    const redsysOrderId = generateRedsysOrderId();
+    console.log('🔹 Order ID generado:', redsysOrderId);
+
+    // Preparar datos para Supabase
     const bikesForDB = selectedBikes.map(bike => ({
       model: {
         title_es: bike.title_es,
@@ -680,7 +699,7 @@ const handleSubmitReservation = async () => {
     pickupDate.setHours(pickupHour, pickupMinute, 0, 0);
     returnDate.setHours(returnHour, returnMinute, 0, 0);
 
-    // 7. Crear objeto de reserva
+    // Crear objeto de reserva
     const reservationData = {
       customer_name: customerData.name.trim(),
       customer_email: customerData.email.toLowerCase().trim(),
@@ -694,8 +713,8 @@ const handleSubmitReservation = async () => {
       bikes: bikesForDB,
       accessories: accessoriesForDB,
       insurance: hasInsurance,
-      total_amount: totalAmount, // Para Redsys (sin depósito)
-      deposit_amount: calculateTotalDeposit(), // Solo para registro
+      total_amount: totalAmount * 100, // Convertir a céntimos para Redsys
+      deposit_amount: calculateTotalDeposit(),
       paid_amount: 0,
       status: isAdminMode ? "confirmed" : "pending_payment",
       payment_gateway: "redsys",
@@ -708,18 +727,24 @@ const handleSubmitReservation = async () => {
       locale: language
     };
 
-    // 8. Crear reserva en Supabase
+    console.log('🔹 Creando reserva en Supabase...', reservationData);
+
+    // Crear reserva en Supabase
     const { data, error: insertError } = await supabase
       .from("reservations")
       .insert([reservationData])
       .select()
       .single();
 
-    if (insertError) throw insertError;
+    if (insertError) {
+      console.error('❌ Error al crear reserva en Supabase:', insertError);
+      throw insertError;
+    }
 
     setReservationId(data.id);
+    console.log('✅ Reserva creada en Supabase con ID:', data.id);
 
-    // 9. Registrar en logs
+    // Registrar en logs
     await supabase.from("reservation_logs").insert({
       reservation_id: data.id,
       action: "created",
@@ -728,8 +753,9 @@ const handleSubmitReservation = async () => {
       redsys_order_id: redsysOrderId
     });
 
-    // 10. Modo admin: saltar pago
+    // Modo admin: saltar pago
     if (isAdminMode) {
+      console.log('🔹 Modo admin - Saltando proceso de pago');
       await sendConfirmationEmail({
         ...reservationData,
         id: data.id,
@@ -739,14 +765,17 @@ const handleSubmitReservation = async () => {
       return;
     }
 
-    // 11. Preparar pago para Redsys
+    // Preparar pago para Redsys
     const paymentRequestData = {
-      amount: totalAmount, // Ya en céntimos
+      amount: totalAmount * 100, // Convertir a céntimos
       orderId: redsysOrderId,
       locale: language
     };
 
-    // 12. Llamar a la API de Redsys
+    console.log('🔹 Preparando datos para Redsys:', paymentRequestData);
+
+    // Llamar a la API de Redsys
+    console.log('🔹 Enviando solicitud a /api/redsys...');
     const response = await fetch("/api/redsys", {
       method: "POST",
       headers: {
@@ -757,12 +786,20 @@ const handleSubmitReservation = async () => {
 
     if (!response.ok) {
       const errorData = await response.json();
+      console.error('❌ Error en la respuesta de la API Redsys:', errorData);
       throw new Error(errorData.error || t("paymentError"));
     }
 
     const paymentData = await response.json();
+    console.log('✅ Respuesta de Redsys recibida:', {
+      url: paymentData.url,
+      params: paymentData.params,
+      signature: paymentData.signature,
+      debugInfo: paymentData.debugInfo
+    });
 
-    // 13. Redirigir a Redsys
+    // Redirigir a Redsys
+    console.log('🔹 Creando formulario de redirección a Redsys...');
     const form = document.createElement("form");
     form.method = "POST";
     form.action = paymentData.url;
@@ -779,15 +816,23 @@ const handleSubmitReservation = async () => {
     addHiddenField("Ds_MerchantParameters", paymentData.params);
     addHiddenField("Ds_Signature", paymentData.signature);
 
+    console.log('🔹 Campos del formulario de redirección:', {
+      Ds_SignatureVersion: paymentData.signatureVersion,
+      Ds_MerchantParameters: paymentData.params,
+      Ds_Signature: paymentData.signature
+    });
+
     document.body.appendChild(form);
+    console.log('🔹 Enviando formulario a Redsys...');
     form.submit();
 
   } catch (error) {
-    console.error("Error en el proceso de reserva:", {
+    console.error('❌ Error en el proceso de reserva:', {
       error,
       customerData,
       selectedBikes,
-      reservationId
+      reservationId,
+      timestamp: new Date().toISOString()
     });
 
     setValidationErrors({
@@ -811,12 +856,14 @@ const handleSubmitReservation = async () => {
     });
 
     if (!isAdminMode) {
+      console.error('🔹 Redirigiendo a página de error...');
       window.location.href = `/reserva-fallida?order=${reservationId || 'none'}&error=${
         encodeURIComponent(error instanceof Error ? error.message : t("reservationError"))
       }`;
     }
   } finally {
     setIsSubmitting(false);
+    console.log('🔹 Proceso de reserva finalizado');
   }
 };
 
