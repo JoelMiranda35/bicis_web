@@ -51,6 +51,8 @@ const REDSYS_TEST_CARD = {
   expiry: '12/2025',
   cvv: '123'
 };
+// Usa las variables públicas para datos no sensibles
+const merchantCode = process.env.NEXT_PUBLIC_REDSYS_MERCHANT_CODE;
 
 type Step =
   | "dates"
