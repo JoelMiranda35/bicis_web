@@ -614,10 +614,37 @@ const handleSubmitReservation = async () => {
       return;
     }
 
-    // 3. Generar ID único para Redsys (12 dígitos numéricos)
+    // 3. Calcular días totales (considerando horas)
+    const totalDays = calculateTotalDays(
+      new Date(startDate),
+      new Date(endDate),
+      pickupTime,
+      returnTime
+    );
+
+    // 4. Calcular montos (en céntimos)
+    // a) Alquiler de bicicletas
+    const rentalAmount = selectedBikes.reduce((total, bike) => {
+      return total + (calculatePrice(bike.category, totalDays) * bike.quantity);
+    }, 0);
+
+    // b) Seguro (opcional)
+    const insuranceAmount = hasInsurance
+      ? calculateInsurance(totalDays) * selectedBikes.reduce((sum, bike) => sum + bike.quantity, 0)
+      : 0;
+
+    // c) Accesorios
+    const accessoriesAmount = selectedAccessories.reduce((total, acc) => {
+      return total + (acc.price * totalDays);
+    }, 0);
+
+    // d) Total para Redsys (sin depósito)
+    const totalAmount = rentalAmount + insuranceAmount + accessoriesAmount;
+
+    // 5. Generar ID de pedido para Redsys (12 dígitos)
     const redsysOrderId = generateRedsysOrderId();
 
-    // 4. Preparar datos para la reserva en Supabase
+    // 6. Preparar datos para Supabase
     const bikesForDB = selectedBikes.map(bike => ({
       model: {
         title_es: bike.title_es,
@@ -642,7 +669,7 @@ const handleSubmitReservation = async () => {
       price: acc.price,
     }));
 
-    // Configurar fechas y horas exactas
+    // Configurar fechas exactas
     const pickupDate = new Date(startDate);
     const returnDate = new Date(endDate);
     const [pickupHour, pickupMinute] = pickupTime.split(':').map(Number);
@@ -651,17 +678,7 @@ const handleSubmitReservation = async () => {
     pickupDate.setHours(pickupHour, pickupMinute, 0, 0);
     returnDate.setHours(returnHour, returnMinute, 0, 0);
 
-    const totalDays = calculateTotalDays(
-      new Date(startDate),
-      new Date(endDate),
-      pickupTime,
-      returnTime
-    );
-
-    const totalAmount = calculateTotal();
-    const depositAmount = calculateTotalDeposit();
-
-    // 5. Crear objeto de datos de reserva
+    // 7. Crear objeto de reserva
     const reservationData = {
       customer_name: customerData.name.trim(),
       customer_email: customerData.email.toLowerCase().trim(),
@@ -675,8 +692,8 @@ const handleSubmitReservation = async () => {
       bikes: bikesForDB,
       accessories: accessoriesForDB,
       insurance: hasInsurance,
-      total_amount: totalAmount,
-      deposit_amount: depositAmount,
+      total_amount: totalAmount, // Para Redsys (sin depósito)
+      deposit_amount: calculateTotalDeposit(), // Solo para registro
       paid_amount: 0,
       status: isAdminMode ? "confirmed" : "pending_payment",
       payment_gateway: "redsys",
@@ -689,14 +706,7 @@ const handleSubmitReservation = async () => {
       locale: language
     };
 
-    // DEBUG: Mostrar datos de reserva antes de enviar a Supabase
-    console.groupCollapsed("Datos de Reserva (Pre-Supabase)");
-    console.log("Reservation Data:", reservationData);
-    console.log("Total Amount:", totalAmount);
-    console.log("Redsys Order ID:", redsysOrderId);
-    console.groupEnd();
-
-    // 6. Crear reserva en Supabase
+    // 8. Crear reserva en Supabase
     const { data, error: insertError } = await supabase
       .from("reservations")
       .insert([reservationData])
@@ -707,7 +717,7 @@ const handleSubmitReservation = async () => {
 
     setReservationId(data.id);
 
-    // 7. Registrar en logs
+    // 9. Registrar en logs
     await supabase.from("reservation_logs").insert({
       reservation_id: data.id,
       action: "created",
@@ -716,7 +726,7 @@ const handleSubmitReservation = async () => {
       redsys_order_id: redsysOrderId
     });
 
-    // 8. Manejar flujo según modo (admin o usuario)
+    // 10. Modo admin: saltar pago
     if (isAdminMode) {
       await sendConfirmationEmail({
         ...reservationData,
@@ -727,23 +737,14 @@ const handleSubmitReservation = async () => {
       return;
     }
 
-    // 9. Preparar datos para el pago con Redsys
+    // 11. Preparar pago para Redsys
     const paymentRequestData = {
-      amount: totalAmount, // Convertir a céntimos
-      orderId: redsysOrderId, // Usar el mismo ID generado
+      amount: totalAmount, // Ya en céntimos
+      orderId: redsysOrderId,
       locale: language
     };
 
-    console.group("📦 Datos enviados a Redsys API");
-    console.log("Endpoint:", "/api/redsys");
-    console.log("Method:", "POST");
-    console.log("Headers:", {
-      "Content-Type": "application/json"
-    });
-    console.log("Body:", JSON.stringify(paymentRequestData, null, 2));
-    console.groupEnd();
-
-    // 10. Llamar a la API de Redsys
+    // 12. Llamar a la API de Redsys
     const response = await fetch("/api/redsys", {
       method: "POST",
       headers: {
@@ -754,20 +755,12 @@ const handleSubmitReservation = async () => {
 
     if (!response.ok) {
       const errorData = await response.json();
-      console.error("Error en la respuesta de Redsys:", errorData);
       throw new Error(errorData.error || t("paymentError"));
     }
 
     const paymentData = await response.json();
 
-    console.group("🔔 Respuesta de Redsys API");
-    console.log("URL de Redsys:", paymentData.url);
-    console.log("Parámetros (Ds_MerchantParameters):", paymentData.params);
-    console.log("Firma (Ds_Signature):", paymentData.signature);
-    console.log("Versión de Firma:", paymentData.signatureVersion);
-    console.groupEnd();
-
-    // 11. Crear formulario para enviar a Redsys
+    // 13. Redirigir a Redsys
     const form = document.createElement("form");
     form.method = "POST";
     form.action = paymentData.url;
@@ -784,34 +777,6 @@ const handleSubmitReservation = async () => {
     addHiddenField("Ds_MerchantParameters", paymentData.params);
     addHiddenField("Ds_Signature", paymentData.signature);
 
-    console.group("📝 Formulario Final a Redsys");
-    console.log("Action:", form.action);
-    console.log("Method:", form.method);
-    console.log("Ds_SignatureVersion:", paymentData.signatureVersion);
-    console.log("Ds_MerchantParameters:", paymentData.params);
-    console.log("Ds_Signature:", paymentData.signature);
-    console.groupEnd();
-
-    // 12. Mostrar confirmación antes de redirigir (solo en desarrollo)
-    if (process.env.NODE_ENV === 'development') {
-      const shouldProceed = confirm(
-        `¿Continuar a Redsys?\n\n` +
-        `Se mostrarán los datos en consola primero.\n\n` +
-        `Tarjeta prueba: ${REDSYS_TEST_CARD.number}\n` +
-        `Fecha: ${REDSYS_TEST_CARD.expiry}\nCVV: ${REDSYS_TEST_CARD.cvv}\n\n` +
-        `Revisa la consola (F12) para ver los datos enviados.`
-      );
-      
-      if (!shouldProceed) {
-        setIsSubmitting(false);
-        return;
-      }
-    }
-
-    // 13. Retrasar ligeramente el envío para permitir ver los logs
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // 14. Enviar formulario a Redsys
     document.body.appendChild(form);
     form.submit();
 
@@ -823,21 +788,11 @@ const handleSubmitReservation = async () => {
       reservationId
     });
 
-    // Manejo específico para errores de firma SIS0042
-    if (error instanceof Error && error.message.includes("SIS0042")) {
-      setValidationErrors({
-        ...validationErrors,
-        payment: t("paymentSignatureError")
-      });
-      setCurrentStep("customer");
-    } else {
-      setValidationErrors({
-        ...validationErrors,
-        payment: error instanceof Error ? error.message : t("reservationError")
-      });
-    }
+    setValidationErrors({
+      ...validationErrors,
+      payment: error instanceof Error ? error.message : t("reservationError")
+    });
 
-    // Registrar error en Supabase
     await supabase.from("reservation_errors").insert({
       error_type: "reservation_creation",
       error_data: JSON.stringify({
@@ -862,7 +817,6 @@ const handleSubmitReservation = async () => {
     setIsSubmitting(false);
   }
 };
-
 
   const getCategoryName = (category: BikeCategory): string => {
     switch (category) {
