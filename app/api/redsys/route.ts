@@ -1,56 +1,23 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 
-// 1. Configuración centralizada de variables de entorno
+// Configuración
 const ENV = {
-  REDSYS_URL: 'https://sis-t.redsys.es:25443/sis/realizarPago', // Hardcodeado porque es fijo
-  MERCHANT_CODE: process.env.REDSYS_MERCHANT_CODE, // Solo variable privada
-  TERMINAL: process.env.REDSYS_TERMINAL || '001', // Default '001'
+  REDSYS_URL: 'https://sis-t.redsys.es:25443/sis/realizarPago',
+  MERCHANT_CODE: process.env.REDSYS_MERCHANT_CODE,
+  TERMINAL: process.env.REDSYS_TERMINAL || '001',
   SECRET_KEY: process.env.REDSYS_SECRET_KEY,
-  SITE_URL: process.env.NEXT_PUBLIC_SITE_URL // Única variable pública necesaria
+  SITE_URL: process.env.NEXT_PUBLIC_SITE_URL
 };
-
-// 2. Validación temprana de configuración (solo en startup)
-if (!ENV.MERCHANT_CODE || !ENV.SECRET_KEY) {
-  const missing = [];
-  if (!ENV.MERCHANT_CODE) missing.push('REDSYS_MERCHANT_CODE');
-  if (!ENV.SECRET_KEY) missing.push('REDSYS_SECRET_KEY');
-  
-  console.error('❌ Configuración crítica faltante:', missing.join(', '));
-  // No throw aquí para permitir que el servidor inicie, pero fallará en las requests
-}
-
-interface MerchantParams {
-  DS_MERCHANT_AMOUNT: string;
-  DS_MERCHANT_ORDER: string;
-  DS_MERCHANT_MERCHANTCODE: string;
-  DS_MERCHANT_CURRENCY: string;
-  DS_MERCHANT_TRANSACTIONTYPE: string;
-  DS_MERCHANT_TERMINAL: string;
-  DS_MERCHANT_MERCHANTURL: string;
-  DS_MERCHANT_URLOK: string;
-  DS_MERCHANT_URLKO: string;
-  DS_MERCHANT_CONSUMERLANGUAGE?: string;
-  DS_MERCHANT_PRODUCTDESCRIPTION?: string;
-  DS_MERCHANT_TITULAR?: string;
-}
 
 export async function POST(request: Request) {
   try {
-    // 3. Validación de configuración por request
+    // Validación de configuración
     if (!ENV.MERCHANT_CODE || !ENV.SECRET_KEY || !ENV.SITE_URL) {
-      throw new Error(
-        `Configuración incompleta. Verifique: ${
-          !ENV.MERCHANT_CODE ? 'REDSYS_MERCHANT_CODE ' : ''
-        }${
-          !ENV.SECRET_KEY ? 'REDSYS_SECRET_KEY ' : ''
-        }${
-          !ENV.SITE_URL ? 'NEXT_PUBLIC_SITE_URL' : ''
-        }`
-      );
+      throw new Error('Configuración incompleta');
     }
 
-    // 4. Parse y validación de input
+    // Parse y validación de input
     const { amount, orderId, locale = 'es' } = await request.json();
 
     if (amount == null) throw new Error('"amount" es requerido');
@@ -63,11 +30,11 @@ export async function POST(request: Request) {
       throw new Error('"amount" debe ser un número positivo');
     }
 
-    // 5. Construcción de parámetros Redsys
+    // Construcción de parámetros Redsys
     const amountInCents = Math.round(amountNumber * 100).toString();
     const baseUrl = ENV.SITE_URL;
     
-    const merchantParams: MerchantParams = {
+    const merchantParams = {
       DS_MERCHANT_AMOUNT: amountInCents,
       DS_MERCHANT_ORDER: orderId,
       DS_MERCHANT_MERCHANTCODE: ENV.MERCHANT_CODE,
@@ -82,36 +49,33 @@ export async function POST(request: Request) {
       DS_MERCHANT_TITULAR: 'Altea Bike Shop'
     };
 
-    // 6. Generación de firma (paso a paso con validaciones)
+    // Generación de firma (paso a paso)
     const paramsJson = JSON.stringify(merchantParams);
     const paramsB64 = Buffer.from(paramsJson).toString('base64');
 
-    // Validación clave secreta
-    let secretKeyBytes;
-    try {
-      secretKeyBytes = Buffer.from(ENV.SECRET_KEY, 'base64');
-      if (secretKeyBytes.length !== 24) {
-        throw new Error('Longitud inválida');
-      }
-    } catch (e) {
+    // 1. Decodificar la clave secreta de Base64
+    const secretKeyBytes = Buffer.from(ENV.SECRET_KEY, 'base64');
+    if (secretKeyBytes.length !== 24) {
       throw new Error('Clave secreta inválida. Debe ser Base64 y 24 bytes decodificados');
     }
 
-    // Derivación de clave
-    const cipher = crypto.createCipheriv('des-ede3', secretKeyBytes, Buffer.alloc(0));
-    cipher.setAutoPadding(false);
-    
+    // 2. Cifrar los primeros 8 dígitos del orderId con 3DES
     const orderPadded = Buffer.alloc(8, 0);
     Buffer.from(orderId.slice(0, 8)).copy(orderPadded);
-    
-    const derivedKey = Buffer.concat([cipher.update(orderPadded), cipher.final()]);
 
-    // Firma HMAC
+    // Usar createCipheriv con ECB (no IV) y ZeroPadding
+    const cipher = crypto.createCipheriv('des-ede3', secretKeyBytes, Buffer.alloc(0));
+    cipher.setAutoPadding(false); // Desactivar padding automático
+    
+    let derivedKey = cipher.update(orderPadded);
+    derivedKey = Buffer.concat([derivedKey, cipher.final()]);
+
+    // 3. Calcular HMAC-SHA256 con la clave derivada
     const hmac = crypto.createHmac('sha256', derivedKey);
     hmac.update(paramsB64);
     const signature = hmac.digest('base64');
 
-    // 7. Respuesta exitosa (sin debug info en producción)
+    // Respuesta exitosa
     return NextResponse.json({
       success: true,
       url: ENV.REDSYS_URL,
@@ -122,27 +86,22 @@ export async function POST(request: Request) {
         _debug: {
           orderId,
           amountInCents,
-          terminal: ENV.TERMINAL
+          terminal: ENV.TERMINAL,
+          derivedKey: derivedKey.toString('hex') // Para depuración
         }
       })
     });
 
   } catch (error) {
-    // 8. Manejo centralizado de errores
     const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-    const isDev = process.env.NODE_ENV === 'development';
     
-    console.error('🚨 Error Redsys:', {
-      error: errorMessage,
-      ...(isDev && { stack: error instanceof Error ? error.stack : undefined }),
-      timestamp: new Date().toISOString()
-    });
-
+    console.error('Error Redsys:', errorMessage);
+    
     return NextResponse.json(
       {
         success: false,
         error: errorMessage,
-        ...(isDev && {
+        ...(process.env.NODE_ENV === 'development' && {
           _debug: {
             advice: 'Verifique: 1) Clave secreta 2) orderId (12 dígitos) 3) amount (número positivo)',
             env: {
