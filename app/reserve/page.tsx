@@ -729,7 +729,7 @@ const handleSubmitReservation = async () => {
 
     // 9. Preparar datos para el pago con Redsys
     const paymentRequestData = {
-      amount: Math.round(totalAmount * 100), // Convertir a céntimos
+      amount: totalAmount, // Convertir a céntimos
       orderId: redsysOrderId, // Usar el mismo ID generado
       locale: language
     };
