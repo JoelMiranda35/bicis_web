@@ -625,7 +625,7 @@ const handleSubmitReservation = async () => {
       returnTime
     );
 
-    // Calcular montos (en euros)
+    // Calcular montos (EN EUROS)
     const rentalAmount = selectedBikes.reduce((total, bike) => {
       return total + calculatePrice(bike.category, totalDays) * bike.quantity;
     }, 0);
@@ -639,14 +639,14 @@ const handleSubmitReservation = async () => {
     }, 0);
 
     const totalAmount = rentalAmount + insuranceAmount + accessoriesAmount;
-    const totalAmountInCents = Math.round(totalAmount * 100); // Convertir a céntimos para Redsys
+    const totalAmountInCents = Math.round(totalAmount * 100); // Convertir a céntimos
 
     console.log('🔹 Montos calculados:', {
       rentalAmount,
       insuranceAmount,
       accessoriesAmount,
-      totalAmount,
-      totalAmountInCents
+      totalAmount, // En euros
+      totalAmountInCents // En céntimos
     });
 
     // Generar ID de pedido para Redsys (12 dígitos exactos)
@@ -745,9 +745,9 @@ const handleSubmitReservation = async () => {
       return;
     }
 
-    // Preparar pago para Redsys
+    // Preparar pago para Redsys (ENVIAR AMOUNT EN EUROS)
     const paymentRequestData = {
-      amount: totalAmountInCents, // Enviar en céntimos
+      amount: totalAmount, // Enviar en euros (ej: 30.00)
       orderId: redsysOrderId,
       locale: language
     };
