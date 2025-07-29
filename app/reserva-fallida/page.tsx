@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useLanguage } from '@/lib/language-context';
 import { AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { verifySignature } from '@/lib/redsys-utils';
+import { verifySignature } from '@/lib/redsysUtils';
 
 function FailureContent() {
   const { t } = useLanguage();

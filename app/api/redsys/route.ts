@@ -1,15 +1,19 @@
 import { NextResponse } from 'next/server';
-import crypto from 'crypto';
+import crypto from 'crypto'; // Usando el módulo crypto nativo de Node.js
 
 export async function POST(request: Request) {
-  // Configuración EXACTA para pruebas
-  const config = {
-    redsysUrl: 'https://sis-t.redsys.es:25443/sis/realizarPago',
-    merchantCode: '999008881', // Código de comercio de PRUEBAS
-    terminal: '1',
-    secretKey: 'JvJ4AULO/uZjBnFqWS8s46g94SbVJ4iG', // Clave EXACTA para pruebas
-    siteUrl: 'https://www.alteabikeshop.com'
-  };
+  // Configuración de variables de entorno (asegúrate de que estén disponibles en Vercel)
+  const REDSYS_SECRET_KEY = process.env.REDSYS_SECRET_KEY as string;
+  const REDSYS_MERCHANT_CODE = process.env.REDSYS_MERCHANT_CODE as string;
+  const REDSYS_TERMINAL = process.env.REDSYS_TERMINAL as string;
+  const REDSYS_URL = process.env.REDSYS_URL as string; // URL del TPV (pruebas o producción)
+  const NEXT_PUBLIC_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL as string; // Para construir las URLs de callback
+
+  // Asegúrate de que todas las variables de entorno necesarias estén definidas
+  if (!REDSYS_SECRET_KEY || !REDSYS_MERCHANT_CODE || !REDSYS_TERMINAL || !REDSYS_URL || !NEXT_PUBLIC_SITE_URL) {
+    console.error("Faltan variables de entorno esenciales para Redsys.");
+    return NextResponse.json({ error: 'Configuración del servidor incompleta.' }, { status: 500 });
+  }
 
   try {
     const { amount, orderId, locale = 'es' } = await request.json();
@@ -19,8 +23,9 @@ export async function POST(request: Request) {
       throw new Error('Faltan parámetros requeridos (amount, orderId)');
     }
 
-    const amountInCents = Math.round(Number(amount));
-    const orderIdStr = orderId.toString().padStart(12, '0').slice(0, 12);
+    const amountInCents = Math.round(Number(amount) * 100); // Redsys espera céntimos
+    // Aseguramos 12 dígitos y truncamos si es necesario. Ya se hace en frontend, pero es buena práctica aquí.
+    const orderIdStr = orderId.toString().padStart(12, '0').slice(0, 12); 
 
     if (isNaN(amountInCents) || amountInCents <= 0) {
       throw new Error('El importe debe ser un número positivo');
@@ -30,77 +35,72 @@ export async function POST(request: Request) {
       throw new Error('El orderId debe tener exactamente 12 dígitos numéricos');
     }
 
+    // URLs de callback (asegúrate de que sean accesibles desde Redsys)
+    const notificationUrl = `${NEXT_PUBLIC_SITE_URL}/api/notification`;
+    const urlOk = `${NEXT_PUBLIC_SITE_URL}/reserva-exitosa`;
+    const urlKo = `${NEXT_PUBLIC_SITE_URL}/reserva-fallida`;
+
     // 1. Parámetros EXACTOS como los espera Redsys
     const merchantParams = {
-      DS_MERCHANT_AMOUNT: amountInCents.toString(),
+      DS_MERCHANT_AMOUNT: amountInCents,
       DS_MERCHANT_ORDER: orderIdStr,
-      DS_MERCHANT_MERCHANTCODE: config.merchantCode,
-      DS_MERCHANT_CURRENCY: '978', // 978 = Euros
-      DS_MERCHANT_TRANSACTIONTYPE: '0', // 0 = Autorización
-      DS_MERCHANT_TERMINAL: config.terminal,
-      DS_MERCHANT_MERCHANTURL: `${config.siteUrl}/api/notification`,
-      DS_MERCHANT_URLOK: `${config.siteUrl}/reserva-exitosa?order=${orderIdStr}`,
-      DS_MERCHANT_URLKO: `${config.siteUrl}/reserva-fallida?order=${orderIdStr}`,
-      DS_MERCHANT_CONSUMERLANGUAGE: locale === 'es' ? '002' : '004' // 002=ES, 004=NL
+      DS_MERCHANT_MERCHANTCODE: REDSYS_MERCHANT_CODE,
+      DS_MERCHANT_CURRENCY: '978', // EUR
+      DS_MERCHANT_TRANSACTIONTYPE: '0', // Autorización
+      DS_MERCHANT_TERMINAL: REDSYS_TERMINAL, // Usa el valor de la variable de entorno (esperamos '001')
+      DS_MERCHANT_MERCHANTURL: notificationUrl,
+      DS_MERCHANT_URLOK: urlOk,
+      DS_MERCHANT_URLKO: urlKo,
+      DS_MERCHANT_CONSUMERLANGUAGE: locale === 'es' ? '001' : '002', // 001=es, 002=en
+      DS_MERCHANT_PRODUCTDESCRIPTION: 'Alquiler de bicicletas', 
     };
 
-    // 2. Convertir parámetros a Base64
     const paramsJson = JSON.stringify(merchantParams);
-    const paramsB64 = Buffer.from(paramsJson).toString('base64');
+    const paramsB64 = Buffer.from(paramsJson).toString('base64url'); // Base64 URL-safe para Redsys
 
-    // 3. Cálculo de firma CORREGIDO (Método EXACTO de Redsys)
-    const secretKeyBytes = Buffer.from(config.secretKey, 'base64');
-    
-    // Verificación CRÍTICA de la clave
-    if (secretKeyBytes.length !== 24) {
-      console.error('❌ Clave incorrecta. Longitud:', secretKeyBytes.length);
-      throw new Error('La clave debe decodificar a 24 bytes (32 caracteres Base64)');
-    }
+    // --- LÓGICA DE FIRMA CORREGIDA PARA Redsys con crypto de Node.js ---
 
-    // Cifrado 3DES con ZeroPadding (EXACTO para Redsys)
-    const iv = Buffer.alloc(8, 0); // Vector de inicialización lleno de ceros
-    const cipher = crypto.createCipheriv('des-ede3-cbc', secretKeyBytes, iv);
-    cipher.setAutoPadding(false); // ZeroPadding es CRÍTICO
-    
-    // Tomar primeros 8 dígitos del orderId
-    const orderPrefix = orderIdStr.slice(0, 8);
-    const orderPadded = Buffer.alloc(8, 0);
-    Buffer.from(orderPrefix).copy(orderPadded);
+    // Paso 1: Decodificar la clave secreta de Redsys (REDSYS_SECRET_KEY) de Base64
+    // Esta es la clave binaria de 24 bytes para TripleDES
+    const desKey = Buffer.from(REDSYS_SECRET_KEY, 'base64'); 
+    const iv = Buffer.alloc(8, 0); // IV de 8 bytes de ceros
 
-    const encryptedKey = Buffer.concat([
-      cipher.update(orderPadded),
-      cipher.final()
-    ]);
+    // Paso 2: Concatenar el código de comercio y el terminal
+    const dataToEncryptForHmacKey = REDSYS_MERCHANT_CODE + REDSYS_TERMINAL;
 
-    // Calcular HMAC-SHA256
-    const hmac = crypto.createHmac('sha256', encryptedKey);
+    // Paso 3: Cifrar la cadena concatenada con TripleDES para obtener la clave del HMAC
+    const cipherForHmacKey = crypto.createCipheriv('des-ede3-cbc', desKey, iv);
+    let hmacKey = cipherForHmacKey.update(dataToEncryptForHmacKey, 'utf8');
+    hmacKey = Buffer.concat([hmacKey, cipherForHmacKey.final()]);
+    // `hmacKey` es ahora la clave final para el HMAC SHA-256
+
+    // Paso 4: Calcular HMAC SHA-256
+    const hmac = crypto.createHmac('sha256', hmacKey);
     hmac.update(paramsB64);
-    const signature = hmac.digest('base64');
+    const signature = hmac.digest('base64url'); // La firma final en Base64 URL-safe
 
-    // 4. Validación EXTRA antes de enviar
-    if (!signature || !paramsB64) {
-      throw new Error('Error al generar firma o parámetros');
-    }
+    // --- FIN LÓGICA DE FIRMA CORREGIDA ---
 
-    // 5. Respuesta con datos para DEBUG
+    // 5. Respuesta con datos para el frontend
     return NextResponse.json({
-      url: config.redsysUrl,
+      url: REDSYS_URL,
       params: paramsB64,
       signature,
       signatureVersion: 'HMAC_SHA256_V1',
+      // Puedes añadir debugInfo si lo necesitas para el desarrollo, pero elimínalo en producción
       debugInfo: {
         originalAmount: amount,
         amountInCents,
         orderId: orderIdStr,
-        merchantCode: config.merchantCode,
-        terminal: config.terminal,
+        merchantCode: REDSYS_MERCHANT_CODE,
+        terminal: REDSYS_TERMINAL,
         paramsJson: merchantParams,
-        encryptedKeyHex: encryptedKey.toString('hex'),
+        hmacKeyHex: hmacKey.toString('hex'), // La clave binaria usada para el HMAC
         paramsBase64: paramsB64
       }
     });
 
-  } catch (error) {
+  } catch (error: any) { 
     console.error('❌ Error en el procesamiento del pago:', {
       error,
       timestamp: new Date().toISOString()
@@ -111,18 +111,20 @@ export async function POST(request: Request) {
         error: 'No se puede realizar la operación',
         details: error instanceof Error ? error.message : 'Error desconocido',
         solution: [
-          '1. Verifique que la clave sea EXACTAMENTE: JvJ4AULO/uZjBnFqWS8s46g94SbVJ4iG',
-          '2. Confirme que el orderId tenga 12 dígitos exactos',
-          '3. Asegúrese que el importe esté en céntimos (ej: 40.00€ = 4000)',
-          '4. Compruebe que las URLs sean accesibles desde internet',
-          '5. Contacte con soporte técnico de Redsys y proporcione:',
-          '   - Código de comercio: 999008881',
-          '   - Terminal: 1',
-          '   - OrderId utilizado',
-          '   - Hora del error: ' + new Date().toISOString()
+          '1. Verifique que la clave secreta de Redsys sea correcta y esté en el formato Base64 adecuado en .env.',
+          '2. Confirme que el código de comercio y el terminal de Redsys sean correctos en .env (terminal debe ser \'001\' si es el caso).',
+          '3. Asegúrese que el orderId tenga 12 dígitos exactos.',
+          '4. Compruebe que el importe esté en céntimos (ej: 40.00€ = 4000).',
+          '5. Las URLs de notificación y de éxito/error deben ser accesibles desde Redsys.',
+          '6. Contacte con soporte técnico de Redsys y proporcione:',
+          `   - Código de comercio: ${REDSYS_MERCHANT_CODE}`,
+          `   - Terminal: ${REDSYS_TERMINAL}`,
+          `   - OrderId: [el orderId específico de la transacción que falla]`,
+          `   - Error recibido: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+          `   - La firma generada por su sistema para esa transacción y los parámetros Base64 que la acompañan.`
         ]
       },
-      { status: 400 }
+      { status: 500 }
     );
   }
 }
