@@ -128,7 +128,7 @@ export async function POST(request: Request) {
         }
 
         console.log('✅ Reservation updated successfully in Supabase for order:', orderIdFromNotification);
-        // Redsys espera un 200 OK para confirmar la recepción
+        // Redsyss espera un 200 OK para confirmar la recepción
         return NextResponse.json({ success: true }, { status: 200 });
 
     } catch (error: any) {
