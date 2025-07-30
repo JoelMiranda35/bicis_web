@@ -747,7 +747,7 @@ const handleSubmitReservation = async () => {
 
     // Preparar pago para Redsys (ENVIAR AMOUNT EN EUROS)
     const paymentRequestData = {
-      amount: totalAmount, // Enviar en euros (ej: 30.00)
+      amount: totalAmount.toFixed(2), // Enviar en euros (ej: 30.00)
       orderId: redsysOrderId,
       locale: language
     };
