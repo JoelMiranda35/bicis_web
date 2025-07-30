@@ -55,6 +55,7 @@ const CheckoutPage = () => {
       input.type = 'hidden';
       input.name = name;
       input.value = value;
+       console.log(`🧩 Añadiendo campo: ${name} = ${value}`);
       form.appendChild(input);
     };
 
@@ -67,6 +68,10 @@ const CheckoutPage = () => {
     console.log('⌛ El formulario se enviará automáticamente en 20 segundos...');
     setTimeout(() => {
       console.log('🚀 Enviando formulario a Redsys ahora.');
+      console.log('📝 HTML final del formulario Redsys:');
+console.log(form.outerHTML);
+form.setAttribute('target', '_blank');
+
       form.submit();
     }, 20_000);
   };
