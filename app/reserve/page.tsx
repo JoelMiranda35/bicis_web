@@ -11,9 +11,9 @@ const CheckoutPage = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          amount: '30.00', // 💰 Monto en euros
-          orderId: Date.now().toString(), // 🧾 Usamos timestamp como ID
-          locale: 'es', // 🌍 Idioma (español por defecto)
+          amount: '30.00',             // 💰 Monto en euros
+          orderId: Date.now().toString(), // 🧾 Timestamp como ID
+          locale: 'es',                // 🌍 Idioma
         }),
       });
 
@@ -23,6 +23,9 @@ const CheckoutPage = () => {
         console.error('❌ Error en la respuesta:', data.details);
         return;
       }
+
+      // Aquí recibes el objeto que luego será enviado a Redsys
+      console.log('✅ Datos recibidos de /api/redsys:', data);
 
       redirigirARedsys(data);
     } catch (error) {
@@ -36,6 +39,13 @@ const CheckoutPage = () => {
     signature: string;
     signatureVersion: string;
   }) => {
+    // Log de TODO lo que vamos a enviar
+    console.log('➡️ Preparando formulario para Redsys con estos valores:');
+    console.log('   action URL:        ', data.url);
+    console.log('   Ds_MerchantParameters:', data.params);
+    console.log('   Ds_Signature:        ', data.signature);
+    console.log('   Ds_SignatureVersion: ', data.signatureVersion);
+
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = data.url;
@@ -53,7 +63,12 @@ const CheckoutPage = () => {
     addField('Ds_SignatureVersion', data.signatureVersion);
 
     document.body.appendChild(form);
-    form.submit();
+
+    console.log('⌛ El formulario se enviará automáticamente en 20 segundos...');
+    setTimeout(() => {
+      console.log('🚀 Enviando formulario a Redsys ahora.');
+      form.submit();
+    }, 20_000);
   };
 
   return (
