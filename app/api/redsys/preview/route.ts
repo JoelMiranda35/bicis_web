@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     const paramsJson = JSON.stringify(merchantParams);
     const paramsB64 = Buffer.from(paramsJson).toString('base64');
 
-    // Generar clave HMAC (3DES-CBC)
+    // Generar clavddddde HMAC (3DES-CBC)
     const desKey = Buffer.from(REDSYS_SECRET_KEY, 'base64');
     const iv = Buffer.alloc(8, 0);
     const dataToEncrypt = REDSYS_MERCHANT_CODE + REDSYS_TERMINAL;
