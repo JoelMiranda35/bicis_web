@@ -1,12 +1,13 @@
+// @/lib/language-context.tsx
 "use client"
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
-import { translations, type Language } from "./translations"
+import translations, { type Language } from "./translations"
 
 interface LanguageContextType {
   language: Language
   setLanguage: (lang: Language) => void
-  t: (key: string, params?: Record<string, string | number>) => string
+  t: (key: keyof typeof translations.en, params?: Record<string, string | number>) => string
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined)
@@ -17,7 +18,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   // Load language from localStorage on mount
   useEffect(() => {
     const savedLanguage = localStorage.getItem("altea-language") as Language
-    if (savedLanguage && ["es", "en", "nl"].includes(savedLanguage)) {
+    if (savedLanguage && Object.keys(translations).includes(savedLanguage)) {
       setLanguage(savedLanguage)
     }
   }, [])
@@ -28,7 +29,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("altea-language", lang)
   }
 
-  const t = (key: string, params?: Record<string, string | number>): string => {
+  const t = (key: keyof typeof translations.en, params?: Record<string, string | number>): string => {
     // Implementación mejorada para manejar claves anidadas
     const keys = key.split('.')
     let translation: any = translations[language]
@@ -47,10 +48,19 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     }
 
     // Reemplazar parámetros si existen
-    if (params && typeof translation === 'string') {
+    if (params && typeof translation === 'function') {
+      try {
+        return translation(params)
+      } catch (error) {
+        console.error('Error executing translation function:', error)
+        return key
+      }
+    } else if (params && typeof translation === 'string') {
+      let result = translation
       Object.entries(params).forEach(([paramKey, value]) => {
-        translation = translation.replace(`{${paramKey}}`, String(value))
+        result = result.replace(`{${paramKey}}`, String(value))
       })
+      return result
     }
 
     return translation || key

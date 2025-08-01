@@ -1,3 +1,4 @@
+// @/lib/translations.ts
 export type TranslationKey =
   | 'home' | 'about' | 'catalog' | 'reserve' | 'exploreAltea' | 'rentBestBikes'
   | 'reserveNow' | 'viewCatalog' | 'whyChoose' | 'yearsExperience'
@@ -22,7 +23,9 @@ export type TranslationKey =
   | 'downloadTerms' | 'specificBikesNoLongerAvailable'
   | 'bikesNoLongerAvailable' | 'reservationValidationError'
   | 'reservationError' | 'paymentFailed' | 'tryAgain' | 'paymentError'
-  | 'reservationNew' | 'reservationClose' | 'paymentProcessedSecurely';
+  | 'reservationNew' | 'reservationClose' | 'paymentProcessedSecurely'
+  | 'startDate' | 'endDate' | 'pickupTime' | 'returnTime' | 'days' 
+  | 'selectedBikes' | 'dates';
 
 type TranslationFunction =
   | string
@@ -32,7 +35,7 @@ interface LanguageTranslations {
   [key: string]: TranslationFunction;
 }
 
-const translations: Record<string, LanguageTranslations> = {
+const translations = {
   en: {
     home: "Home",
     about: "About Us",
@@ -82,7 +85,7 @@ const translations: Record<string, LanguageTranslations> = {
     back: "Back",
     continuePayment: "Continue to Payment",
     important: "Important",
-    depositMessage: ({ amount }) => `A deposit of €${amount} will be required when picking up the bikes.`,
+    depositMessage: ({ amount }: { amount: number }) => `A deposit of €${amount} will be required when picking up the bikes.`,
     finalSummary: "Final Summary",
     payWithCard: "Pay with card",
     depositInStore: "Deposit in store",
@@ -116,7 +119,7 @@ const translations: Record<string, LanguageTranslations> = {
     rentalTermsTitle: "I accept the rental terms and conditions",
     rentalTermsContent: "By accepting, you agree to our rental terms and conditions",
     downloadTerms: "Download Terms",
-    specificBikesNoLongerAvailable: ({ count }) => `${count} selected bikes are no longer available. Please adjust your selection.`,
+    specificBikesNoLongerAvailable: ({ count }: { count: number }) => `${count} selected bikes are no longer available. Please adjust your selection.`,
     bikesNoLongerAvailable: "Some selected bikes are no longer available. Please adjust your selection.",
     reservationValidationError: "Please correct the errors in the form",
     reservationError: "Error creating reservation",
@@ -125,7 +128,14 @@ const translations: Record<string, LanguageTranslations> = {
     paymentError: "Payment error. Please try again.",
     reservationNew: "New Reservation",
     reservationClose: "Close",
-    paymentProcessedSecurely: "Payment processed securely via Stripe"
+    paymentProcessedSecurely: "Payment processed securely via Stripe",
+    startDate: "Start Date",
+    endDate: "End Date",
+    pickupTime: "Pickup Time",
+    returnTime: "Return Time",
+    days: "Days",
+    selectedBikes: "Selected Bikes",
+    dates: "Dates"
   },
   es: {
     home: "Inicio",
@@ -176,7 +186,7 @@ const translations: Record<string, LanguageTranslations> = {
     back: "Atrás",
     continuePayment: "Continuar al Pago",
     important: "Importante",
-    depositMessage: ({ amount }) => `Se requerirá un depósito de €${amount} al recoger las bicicletas.`,
+    depositMessage: ({ amount }: { amount: number }) => `Se requerirá un depósito de €${amount} al recoger las bicicletas.`,
     finalSummary: "Resumen Final",
     payWithCard: "Pagar con tarjeta",
     depositInStore: "Depósito en tienda",
@@ -210,7 +220,7 @@ const translations: Record<string, LanguageTranslations> = {
     rentalTermsTitle: "Acepto los términos y condiciones de alquiler",
     rentalTermsContent: "Al aceptar, estás de acuerdo con nuestros términos y condiciones de alquiler",
     downloadTerms: "Descargar Términos",
-    specificBikesNoLongerAvailable: ({ count }) => `${count} bicicletas seleccionadas ya no están disponibles. Por favor ajusta tu selección.`,
+    specificBikesNoLongerAvailable: ({ count }: { count: number }) => `${count} bicicletas seleccionadas ya no están disponibles. Por favor ajusta tu selección.`,
     bikesNoLongerAvailable: "Algunas bicicletas seleccionadas ya no están disponibles. Por favor ajusta tu selección.",
     reservationValidationError: "Por favor corrige los errores en el formulario",
     reservationError: "Error al crear la reserva",
@@ -219,7 +229,14 @@ const translations: Record<string, LanguageTranslations> = {
     paymentError: "Error en el pago. Por favor inténtalo de nuevo.",
     reservationNew: "Nueva Reserva",
     reservationClose: "Cerrar",
-    paymentProcessedSecurely: "Pago procesado de forma segura mediante Stripe"
+    paymentProcessedSecurely: "Pago procesado de forma segura mediante Stripe",
+    startDate: "Fecha de Inicio",
+    endDate: "Fecha de Fin",
+    pickupTime: "Hora de Recogida",
+    returnTime: "Hora de Devolución",
+    days: "Días",
+    selectedBikes: "Bicicletas Seleccionadas",
+    dates: "Fechas"
   },
   nl: {
     home: "Home",
@@ -270,7 +287,7 @@ const translations: Record<string, LanguageTranslations> = {
     back: "Terug",
     continuePayment: "Doorgaan naar Betaling",
     important: "Belangrijk",
-    depositMessage: ({ amount }) => `Een borg van €${amount} is vereist bij het ophalen van de fietsen.`,
+    depositMessage: ({ amount }: { amount: number }) => `Een borg van €${amount} is vereist bij het ophalen van de fietsen.`,
     finalSummary: "Eindoverzicht",
     payWithCard: "Betalen met kaart",
     depositInStore: "Borg in de winkel",
@@ -304,7 +321,7 @@ const translations: Record<string, LanguageTranslations> = {
     rentalTermsTitle: "Ik accepteer de huurvoorwaarden",
     rentalTermsContent: "Door te accepteren gaat u akkoord met onze huurvoorwaarden",
     downloadTerms: "Download Voorwaarden",
-    specificBikesNoLongerAvailable: ({ count }) => `${count} geselecteerde fietsen zijn niet meer beschikbaar. Pas uw selectie aan.`,
+    specificBikesNoLongerAvailable: ({ count }: { count: number }) => `${count} geselecteerde fietsen zijn niet meer beschikbaar. Pas uw selectie aan.`,
     bikesNoLongerAvailable: "Sommige geselecteerde fietsen zijn niet meer beschikbaar. Pas uw selectie aan.",
     reservationValidationError: "Corrigeer de fouten in het formulier",
     reservationError: "Fout bij het maken van de reservering",
@@ -313,46 +330,16 @@ const translations: Record<string, LanguageTranslations> = {
     paymentError: "Betalingsfout. Probeer het opnieuw.",
     reservationNew: "Nieuwe Reservering",
     reservationClose: "Sluiten",
-    paymentProcessedSecurely: "Betaling veilig verwerkt via Stripe"
+    paymentProcessedSecurely: "Betaling veilig verwerkt via Stripe",
+    startDate: "Startdatum",
+    endDate: "Einddatum",
+    pickupTime: "Ophaaltijd",
+    returnTime: "Retourtijd",
+    days: "Dagen",
+    selectedBikes: "Geselecteerde Fietsen",
+    dates: "Data"
   }
-};
+} as const;
 
-export function getTranslation(
-  key: TranslationKey,
-  language: string = 'en',
-  params?: Record<string, string | number>
-): string {
-  const langTranslations = translations[language as keyof typeof translations] || translations.en;
-  const translation = langTranslations[key];
-
-  if (!translation) {
-    console.warn(`Missing translation for key: ${key}`);
-    return key;
-  }
-
-  if (typeof translation === 'function') {
-    try {
-      // Verificación especial para funciones que requieren parámetros específicos
-      if (key === 'depositMessage' && (!params || typeof params.amount === 'undefined')) {
-        throw new Error(`Missing required 'amount' parameter for depositMessage translation`);
-      }
-      if (key === 'specificBikesNoLongerAvailable' && (!params || typeof params.count === 'undefined')) {
-        throw new Error(`Missing required 'count' parameter for specificBikesNoLongerAvailable translation`);
-      }
-      
-      return translation(params || {});
-    } catch (error) {
-      console.error(`Translation error for key ${key}:`, error);
-      return key;
-    }
-  }
-
-  return translation;
-}
-
-export function useTranslations(language: string = 'en') {
-  return (key: TranslationKey, params?: Record<string, string | number>) => 
-    getTranslation(key, language, params);
-}
-
-
+export type Language = keyof typeof translations;
+export default translations;

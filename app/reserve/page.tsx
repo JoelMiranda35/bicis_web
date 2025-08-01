@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { addDays, isSameDay, isSunday, isSaturday } from "date-fns";
-// Importaciones CORRECTAS:
 import { loadStripe } from '@stripe/stripe-js';
 import {
   Elements,
@@ -46,8 +45,6 @@ import {
 // Libs
 import { supabase } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language-context";
-import { useTranslations } from "@/lib/translations";
-// Agrega esta importación al inicio del archivo
 import { TranslationKey } from "@/lib/translations";
 import {
   calculatePrice,
@@ -226,6 +223,7 @@ const RentalTermsCheckbox = ({
     </div>
   );
 };
+
 const StripePaymentForm = ({ 
   handleSubmitReservation, 
   isSubmitting, 
@@ -330,7 +328,8 @@ export default function ReservePage() {
   const { t, language } = useLanguage();
   const searchParams = useSearchParams();
   const isAdminMode = searchParams.get("admin") === "true";
-  const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+  const stripe = useStripe();
+  const elements = useElements();
 
   const [currentStep, setCurrentStep] = useState<Step>("dates");
   const [startDate, setStartDate] = useState<Date>(createLocalDate());
@@ -356,9 +355,6 @@ export default function ReservePage() {
   const [isLoadingBikes, setIsLoadingBikes] = useState(false);
   const [isLoadingAccessories, setIsLoadingAccessories] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
-
-  const stripe = useStripe();
-  const elements = useElements();
 
   useEffect(() => {
     const fetchAccessories = async () => {
@@ -622,7 +618,7 @@ export default function ReservePage() {
         },
         body: JSON.stringify({
           to: customerData.email,
-          subject: t("reservationConfirmationSubject"),
+          subject: t("reservationConfirmed"),
           reservationData,
           language,
         }),
@@ -683,193 +679,193 @@ export default function ReservePage() {
     }
   };
 
- const handleSubmitReservation = async () => {
-  if (!startDate || !endDate || !stripe || !elements) return;
+  const handleSubmitReservation = async () => {
+    if (!startDate || !endDate || !stripe || !elements) return;
 
-  setIsSubmitting(true);
-  setPaymentError(null);
+    setIsSubmitting(true);
+    setPaymentError(null);
 
-  try {
-    // Validación de datos del cliente
-    if (!validateCustomerData()) {
-      throw new Error(t("reservationValidationError"));
-    }
+    try {
+      // Validación de datos del cliente
+      if (!validateCustomerData()) {
+        throw new Error(t("reservationValidationError"));
+      }
 
-    // Verificación de disponibilidad
-    const { available, unavailableBikes } = await checkBikesAvailability();
-    if (!available) {
-      await fetchAvailableBikes();
-      
-      const errorMessage = unavailableBikes.length > 0 
-        ? t("specificBikesNoLongerAvailable", { count: unavailableBikes.length })
-        : t("bikesNoLongerAvailable");
-      
-      setValidationErrors({
-        ...validationErrors,
-        bikes: errorMessage
-      });
-      
-      const updatedSelectedBikes = selectedBikes.map(bike => ({
-        ...bike,
-        bikes: bike.bikes.filter(b => !unavailableBikes.includes(b.id))
-      })).filter(bike => bike.bikes.length > 0);
+      // Verificación de disponibilidad
+      const { available, unavailableBikes } = await checkBikesAvailability();
+      if (!available) {
+        await fetchAvailableBikes();
+        
+        const errorMessage = unavailableBikes.length > 0 
+          ? t("specificBikesNoLongerAvailable", { count: unavailableBikes.length })
+          : t("bikesNoLongerAvailable");
+        
+        setValidationErrors({
+          ...validationErrors,
+          bikes: errorMessage
+        });
+        
+        const updatedSelectedBikes = selectedBikes.map(bike => ({
+          ...bike,
+          bikes: bike.bikes.filter(b => !unavailableBikes.includes(b.id))
+        })).filter(bike => bike.bikes.length > 0);
 
-      setSelectedBikes(updatedSelectedBikes);
-      setCurrentStep("bikes");
-      return;
-    }
+        setSelectedBikes(updatedSelectedBikes);
+        setCurrentStep("bikes");
+        return;
+      }
 
-    // Calcular montos
-    const totalDays = calculateTotalDays(
-      new Date(startDate),
-      new Date(endDate),
-      pickupTime,
-      returnTime
-    );
+      // Calcular montos
+      const totalDays = calculateTotalDays(
+        new Date(startDate),
+        new Date(endDate),
+        pickupTime,
+        returnTime
+      );
 
-    const totalAmount = calculateTotal();
-    const totalAmountInCents = Math.round(totalAmount * 100);
+      const totalAmount = calculateTotal();
+      const totalAmountInCents = Math.round(totalAmount * 100);
 
-    // Crear datos de reserva
-    const reservationData = {
-      customer_name: customerData.name.trim(),
-      customer_email: customerData.email.toLowerCase().trim(),
-      customer_phone: customerData.phone.trim(),
-      customer_dni: customerData.dni.toUpperCase().trim(),
-      start_date: new Date(startDate).toISOString(),
-      end_date: new Date(endDate).toISOString(),
-      pickup_time: pickupTime,
-      return_time: returnTime,
-      total_days: totalDays,
-      bikes: selectedBikes.map(bike => ({
-        model: {
-          title_es: bike.title_es,
-          title_en: bike.title_en,
-          title_nl: bike.title_nl,
-          subtitle_es: bike.subtitle_es,
-          subtitle_en: bike.subtitle_en,
-          subtitle_nl: bike.subtitle_nl,
-          category: bike.category,
+      // Crear datos de reserva
+      const reservationData = {
+        customer_name: customerData.name.trim(),
+        customer_email: customerData.email.toLowerCase().trim(),
+        customer_phone: customerData.phone.trim(),
+        customer_dni: customerData.dni.toUpperCase().trim(),
+        start_date: new Date(startDate).toISOString(),
+        end_date: new Date(endDate).toISOString(),
+        pickup_time: pickupTime,
+        return_time: returnTime,
+        total_days: totalDays,
+        bikes: selectedBikes.map(bike => ({
+          model: {
+            title_es: bike.title_es,
+            title_en: bike.title_en,
+            title_nl: bike.title_nl,
+            subtitle_es: bike.subtitle_es,
+            subtitle_en: bike.subtitle_en,
+            subtitle_nl: bike.subtitle_nl,
+            category: bike.category,
+          },
+          size: bike.size,
+          quantity: bike.quantity,
+          bike_ids: bike.bikes.map(b => b.id),
+          daily_price: calculatePrice(bike.category, 1)
+        })),
+        accessories: selectedAccessories.map(acc => ({
+          id: acc.id,
+          name_es: acc.name_es,
+          name_en: acc.name_en,
+          name_nl: acc.name_nl,
+          price: acc.price,
+        })),
+        insurance: hasInsurance,
+        total_amount: totalAmount,
+        deposit_amount: calculateTotalDeposit(),
+        paid_amount: 0,
+        status: isAdminMode ? "confirmed" : "pending_payment",
+        payment_gateway: "stripe",
+        payment_status: "pending",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        locale: language
+      };
+
+      // Crear reserva en Supabase
+      const { data, error: insertError } = await supabase
+        .from("reservations")
+        .insert([reservationData])
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+
+      setReservationId(data.id);
+
+      // Modo admin: saltar pago
+      if (isAdminMode) {
+        await sendConfirmationEmail({
+          ...reservationData,
+          id: data.id,
+          status: "confirmed"
+        });
+        setCurrentStep("confirmation");
+        return;
+      }
+
+      // Crear Payment Intent
+      const response = await fetch('/api/create-payment-intent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        size: bike.size,
-        quantity: bike.quantity,
-        bike_ids: bike.bikes.map(b => b.id),
-        daily_price: calculatePrice(bike.category, 1)
-      })),
-      accessories: selectedAccessories.map(acc => ({
-        id: acc.id,
-        name_es: acc.name_es,
-        name_en: acc.name_en,
-        name_nl: acc.name_nl,
-        price: acc.price,
-      })),
-      insurance: hasInsurance,
-      total_amount: totalAmount,
-      deposit_amount: calculateTotalDeposit(),
-      paid_amount: 0,
-      status: isAdminMode ? "confirmed" : "pending_payment",
-      payment_gateway: "stripe",
-      payment_status: "pending",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      locale: language
-    };
+        body: JSON.stringify({
+          amount: totalAmountInCents,
+          reservationId: data.id,
+          currency: 'eur'
+        })
+      });
 
-    // Crear reserva en Supabase
-    const { data, error: insertError } = await supabase
-      .from("reservations")
-      .insert([reservationData])
-      .select()
-      .single();
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || t("paymentError"));
+      }
 
-    if (insertError) throw insertError;
+      const { clientSecret } = await response.json();
 
-    setReservationId(data.id);
+      // Confirmar el pago con Stripe
+      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: elements.getElement(CardElement)!,
+        }
+      });
 
-    // Modo admin: saltar pago
-    if (isAdminMode) {
+      if (stripeError) {
+        throw stripeError;
+      }
+
+      // Actualizar reserva como pagada
+      await supabase
+        .from('reservations')
+        .update({ 
+          status: 'confirmed',
+          payment_status: 'paid',
+          paid_amount: totalAmount,
+          payment_reference: paymentIntent.id
+        })
+        .eq('id', data.id);
+
+      // Enviar email de confirmación
       await sendConfirmationEmail({
         ...reservationData,
         id: data.id,
         status: "confirmed"
       });
+
       setCurrentStep("confirmation");
-      return;
+
+    } catch (error) {
+      console.error('Error en el proceso de reserva:', error);
+      setPaymentError(error instanceof Error ? error.message : t("reservationError"));
+
+      await supabase.from("reservation_errors").insert({
+        error_type: "reservation_creation",
+        error_data: JSON.stringify({
+          customer: customerData.email,
+          error: error instanceof Error ? error.message : String(error),
+          selected_bikes: selectedBikes.map(b => ({
+            model: b.title_es,
+            size: b.size,
+            quantity: b.quantity,
+            bike_ids: b.bikes.map(bike => bike.id)
+          })),
+          timestamp: new Date().toISOString()
+        })
+      });
+    } finally {
+      setIsSubmitting(false);
     }
-
-    // Crear Payment Intent
-    const response = await fetch('/api/create-payment-intent', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        amount: totalAmountInCents,
-        reservationId: data.id,
-        currency: 'eur'
-      })
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || t("paymentError"));
-    }
-
-    const { clientSecret } = await response.json();
-
-    // Confirmar el pago con Stripe
-    const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-      payment_method: {
-        card: elements.getElement(CardElement)!,
-      }
-    });
-
-    if (stripeError) {
-      throw stripeError;
-    }
-
-    // Actualizar reserva como pagada
-    await supabase
-      .from('reservations')
-      .update({ 
-        status: 'confirmed',
-        payment_status: 'paid',
-        paid_amount: totalAmount,
-        payment_reference: paymentIntent.id
-      })
-      .eq('id', data.id);
-
-    // Enviar email de confirmación
-    await sendConfirmationEmail({
-      ...reservationData,
-      id: data.id,
-      status: "confirmed"
-    });
-
-    setCurrentStep("confirmation");
-
-  } catch (error) {
-    console.error('Error en el proceso de reserva:', error);
-    setPaymentError(error instanceof Error ? error.message : t("reservationError"));
-
-    await supabase.from("reservation_errors").insert({
-      error_type: "reservation_creation",
-      error_data: JSON.stringify({
-        customer: customerData.email,
-        error: error instanceof Error ? error.message : String(error),
-        selected_bikes: selectedBikes.map(b => ({
-          model: b.title_es,
-          size: b.size,
-          quantity: b.quantity,
-          bike_ids: b.bikes.map(bike => bike.id)
-        })),
-        timestamp: new Date().toISOString()
-      })
-    });
-  } finally {
-    setIsSubmitting(false);
-  }
-};
+  };
 
   const getCategoryName = (category: BikeCategory): string => {
     switch (category) {
@@ -1145,7 +1141,7 @@ export default function ReservePage() {
 
                             <div className="lg:col-span-2">
                               <Label className="text-sm font-medium mb-2 block">
-                                {t("availableSize")}
+                                {t("size")} {t("available")}
                               </Label>
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                 {model.availableSizes.map((sizeInfo) => {
@@ -1305,7 +1301,7 @@ export default function ReservePage() {
                 <div className="space-y-6">
                   <div>
                     <h4 className="font-semibold mb-4">
-                      {t("availableAccessories")}
+                      {t("accessories")}
                     </h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {accessories.map((accessory) => (
@@ -1361,9 +1357,9 @@ export default function ReservePage() {
                           />
                           <Label htmlFor="insurance" className="font-medium">
                             {t("additionalInsurance")} - {INSURANCE_PRICE_PER_DAY}
-                            {t("euro")} {t("perDay")} {t("perBike")} (max{" "}
+                            {t("euro")} {t("perDay")} (max{" "}
                             {INSURANCE_MAX_PRICE}
-                            {t("euro")} {t("perBike")})
+                            {t("euro")})
                           </Label>
                         </div>
                         <p className="text-sm text-gray-600 mt-1">
@@ -1609,7 +1605,7 @@ export default function ReservePage() {
                       {isSubmitting
                         ? t("processing")
                         : isAdminMode
-                          ? t("reservationCreate")
+                          ? t("continue")
                           : t("continuePayment")}
                     </Button>
                   </div>
@@ -1617,202 +1613,56 @@ export default function ReservePage() {
               </Card>
             );
 
-        // En el caso de uso dentro del componente principal:
-case "payment":
-  if (isAdminMode) {
-    return null;
-  }
+          case "payment":
+            if (isAdminMode) {
+              return null;
+            }
 
-  // Usar nombres únicos para evitar colisiones
-  const stripePaymentTotal = calculateTotal();
-  const stripePaymentDeposit = calculateTotalDeposit();
+            const stripePaymentTotal = calculateTotal();
+            const stripePaymentDeposit = calculateTotalDeposit();
 
-  return (
-    <Elements 
-      stripe={stripePromise}
-      options={{
-        locale: language === 'es' ? 'es' : 
-                language === 'nl' ? 'nl' : 'en',
-        appearance: {
-          theme: 'stripe',
-          variables: {
-            colorPrimary: '#4f46e5',
-            colorBackground: '#ffffff',
-            colorText: '#30313d',
-            fontFamily: 'Inter, system-ui, sans-serif',
-          }
-        }
-      }}
-    >
-      <div className="space-y-6">
-        {process.env.NODE_ENV === 'development' && (
-          <div className="bg-orange-100 p-4 rounded-lg border border-orange-300">
-            <h4 className="font-bold text-orange-800 mb-2">⚠️ MODO PRUEBA ACTIVADO</h4>
-            <div className="text-sm">
-              <p className="mb-1"><strong>Usa estos datos de prueba:</strong></p>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>Tarjeta: <span className="font-mono">4242 4242 4242 4242</span></li>
-                <li>Fecha: <span className="font-mono">12/34</span></li>
-                <li>CVV: <span className="font-mono">123</span></li>
-                <li>Código 3DS: <span className="font-mono">1234</span> (si lo pide)</li>
-              </ul>
-            </div>
-          </div>
-        )}
-
-        <StoreHoursNotice t={t} />
-        
-        <div className="bg-yellow-50 p-4 rounded-lg">
-          <p className="text-sm text-yellow-800">
-            <strong>{t("important")}:</strong>{" "}
-            {t("depositMessage", { amount: stripePaymentDeposit })}
-          </p>
-        </div>
-
-        <div className="bg-gray-50 p-4 rounded-lg">
-          <h4 className="font-semibold mb-2">{t("finalSummary")}</h4>
-          <div className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span>{t("payWithCard")}</span>
-              <span className="font-semibold">
-                {stripePaymentTotal.toFixed(2)}
-                {t("euro")}
-              </span>
-            </div>
-            <div className="flex justify-between text-orange-600">
-              <span>{t("depositInStore")}</span>
-              <span>
-                {stripePaymentDeposit.toFixed(2)}
-                {t("euro")}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="border rounded-lg p-4">
-          <CardElement 
-            options={{
-              style: {
-                base: {
-                  fontSize: '16px',
-                  color: '#424770',
-                  '::placeholder': {
-                    color: '#aab7c4',
-                  },
-                },
-                invalid: {
-                  color: '#9e2146',
-                },
-              },
-            }}
-          />
-        </div>
-
-        <div className="flex gap-4">
-          <Button
-            variant="outline"
-            onClick={() => setCurrentStep("customer")}
-            className="flex-1"
-          >
-            {t("back")}
-          </Button>
-          <Button
-            onClick={handleSubmitReservation}
-            className="flex-1"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? t("processing") : t("payNow")}
-          </Button>
-        </div>
-      </div>
-    </Elements>
-  );
-
-         case "confirmation":
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-green-600">
-          <CheckCircle className="h-5 w-5" />
-          {paymentError ? t("paymentFailed") : t("reservationConfirmed")}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="text-center space-y-4">
-          {paymentError ? (
-            <>
-              <p className="text-lg text-red-600">{paymentError}</p>
-              <Button 
-                onClick={() => setCurrentStep("payment")}
-                className="mt-4"
+            return (
+              <Elements 
+                stripe={stripePromise}
+                options={{
+                  locale: language === 'es' ? 'es' : 
+                          language === 'nl' ? 'nl' : 'en',
+                  appearance: {
+                    theme: 'stripe',
+                    variables: {
+                      colorPrimary: '#4f46e5',
+                      colorBackground: '#ffffff',
+                      colorText: '#30313d',
+                      fontFamily: 'Inter, system-ui, sans-serif',
+                    }
+                  }
+                }}
               >
-                {t("tryAgain")}
-              </Button>
-            </>
-          ) : (
-            <>
-              <p className="text-lg">{t("reservationSuccess")}</p>
-              <p className="text-sm text-gray-600">
-                {t("reservationNumber")}: <strong>{reservationId}</strong>
-              </p>
-              {!isAdminMode && (
-                <p className="text-sm text-gray-600">
-                  {t("emailSent")} {customerData.email}
-                </p>
-              )}
+                <StripePaymentForm
+                  handleSubmitReservation={handleSubmitReservation}
+                  isSubmitting={isSubmitting}
+                  t={t}
+                  setCurrentStep={setCurrentStep}
+                  totalAmount={stripePaymentTotal}
+                  totalDeposit={stripePaymentDeposit}
+                />
+              </Elements>
+            );
 
-              <div className="bg-green-50 p-4 rounded-lg mt-6">
-                <h4 className="font-semibold mb-2">{t("nextSteps")}</h4>
-                <ul className="text-sm text-left space-y-1">
-                  <li>{t("comeToStore")}</li>
-                  <li>{t("bringDocuments")}</li>
-                  <li>{t("reviewBikes")}</li>
-                </ul>
-              </div>
-            </>
-          )}
-
-          <div className="flex gap-4 mt-6">
-            {isAdminMode ? (
-              <>
-                <Button
-                  onClick={() => window.location.reload()}
-                  className="flex-1"
-                >
-                  {t("reservationNew")}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => window.close()}
-                  className="flex-1"
-                >
-                  {t("reservationClose")}
-                </Button>
-              </>
-            ) : (
-              <Button asChild className="w-full">
-                <a href="/">{t("backToHome")}</a>
-              </Button>
-            )}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
+          case "confirmation":
             return (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-green-600">
                     <CheckCircle className="h-5 w-5" />
-                    {t("reservationConfirmed")}
+                    {paymentError ? t("paymentFailed") : t("reservationConfirmed")}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-center space-y-4">
                     {paymentError ? (
                       <>
-                        <p className="text-lg text-red-600">{t("paymentFailed")}</p>
-                        <p className="text-sm text-gray-600">{paymentError}</p>
+                        <p className="text-lg text-red-600">{paymentError}</p>
                         <Button 
                           onClick={() => setCurrentStep("payment")}
                           className="mt-4"
@@ -1881,7 +1731,7 @@ case "payment":
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="mb-8">
               <h1 className="text-3xl font-bold text-gray-900 mb-4">
-                {t("reserveBikes")}{" "}
+                {t("reserve")}{" "}
                 {isAdminMode && <Badge variant="secondary">Modo Admin</Badge>}
               </h1>
 
@@ -1894,7 +1744,7 @@ case "payment":
                     label: t("accessories"),
                     icon: ShoppingCart,
                   },
-                  { key: "customer", label: t("data"), icon: CreditCard },
+                  { key: "customer", label: t("customerData"), icon: CreditCard },
                   ...(isAdminMode
                     ? []
                     : [{ key: "payment", label: t("payment"), icon: CreditCard }]),

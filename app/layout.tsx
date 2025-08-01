@@ -1,3 +1,4 @@
+// @/app/layout.tsx
 "use client"
 
 import React, { useEffect, useState } from "react"
@@ -17,7 +18,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
-  const isAdmin = pathname.startsWith("/admin")
+  const isAdmin = pathname?.startsWith("/admin") ?? false
 
   // Estado para detectar si ya estamos en cliente
   const [isClient, setIsClient] = useState(false)
@@ -28,7 +29,7 @@ export default function RootLayout({
   }, [])
 
   useEffect(() => {
-    if (!isClient) return
+    if (!isClient || typeof window === 'undefined') return
 
     // Detección móvil en cliente
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
