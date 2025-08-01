@@ -224,112 +224,10 @@ const RentalTermsCheckbox = ({
   );
 };
 
-const StripePaymentForm = ({ 
-  handleSubmitReservation, 
-  isSubmitting, 
-  t,
-  setCurrentStep,
-  totalAmount,
-  totalDeposit
-}: { 
-  handleSubmitReservation: () => Promise<void>,
-  isSubmitting: boolean,
-  t: (key: TranslationKey, params?: { amount: number }) => string,
-  setCurrentStep: (step: Step) => void,
-  totalAmount: number,
-  totalDeposit: number
-}) => {
-  return (
-    <div className="space-y-6">
-      {process.env.NODE_ENV === 'development' && (
-        <div className="bg-orange-100 p-4 rounded-lg border border-orange-300">
-          <h4 className="font-bold text-orange-800 mb-2">⚠️ MODO PRUEBA ACTIVADO</h4>
-          <div className="text-sm">
-            <p className="mb-1"><strong>Usa estos datos de prueba:</strong></p>
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Tarjeta: <span className="font-mono">4242 4242 4242 4242</span></li>
-              <li>Fecha: <span className="font-mono">12/34</span></li>
-              <li>CVV: <span className="font-mono">123</span></li>
-              <li>Código 3DS: <span className="font-mono">1234</span> (si lo pide)</li>
-            </ul>
-          </div>
-        </div>
-      )}
-
-      <StoreHoursNotice t={t} />
-      
-      <div className="bg-yellow-50 p-4 rounded-lg">
-        <p className="text-sm text-yellow-800">
-          <strong>{t("important")}:</strong>{" "}
-          {t("depositMessage", { amount: totalDeposit })}
-        </p>
-      </div>
-
-      <div className="bg-gray-50 p-4 rounded-lg">
-        <h4 className="font-semibold mb-2">{t("finalSummary")}</h4>
-        <div className="space-y-1 text-sm">
-          <div className="flex justify-between">
-            <span>{t("payWithCard")}</span>
-            <span className="font-semibold">
-              {totalAmount.toFixed(2)}
-              {t("euro")}
-            </span>
-          </div>
-          <div className="flex justify-between text-orange-600">
-            <span>{t("depositInStore")}</span>
-            <span>
-              {totalDeposit.toFixed(2)}
-              {t("euro")}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="border rounded-lg p-4">
-        <CardElement 
-          options={{
-            style: {
-              base: {
-                fontSize: '16px',
-                color: '#424770',
-                '::placeholder': {
-                  color: '#aab7c4',
-                },
-              },
-              invalid: {
-                color: '#9e2146',
-              },
-            },
-          }}
-        />
-      </div>
-
-      <div className="flex gap-4">
-        <Button
-          variant="outline"
-          onClick={() => setCurrentStep("customer")}
-          className="flex-1"
-        >
-          {t("back")}
-        </Button>
-        <Button
-          onClick={handleSubmitReservation}
-          className="flex-1"
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? t("processing") : t("payNow")}
-        </Button>
-      </div>
-    </div>
-  );
-};
-
 export default function ReservePage() {
   const { t, language } = useLanguage();
   const searchParams = useSearchParams();
   const isAdminMode = searchParams.get("admin") === "true";
-  const stripe = useStripe();
-  const elements = useElements();
 
   const [currentStep, setCurrentStep] = useState<Step>("dates");
   const [startDate, setStartDate] = useState<Date>(createLocalDate());
@@ -679,8 +577,8 @@ export default function ReservePage() {
     }
   };
 
-  const handleSubmitReservation = async () => {
-    if (!startDate || !endDate || !stripe || !elements) return;
+  const handleSubmitReservation = async (stripe?: any, elements?: any) => {
+    if (!startDate || !endDate) return;
 
     setIsSubmitting(true);
     setPaymentError(null);
@@ -814,6 +712,10 @@ export default function ReservePage() {
       const { clientSecret } = await response.json();
 
       // Confirmar el pago con Stripe
+      if (!stripe || !elements) {
+        throw new Error("Stripe no está inicializado");
+      }
+
       const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
           card: elements.getElement(CardElement)!,
@@ -1618,8 +1520,97 @@ export default function ReservePage() {
               return null;
             }
 
-            const stripePaymentTotal = calculateTotal();
-            const stripePaymentDeposit = calculateTotalDeposit();
+            const StripePaymentForm = () => {
+              const stripe = useStripe();
+              const elements = useElements();
+
+              return (
+                <div className="space-y-6">
+                  {process.env.NODE_ENV === 'development' && (
+                    <div className="bg-orange-100 p-4 rounded-lg border border-orange-300">
+                      <h4 className="font-bold text-orange-800 mb-2">⚠️ MODO PRUEBA ACTIVADO</h4>
+                      <div className="text-sm">
+                        <p className="mb-1"><strong>Usa estos datos de prueba:</strong></p>
+                        <ul className="list-disc pl-5 space-y-1">
+                          <li>Tarjeta: <span className="font-mono">4242 4242 4242 4242</span></li>
+                          <li>Fecha: <span className="font-mono">12/34</span></li>
+                          <li>CVV: <span className="font-mono">123</span></li>
+                          <li>Código 3DS: <span className="font-mono">1234</span> (si lo pide)</li>
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+
+                  <StoreHoursNotice t={t} />
+                  
+                  <div className="bg-yellow-50 p-4 rounded-lg">
+                    <p className="text-sm text-yellow-800">
+                      <strong>{t("important")}:</strong>{" "}
+                      {t("depositMessage", { amount: calculateTotalDeposit() })}
+                    </p>
+                  </div>
+
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h4 className="font-semibold mb-2">{t("finalSummary")}</h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span>{t("payWithCard")}</span>
+                        <span className="font-semibold">
+                          {calculateTotal().toFixed(2)}
+                          {t("euro")}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-orange-600">
+                        <span>{t("depositInStore")}</span>
+                        <span>
+                          {calculateTotalDeposit().toFixed(2)}
+                          {t("euro")}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border rounded-lg p-4">
+                    <CardElement 
+                      options={{
+                        style: {
+                          base: {
+                            fontSize: '16px',
+                            color: '#424770',
+                            '::placeholder': {
+                              color: '#aab7c4',
+                            },
+                          },
+                          invalid: {
+                            color: '#9e2146',
+                          },
+                        },
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex gap-4">
+                    <Button
+                      variant="outline"
+                      onClick={() => setCurrentStep("customer")}
+                      className="flex-1"
+                    >
+                      {t("back")}
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        if (!stripe || !elements) return;
+                        await handleSubmitReservation(stripe, elements);
+                      }}
+                      className="flex-1"
+                      disabled={isSubmitting || !stripe || !elements}
+                    >
+                      {isSubmitting ? t("processing") : t("payNow")}
+                    </Button>
+                  </div>
+                </div>
+              );
+            };
 
             return (
               <Elements 
@@ -1638,14 +1629,7 @@ export default function ReservePage() {
                   }
                 }}
               >
-                <StripePaymentForm
-                  handleSubmitReservation={handleSubmitReservation}
-                  isSubmitting={isSubmitting}
-                  t={t}
-                  setCurrentStep={setCurrentStep}
-                  totalAmount={stripePaymentTotal}
-                  totalDeposit={stripePaymentDeposit}
-                />
+                <StripePaymentForm />
               </Elements>
             );
 
