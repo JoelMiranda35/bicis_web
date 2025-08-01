@@ -653,11 +653,17 @@ const handleSubmitReservation = async (stripe?: Stripe | null, elements?: Stripe
       throw new Error(err.message || "Error al crear el intento de pago.");
     }
 
-    const { clientSecret: newSecret } = await response.json();
-    setClientSecret(newSecret);
+   const paymentIntentData = await response.json();
+
+if (!paymentIntentData.clientSecret) {
+  throw new Error("Stripe no devolvió clientSecret");
+}
+
+setClientSecret(paymentIntentData.clientSecret);
+
 
     if (stripe && elements) {
-      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(newSecret, {
+      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(paymentIntentData.clientSecret, {
         payment_method: {
           card: elements.getElement(CardElement)!,
           billing_details: {
