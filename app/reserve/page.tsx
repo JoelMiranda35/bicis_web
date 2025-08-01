@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { addDays, isSameDay, isSunday, isSaturday } from "date-fns";
 import { loadStripe } from '@stripe/stripe-js';
+import type { Stripe, StripeElements } from '@stripe/stripe-js';
 import {
   Elements,
   CardElement,
@@ -26,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Loader2 } from "lucide-react";
 
 // Icons
 import {
@@ -576,198 +578,122 @@ export default function ReservePage() {
       return { available: false, unavailableBikes: [] };
     }
   };
+const [clientSecret, setClientSecret] = useState<string | null>(null);
 
-  const handleSubmitReservation = async (stripe?: any, elements?: any) => {
-    if (!startDate || !endDate) return;
+const handleSubmitReservation = async (stripe?: Stripe | null, elements?: StripeElements | null) => {
+  if (!startDate || !endDate) return;
 
-    setIsSubmitting(true);
-    setPaymentError(null);
+  setIsSubmitting(true);
+  setPaymentError(null);
 
-    try {
-      // Validación de datos del cliente
-      if (!validateCustomerData()) {
-        throw new Error(t("reservationValidationError"));
-      }
+  try {
+    if (!validateCustomerData()) {
+      throw new Error("Faltan datos del cliente.");
+    }
 
-      // Verificación de disponibilidad
-      const { available, unavailableBikes } = await checkBikesAvailability();
-      if (!available) {
-        await fetchAvailableBikes();
-        
-        const errorMessage = unavailableBikes.length > 0 
-          ? t("specificBikesNoLongerAvailable", { count: unavailableBikes.length })
-          : t("bikesNoLongerAvailable");
-        
-        setValidationErrors({
-          ...validationErrors,
-          bikes: errorMessage
-        });
-        
-        const updatedSelectedBikes = selectedBikes.map(bike => ({
-          ...bike,
-          bikes: bike.bikes.filter(b => !unavailableBikes.includes(b.id))
-        })).filter(bike => bike.bikes.length > 0);
+    const { available, unavailableBikes } = await checkBikesAvailability();
+    if (!available) {
+      await fetchAvailableBikes();
+      const updated = selectedBikes.map(b => ({
+        ...b,
+        bikes: b.bikes.filter(bike => !unavailableBikes.includes(bike.id))
+      })).filter(b => b.bikes.length > 0);
 
-        setSelectedBikes(updatedSelectedBikes);
-        setCurrentStep("bikes");
-        return;
-      }
+      setSelectedBikes(updated);
+      setCurrentStep("bikes");
+      return;
+    }
 
-      // Calcular montos
-      const totalDays = calculateTotalDays(
-        new Date(startDate),
-        new Date(endDate),
-        pickupTime,
-        returnTime
-      );
+    const totalAmount = calculateTotal();
+    const reservationData = {
+      customer_name: customerData.name,
+      customer_email: customerData.email,
+      customer_phone: customerData.phone,
+      start_date: new Date(startDate).toISOString(),
+      end_date: new Date(endDate).toISOString(),
+      bikes: selectedBikes.map(b => ({
+        model: b.title_es,
+        size: b.size,
+        quantity: b.quantity,
+        bike_ids: b.bikes.map(x => x.id),
+      })),
+      accessories: selectedAccessories,
+      insurance: hasInsurance,
+      total_amount: totalAmount,
+      status: isAdminMode ? "confirmed" : "pending_payment",
+      payment_gateway: "stripe",
+      payment_status: "pending",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
 
-      const totalAmount = calculateTotal();
-      const totalAmountInCents = Math.round(totalAmount * 100);
+    const { data, error } = await supabase.from("reservations").insert([reservationData]).select().single();
+    if (error) throw error;
 
-      // Crear datos de reserva
-      const reservationData = {
-        customer_name: customerData.name.trim(),
-        customer_email: customerData.email.toLowerCase().trim(),
-        customer_phone: customerData.phone.trim(),
-        customer_dni: customerData.dni.toUpperCase().trim(),
-        start_date: new Date(startDate).toISOString(),
-        end_date: new Date(endDate).toISOString(),
-        pickup_time: pickupTime,
-        return_time: returnTime,
-        total_days: totalDays,
-        bikes: selectedBikes.map(bike => ({
-          model: {
-            title_es: bike.title_es,
-            title_en: bike.title_en,
-            title_nl: bike.title_nl,
-            subtitle_es: bike.subtitle_es,
-            subtitle_en: bike.subtitle_en,
-            subtitle_nl: bike.subtitle_nl,
-            category: bike.category,
-          },
-          size: bike.size,
-          quantity: bike.quantity,
-          bike_ids: bike.bikes.map(b => b.id),
-          daily_price: calculatePrice(bike.category, 1)
-        })),
-        accessories: selectedAccessories.map(acc => ({
-          id: acc.id,
-          name_es: acc.name_es,
-          name_en: acc.name_en,
-          name_nl: acc.name_nl,
-          price: acc.price,
-        })),
-        insurance: hasInsurance,
-        total_amount: totalAmount,
-        deposit_amount: calculateTotalDeposit(),
-        paid_amount: 0,
-        status: isAdminMode ? "confirmed" : "pending_payment",
-        payment_gateway: "stripe",
-        payment_status: "pending",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        locale: language
-      };
+    setReservationId(data.id);
 
-      // Crear reserva en Supabase
-      const { data, error: insertError } = await supabase
-        .from("reservations")
-        .insert([reservationData])
-        .select()
-        .single();
+    if (isAdminMode) {
+      await sendConfirmationEmail({ ...reservationData, id: data.id });
+      setCurrentStep("confirmation");
+      return;
+    }
 
-      if (insertError) throw insertError;
+    const response = await fetch('/api/stripe/create-payment-intent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        amount: Math.round(totalAmount * 100),
+        reservationId: data.id,
+        currency: 'eur'
+      })
+    });
 
-      setReservationId(data.id);
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.message || "Error al crear el intento de pago.");
+    }
 
-      // Modo admin: saltar pago
-      if (isAdminMode) {
-        await sendConfirmationEmail({
-          ...reservationData,
-          id: data.id,
-          status: "confirmed"
-        });
-        setCurrentStep("confirmation");
-        return;
-      }
+    const { clientSecret: newSecret } = await response.json();
+    setClientSecret(newSecret);
 
-      // Crear Payment Intent
-      const response = await fetch('/api/create-payment-intent', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          amount: totalAmountInCents,
-          reservationId: data.id,
-          currency: 'eur'
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || t("paymentError"));
-      }
-
-      const { clientSecret } = await response.json();
-
-      // Confirmar el pago con Stripe
-      if (!stripe || !elements) {
-        throw new Error("Stripe no está inicializado");
-      }
-
-      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+    if (stripe && elements) {
+      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(newSecret, {
         payment_method: {
           card: elements.getElement(CardElement)!,
-        }
+          billing_details: {
+            name: customerData.name,
+            email: customerData.email,
+            phone: customerData.phone
+          },
+        },
+        receipt_email: customerData.email
       });
 
-      if (stripeError) {
-        throw stripeError;
-      }
+      if (stripeError) throw stripeError;
 
-      // Actualizar reserva como pagada
       await supabase
-        .from('reservations')
-        .update({ 
-          status: 'confirmed',
-          payment_status: 'paid',
+        .from("reservations")
+        .update({
+          status: "confirmed",
+          payment_status: "paid",
+          payment_reference: paymentIntent.id,
+          stripe_payment_intent_id: paymentIntent.id,
           paid_amount: totalAmount,
-          payment_reference: paymentIntent.id
+          updated_at: new Date().toISOString()
         })
-        .eq('id', data.id);
+        .eq("id", data.id);
 
-      // Enviar email de confirmación
-      await sendConfirmationEmail({
-        ...reservationData,
-        id: data.id,
-        status: "confirmed"
-      });
-
+      await sendConfirmationEmail({ ...reservationData, id: data.id, payment_reference: paymentIntent.id });
       setCurrentStep("confirmation");
-
-    } catch (error) {
-      console.error('Error en el proceso de reserva:', error);
-      setPaymentError(error instanceof Error ? error.message : t("reservationError"));
-
-      await supabase.from("reservation_errors").insert({
-        error_type: "reservation_creation",
-        error_data: JSON.stringify({
-          customer: customerData.email,
-          error: error instanceof Error ? error.message : String(error),
-          selected_bikes: selectedBikes.map(b => ({
-            model: b.title_es,
-            size: b.size,
-            quantity: b.quantity,
-            bike_ids: b.bikes.map(bike => bike.id)
-          })),
-          timestamp: new Date().toISOString()
-        })
-      });
-    } finally {
-      setIsSubmitting(false);
     }
-  };
+  } catch (err: any) {
+    console.error("Error en la reserva:", err);
+    setPaymentError(err.message || "Error al procesar la reserva");
+  } finally {
+    setIsSubmitting(false);
+  }
+};
+
 
   const getCategoryName = (category: BikeCategory): string => {
     switch (category) {
@@ -1520,97 +1446,96 @@ export default function ReservePage() {
               return null;
             }
 
-            const StripePaymentForm = () => {
-              const stripe = useStripe();
-              const elements = useElements();
+          const StripePaymentForm = ({ clientSecret }: { clientSecret: string | null }) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [cardholderName, setCardholderName] = useState("");
+  const [cardError, setCardError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-              return (
-                <div className="space-y-6">
-                  {process.env.NODE_ENV === 'development' && (
-                    <div className="bg-orange-100 p-4 rounded-lg border border-orange-300">
-                      <h4 className="font-bold text-orange-800 mb-2">⚠️ MODO PRUEBA ACTIVADO</h4>
-                      <div className="text-sm">
-                        <p className="mb-1"><strong>Usa estos datos de prueba:</strong></p>
-                        <ul className="list-disc pl-5 space-y-1">
-                          <li>Tarjeta: <span className="font-mono">4242 4242 4242 4242</span></li>
-                          <li>Fecha: <span className="font-mono">12/34</span></li>
-                          <li>CVV: <span className="font-mono">123</span></li>
-                          <li>Código 3DS: <span className="font-mono">1234</span> (si lo pide)</li>
-                        </ul>
-                      </div>
-                    </div>
-                  )}
+  const handleSubmit = async (event?: React.FormEvent) => {
+    event?.preventDefault();
 
-                  <StoreHoursNotice t={t} />
-                  
-                  <div className="bg-yellow-50 p-4 rounded-lg">
-                    <p className="text-sm text-yellow-800">
-                      <strong>{t("important")}:</strong>{" "}
-                      {t("depositMessage", { amount: calculateTotalDeposit() })}
-                    </p>
-                  </div>
+    if (!stripe || !elements) {
+      setCardError("Stripe no está inicializado correctamente");
+      return;
+    }
 
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h4 className="font-semibold mb-2">{t("finalSummary")}</h4>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex justify-between">
-                        <span>{t("payWithCard")}</span>
-                        <span className="font-semibold">
-                          {calculateTotal().toFixed(2)}
-                          {t("euro")}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-orange-600">
-                        <span>{t("depositInStore")}</span>
-                        <span>
-                          {calculateTotalDeposit().toFixed(2)}
-                          {t("euro")}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+    if (!clientSecret) {
+      setCardError("No se pudo iniciar el pago correctamente.");
+      return;
+    }
 
-                  <div className="border rounded-lg p-4">
-                    <CardElement 
-                      options={{
-                        style: {
-                          base: {
-                            fontSize: '16px',
-                            color: '#424770',
-                            '::placeholder': {
-                              color: '#aab7c4',
-                            },
-                          },
-                          invalid: {
-                            color: '#9e2146',
-                          },
-                        },
-                      }}
-                    />
-                  </div>
+    if (!cardholderName.trim()) {
+      setCardError("Por favor ingrese el nombre del titular de la tarjeta");
+      return;
+    }
 
-                  <div className="flex gap-4">
-                    <Button
-                      variant="outline"
-                      onClick={() => setCurrentStep("customer")}
-                      className="flex-1"
-                    >
-                      {t("back")}
-                    </Button>
-                    <Button
-                      onClick={async () => {
-                        if (!stripe || !elements) return;
-                        await handleSubmitReservation(stripe, elements);
-                      }}
-                      className="flex-1"
-                      disabled={isSubmitting || !stripe || !elements}
-                    >
-                      {isSubmitting ? t("processing") : t("payNow")}
-                    </Button>
-                  </div>
-                </div>
-              );
-            };
+    setIsProcessing(true);
+
+    try {
+      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: elements.getElement(CardElement)!,
+          billing_details: {
+            name: cardholderName,
+            email: customerData.email,
+            phone: customerData.phone,
+          },
+        },
+        receipt_email: customerData.email,
+      });
+
+      if (stripeError) {
+        throw stripeError;
+      }
+
+      if (paymentIntent?.status === "succeeded") {
+        await handleSubmitReservation(stripe, elements);
+      }
+    } catch (error) {
+      console.error("Payment error:", error);
+      setCardError(
+        error instanceof Error
+          ? error.message
+          : "Ocurrió un error al procesar el pago"
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div>
+        <label htmlFor="cardholder" className="block text-sm font-medium">
+          Titular de la tarjeta
+        </label>
+        <input
+          id="cardholder"
+          type="text"
+          value={cardholderName}
+          onChange={(e) => setCardholderName(e.target.value)}
+          className="w-full border px-3 py-2 mt-1 rounded-md text-sm"
+        />
+      </div>
+
+      <div className="border p-3 rounded-md">
+        <CardElement options={{ hidePostalCode: true }} />
+      </div>
+
+      {cardError && <p className="text-red-500 text-sm">{cardError}</p>}
+
+      <button
+        type="submit"
+        disabled={isProcessing || !stripe || !elements}
+        className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-md disabled:opacity-50"
+      >
+        {isProcessing ? "Procesando..." : "Pagar"}
+      </button>
+    </form>
+  );
+};
 
             return (
               <Elements 
@@ -1629,81 +1554,74 @@ export default function ReservePage() {
                   }
                 }}
               >
-                <StripePaymentForm />
+                <StripePaymentForm clientSecret={clientSecret} />
+
               </Elements>
             );
 
           case "confirmation":
-            return (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-green-600">
-                    <CheckCircle className="h-5 w-5" />
-                    {paymentError ? t("paymentFailed") : t("reservationConfirmed")}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-center space-y-4">
-                    {paymentError ? (
-                      <>
-                        <p className="text-lg text-red-600">{paymentError}</p>
-                        <Button 
-                          onClick={() => setCurrentStep("payment")}
-                          className="mt-4"
-                        >
-                          {t("tryAgain")}
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-lg">{t("reservationSuccess")}</p>
-                        <p className="text-sm text-gray-600">
-                          {t("reservationNumber")}: <strong>{reservationId}</strong>
-                        </p>
-                        {!isAdminMode && (
-                          <p className="text-sm text-gray-600">
-                            {t("emailSent")} {customerData.email}
-                          </p>
-                        )}
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className={`flex items-center gap-2 ${paymentError ? 'text-red-600' : 'text-green-600'}`}>
+          <CheckCircle className="h-5 w-5" />
+          {paymentError ? t("paymentFailed") : t("reservationConfirmed")}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="text-center space-y-4">
+          {paymentError ? (
+            <>
+              <p className="text-lg text-red-600">{paymentError}</p>
+              <p className="text-sm text-gray-600">{t("paymentRetryInstructions")}</p>
+              <Button onClick={() => setCurrentStep("payment")} className="mt-4">
+                {t("tryAgain")}
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-lg">{t("reservationSuccess")}</p>
+              <p className="text-sm text-gray-600">
+                {t("reservationNumber")}: <strong>{reservationId}</strong>
+              </p>
+              {!isAdminMode && (
+                <p className="text-sm text-gray-600">
+                  {t("emailSent")} {customerData.email}
+                </p>
+              )}
 
-                        <div className="bg-green-50 p-4 rounded-lg mt-6">
-                          <h4 className="font-semibold mb-2">{t("nextSteps")}</h4>
-                          <ul className="text-sm text-left space-y-1">
-                            <li>{t("comeToStore")}</li>
-                            <li>{t("bringDocuments")}</li>
-                            <li>{t("reviewBikes")}</li>
-                          </ul>
-                        </div>
-                      </>
-                    )}
+              <div className="bg-green-50 p-4 rounded-lg mt-6">
+                <h4 className="font-semibold mb-2">{t("nextSteps")}</h4>
+                <ul className="text-sm text-left space-y-1">
+                  <li>{t("comeToStore")}</li>
+                  <li>{t("bringDocuments")}</li>
+                  <li>{t("reviewBikes")}</li>
+                </ul>
+              </div>
+            </>
+          )}
 
-                    <div className="flex gap-4 mt-6">
-                      {isAdminMode ? (
-                        <>
-                          <Button
-                            onClick={() => window.location.reload()}
-                            className="flex-1"
-                          >
-                            {t("reservationNew")}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            onClick={() => window.close()}
-                            className="flex-1"
-                          >
-                            {t("reservationClose")}
-                          </Button>
-                        </>
-                      ) : (
-                        <Button asChild className="w-full">
-                          <a href="/">{t("backToHome")}</a>
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
+          <div className="flex gap-4 mt-6">
+            {isAdminMode ? (
+              <>
+                <Button onClick={() => window.location.reload()} className="flex-1">
+                  {t("reservationNew")}
+                </Button>
+                <Button variant="outline" onClick={() => window.close()} className="flex-1">
+                  {t("reservationClose")}
+                </Button>
+              </>
+            ) : (
+              <Button asChild className="w-full">
+                <a href="/">{t("backToHome")}</a>
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
 
           default:
             return null;

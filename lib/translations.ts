@@ -25,7 +25,9 @@ export type TranslationKey =
   | 'reservationError' | 'paymentFailed' | 'tryAgain' | 'paymentError'
   | 'reservationNew' | 'reservationClose' | 'paymentProcessedSecurely'
   | 'startDate' | 'endDate' | 'pickupTime' | 'returnTime' | 'days' 
-  | 'selectedBikes' | 'dates';
+  | 'selectedBikes' | 'dates' | 'cardholderName' | 'cardholderNamePlaceholder'
+  | 'processingPayment'  | 'paymentRetryInstructions'
+;
 
 type TranslationFunction =
   | string
@@ -135,7 +137,12 @@ const translations = {
     returnTime: "Return Time",
     days: "Days",
     selectedBikes: "Selected Bikes",
-    dates: "Dates"
+    dates: "Dates",
+    cardholderName: "Cardholder Name",
+    cardholderNamePlaceholder: "Name on card",
+    processingPayment: "Processing Payment",
+    paymentRetryInstructions: "Payment failed. Please review the information and try again.",
+
   },
   es: {
     home: "Inicio",
@@ -236,7 +243,12 @@ const translations = {
     returnTime: "Hora de Devolución",
     days: "Días",
     selectedBikes: "Bicicletas Seleccionadas",
-    dates: "Fechas"
+    dates: "Fechas",
+    cardholderName: "Nombre del Titular",
+    cardholderNamePlaceholder: "Nombre en la tarjeta",
+    processingPayment: "Procesando Pago",
+    paymentRetryInstructions: "El pago no se completó. Por favor, revisa los datos e intenta nuevamente.",
+
   },
   nl: {
     home: "Home",
@@ -337,7 +349,12 @@ const translations = {
     returnTime: "Retourtijd",
     days: "Dagen",
     selectedBikes: "Geselecteerde Fietsen",
-    dates: "Data"
+    dates: "Data",
+    cardholderName: "Kaarthouder Naam",
+    cardholderNamePlaceholder: "Naam op kaart",
+    processingPayment: "Betaling Verwerken",
+    paymentRetryInstructions: "Betaling mislukt. Controleer de gegevens en probeer het opnieuw.",
+
   }
 } as const;
 

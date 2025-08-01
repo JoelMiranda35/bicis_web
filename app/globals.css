@@ -92,3 +92,76 @@ body {
     @apply bg-background text-foreground;
   }
 }
+/* Calendario */
+.rdp {
+  --rdp-cell-size: 40px;
+  --rdp-accent-color: hsl(var(--primary));
+  --rdp-background-color: hsl(var(--accent));
+  margin: 0;
+}
+
+.rdp-day_selected:not(.rdp-day_disabled):not(.rdp-day_outside) {
+  background-color: var(--rdp-accent-color);
+  color: hsl(var(--primary-foreground));
+}
+
+.rdp-button:hover:not([disabled]):not(.rdp-day_selected) {
+  background-color: var(--rdp-background-color);
+}
+
+.rdp-caption {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 0.5rem;
+}
+
+.rdp-nav_button {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  background-color: transparent;
+  border: 1px solid hsl(var(--border));
+}
+
+.rdp-nav_button:hover {
+  background-color: hsl(var(--accent));
+}
+
+.rdp-table {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
+.rdp-head_cell {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+}
+
+.rdp-cell {
+  text-align: center;
+}
+
+.rdp-day {
+  width: var(--rdp-cell-size);
+  height: var(--rdp-cell-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+}
+
+.rdp-day_today:not(.rdp-day_selected) {
+  font-weight: bold;
+  color: hsl(var(--primary));
+}
+
+.rdp-day_disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
