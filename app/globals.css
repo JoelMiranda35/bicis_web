@@ -94,7 +94,7 @@ body {
 }
 /* Calendario */
 .rdp {
-  --rdp-cell-size: 40px;
+  --rdp-cell-size: 44px;
   --rdp-accent-color: hsl(var(--primary));
   --rdp-background-color: hsl(var(--accent));
   margin: 0;
@@ -144,12 +144,17 @@ body {
 }
 
 .rdp-cell {
+  width: var(--rdp-cell-size);
+  height: var(--rdp-cell-size);
+  padding: 0;
+  box-sizing: border-box;
   text-align: center;
+  vertical-align: middle;
 }
 
 .rdp-day {
-  width: var(--rdp-cell-size);
-  height: var(--rdp-cell-size);
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -164,4 +169,8 @@ body {
 .rdp-day_disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+/* Forzamos layout limpio para el calendario */
+.rdp-container {
+  padding: 0; /* ✅ Quitamos el padding conflictivo */
 }

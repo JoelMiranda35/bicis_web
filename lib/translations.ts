@@ -26,8 +26,10 @@ export type TranslationKey =
   | 'reservationNew' | 'reservationClose' | 'paymentProcessedSecurely'
   | 'startDate' | 'endDate' | 'pickupTime' | 'returnTime' | 'days' 
   | 'selectedBikes' | 'dates' | 'cardholderName' | 'cardholderNamePlaceholder'
-  | 'processingPayment'  | 'paymentRetryInstructions'
-;
+  | 'processingPayment' | 'paymentRetryInstructions' | 'paymentDetails'
+  | 'securePaymentInfo' | 'cardNumber' | 'expiryDate' | 'cvc'
+  | 'paymentSuccessful' | 'paymentProcessing' | 'paymentMethod'
+  | 'creditDebitCard' | 'paymentConfirmation';
 
 type TranslationFunction =
   | string
@@ -142,7 +144,16 @@ const translations = {
     cardholderNamePlaceholder: "Name on card",
     processingPayment: "Processing Payment",
     paymentRetryInstructions: "Payment failed. Please review the information and try again.",
-
+    paymentDetails: "Payment Details",
+    securePaymentInfo: "Your payment information is processed securely. We do not store your card details.",
+    cardNumber: "Card Number",
+    expiryDate: "Expiry Date",
+    cvc: "CVC",
+    paymentSuccessful: "Payment Successful",
+    paymentProcessing: "Processing your payment...",
+    paymentMethod: "Payment Method",
+    creditDebitCard: "Credit/Debit Card",
+    paymentConfirmation: "Payment Confirmation"
   },
   es: {
     home: "Inicio",
@@ -248,7 +259,16 @@ const translations = {
     cardholderNamePlaceholder: "Nombre en la tarjeta",
     processingPayment: "Procesando Pago",
     paymentRetryInstructions: "El pago no se completó. Por favor, revisa los datos e intenta nuevamente.",
-
+    paymentDetails: "Detalles de Pago",
+    securePaymentInfo: "Tu información de pago se procesa de forma segura. No almacenamos los datos de tu tarjeta.",
+    cardNumber: "Número de Tarjeta",
+    expiryDate: "Fecha de Expiración",
+    cvc: "CVC",
+    paymentSuccessful: "Pago Exitoso",
+    paymentProcessing: "Procesando tu pago...",
+    paymentMethod: "Método de Pago",
+    creditDebitCard: "Tarjeta de Crédito/Débito",
+    paymentConfirmation: "Confirmación de Pago"
   },
   nl: {
     home: "Home",
@@ -354,7 +374,16 @@ const translations = {
     cardholderNamePlaceholder: "Naam op kaart",
     processingPayment: "Betaling Verwerken",
     paymentRetryInstructions: "Betaling mislukt. Controleer de gegevens en probeer het opnieuw.",
-
+    paymentDetails: "Betalingsgegevens",
+    securePaymentInfo: "Uw betalingsinformatie wordt veilig verwerkt. Wij slaan uw kaartgegevens niet op.",
+    cardNumber: "Kaartnummer",
+    expiryDate: "Vervaldatum",
+    cvc: "CVC",
+    paymentSuccessful: "Betaling Geslaagd",
+    paymentProcessing: "Uw betaling wordt verwerkt...",
+    paymentMethod: "Betalingsmethode",
+    creditDebitCard: "Credit/Debit Card",
+    paymentConfirmation: "Betalingsbevestiging"
   }
 } as const;
 
