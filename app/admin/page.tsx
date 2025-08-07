@@ -268,7 +268,7 @@ export default function AdminPage() {
   const handleLogin = () => {
     if (
       credentials.username === "admin" &&
-      credentials.password === "altea2024"
+      credentials.password === "Carechimba"
     ) {
       setIsAuthenticated(true)
       localStorage.setItem('adminAuthenticated', 'true')
