@@ -60,6 +60,7 @@ import {
   validateDocument,
   validateEmail,
   validatePhone,
+  validateName,
 } from "@/lib/validation";
 
 // Initialize Stripe
@@ -220,6 +221,67 @@ const RentalTermsCheckbox = ({
               {validationErrors.terms}
             </p>
           )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const InsuranceContractCheckbox = ({ 
+  t, 
+  hasInsurance, 
+  handleInsuranceChange,
+  language
+}: { 
+  t: (key: TranslationKey) => string,
+  hasInsurance: boolean,
+  handleInsuranceChange: (checked: boolean) => void,
+  language: string
+}) => {
+ const handleDownloadInsuranceContract = () => {
+  const pdfFiles = {
+    es: '/insurance/insurance_contract_es.pdf',
+    en: '/insurance/insurance_contract_en.pdf',
+    nl: '/insurance/insurance_contract_nl.pdf'
+  };
+  
+  const link = document.createElement('a');
+  link.href = pdfFiles[language as keyof typeof pdfFiles];
+  link.download = `insurance_contract_${language}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-start gap-3">
+        <FileText className="h-5 w-5 text-gray-600 mt-0.5 flex-shrink-0" />
+        <div className="space-y-2">
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="insurance"
+              checked={hasInsurance}
+              onCheckedChange={(checked) => handleInsuranceChange(checked as boolean)}
+            />
+            <Label htmlFor="insurance" className="font-medium">
+              {t("additionalInsurance")} - {INSURANCE_PRICE_PER_DAY}
+              {t("euro")} {t("perDay")} (max {INSURANCE_MAX_PRICE}
+              {t("euro")})
+            </Label>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="text-blue-600 hover:text-blue-800"
+              onClick={handleDownloadInsuranceContract}
+            >
+              <Download className="h-4 w-4 mr-1" />
+              {t("downloadInsuranceContract")}
+            </Button>
+          </div>
+          <p className="text-sm text-gray-600">
+            {t("completeProtectionDamage")}
+          </p>
         </div>
       </div>
     </div>
@@ -521,32 +583,38 @@ export default function ReservePage() {
   };
 
   const validateCustomerData = () => {
-    const errors: Record<string, string> = {};
+  const errors: Record<string, string> = {};
 
-    if (!customerData.name.trim()) {
-      errors.name = t("validationNameRequired");
-    }
+  if (!customerData.name.trim()) {
+    errors.name = t("validationNameRequired");
+  } else if (!validateName(customerData.name)) {
+    errors.name = t("validationInvalidName");
+  }
 
-    if (!validateEmail(customerData.email)) {
-      errors.email = t("validationInvalidEmail");
-    }
+  if (!customerData.email.trim()) {
+    errors.email = t("validationEmailRequired");
+  } else if (!validateEmail(customerData.email)) {
+    errors.email = t("validationInvalidEmail");
+  }
 
-    if (!validatePhone(customerData.phone)) {
-      errors.phone = t("validationInvalidPhone");
-    }
+  if (!customerData.phone.trim()) {
+    errors.phone = t("validationPhoneRequired");
+  } else if (!validatePhone(customerData.phone)) {
+    errors.phone = t("validationInvalidPhone");
+  }
 
-    const docValidation = validateDocument(customerData.dni);
-    if (!docValidation.isValid) {
-      errors.dni = t("validationInvalidDocument");
-    }
+  const docValidation = validateDocument(customerData.dni);
+  if (!docValidation.isValid) {
+    errors.dni = t("validationInvalidDocument");
+  }
 
-    if (!acceptedTerms) {
-      errors.terms = t("validationTermsRequired");
-    }
+  if (!acceptedTerms) {
+    errors.terms = t("validationTermsRequired");
+  }
 
-    setValidationErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
+  setValidationErrors(errors);
+  return Object.keys(errors).length === 0;
+};
 
   const handleBikeSelection = (
     model: BikeModel,
@@ -866,7 +934,7 @@ export default function ReservePage() {
     }
   };
 
-  const renderStepContent = () => {
+ const renderStepContent = () => {
     switch (currentStep) {
       case "dates":
         return (
@@ -881,68 +949,62 @@ export default function ReservePage() {
             <CardContent>
               <StoreHoursNotice t={t} />
               
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div>
-                  <Label className="text-sm font-medium mb-2 block">
-                    {t("startDate")}
-                  </Label>
-                  <Calendar
-                    mode="single"
-                    selected={startDate}
-                    onSelect={(date) => {
-                      if (date) {
-                        const newDate = createLocalDate(date);
-                        if (isSunday(newDate)) {
-                          return;
-                        }
-                        setStartDate(newDate);
-                        if (endDate && newDate > endDate) {
-                          const newEndDate = createLocalDate(addDays(newDate, 1));
-                          setEndDate(newEndDate);
-                        }
-                        setPickupTime(isSaturday(newDate) ? "10:00" : "10:00");
-                      }
-                    }}
-                    disabled={(date) => isDateDisabled(date)}
-                    className="rounded-md border"
-                  />
-                </div>
-                <div>
-                  <Label className="text-sm font-medium mb-2 block">
-                    {t("endDate")}
-                  </Label>
-                  <Calendar
-                    mode="single"
-                    selected={endDate}
-                    onSelect={(date) => {
-                      if (date) {
-                        const newDate = createLocalDate(date);
-                        if (isSunday(newDate)) {
-                          return;
-                        }
-                        if (startDate && newDate <= startDate) {
-                          return;
-                        }
-                        setEndDate(newDate);
-                        setReturnTime(isSaturday(newDate) ? "14:00" : "18:00");
-                      }
-                    }}
-                    disabled={(date) => {
-                      const today = createLocalDate();
-                      const selectedDate = date ? createLocalDate(date) : new Date();
-                      
-                      if (selectedDate < today) return true;
-                      
-                      if (isSunday(selectedDate)) return true;
-                      
-                      if (startDate && selectedDate <= startDate) return true;
-                      
-                      return false;
-                    }}
-                    className="rounded-md border"
-                  />
-                </div>
-              </div>
+              {/* Cambio principal: Modificamos el contenedor de los calendarios */}
+              <div className="flex flex-col md:flex-row gap-8 w-full">
+  <div className="w-full md:w-1/2">
+    <Label className="text-sm font-medium mb-2 block">
+      {t("startDate")}
+    </Label>
+    <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
+      <Calendar
+        mode="single"
+        selected={startDate}
+        onSelect={(date) => {
+          if (date) {
+            const newDate = createLocalDate(date);
+            if (isSunday(newDate)) return;
+            setStartDate(newDate);
+            if (endDate && newDate > endDate) {
+              setEndDate(createLocalDate(addDays(newDate, 1)));
+            }
+            setPickupTime(isSaturday(newDate) ? "10:00" : "10:00");
+          }
+        }}
+        disabled={(date) => isDateDisabled(date)}
+      />
+    </div>
+  </div>
+  
+  <div className="w-full md:w-1/2">
+    <Label className="text-sm font-medium mb-2 block">
+      {t("endDate")}
+    </Label>
+    <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
+      <Calendar
+        mode="single"
+        selected={endDate}
+        onSelect={(date) => {
+          if (date) {
+            const newDate = createLocalDate(date);
+            if (isSunday(newDate)) return;
+            if (startDate && newDate <= startDate) return;
+            setEndDate(newDate);
+            setReturnTime(isSaturday(newDate) ? "14:00" : "18:00");
+          }
+        }}
+        disabled={(date) => {
+          const today = createLocalDate();
+          const selectedDate = date ? createLocalDate(date) : new Date();
+          if (selectedDate < today) return true;
+          if (isSunday(selectedDate)) return true;
+          if (startDate && selectedDate <= startDate) return true;
+          return false;
+        }}
+      />
+    </div>
+  </div>
+</div>
+            
 
               {startDate && endDate && (
                 <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -1254,204 +1316,174 @@ export default function ReservePage() {
           </Card>
         );
 
-      case "accessories":
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle>{t("accessoriesInsurance")}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <StoreHoursNotice t={t} />
-              
-              {isLoadingAccessories ? (
-                <div className="space-y-4">
-                  {[...Array(4)].map((_, i) => (
-                    <div
-                      key={i}
-                      className="animate-pulse flex items-center space-x-3 p-3 border rounded-lg"
-                    >
-                      <div className="w-12 h-12 bg-gray-200 rounded-lg"></div>
-                      <div className="flex-1 space-y-2">
-                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                        <div className="h-3 bg-gray-200 rounded w-1/2"></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  <div>
-                    <h4 className="font-semibold mb-4">
-                      {t("accessories")}
-                    </h4>
-                    <div className="grid grid-cols-1 gap-4">
-                      {accessories.map((accessory) => (
-                        <div
-                          key={accessory.id}
-                          className="flex items-center space-x-3 p-3 border rounded-lg"
-                        >
-                          <Checkbox
-                            id={accessory.id}
-                            checked={selectedAccessories.some(
-                              (a) => a.id === accessory.id
-                            )}
-                            onCheckedChange={() =>
-                              handleAccessorySelection(accessory)
-                            }
-                          />
-                          <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <Package className="h-6 w-6 text-gray-400" />
-                          </div>
-                          <div className="flex-1">
-                            <Label
-                              htmlFor={accessory.id}
-                              className="font-medium"
-                            >
-                              {translateBikeContent(
-                                {
-                                  es: accessory.name_es,
-                                  en: accessory.name_en,
-                                  nl: accessory.name_nl,
-                                },
-                                language
-                              )}
-                            </Label>
-                            <p className="text-sm text-gray-600">
-                              {accessory.price}
-                              {t("euro")}
-                              {t("perDay")}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+    case "accessories":
+  const rentalDays = calculateTotalDays(
+    new Date(startDate!),
+    new Date(endDate!),
+    pickupTime,
+    returnTime
+  );
 
-                  <div className="border-t pt-6">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="insurance"
-                        checked={hasInsurance}
-                        onCheckedChange={(checked) =>
-                          handleInsuranceChange(checked as boolean)
-                        }
-                      />
-                      <Label htmlFor="insurance" className="font-medium">
-                        {t("additionalInsurance")} - {INSURANCE_PRICE_PER_DAY}
-                        {t("euro")} {t("perDay")} (max{" "}
-                        {INSURANCE_MAX_PRICE}
-                        {t("euro")})
+  // Cálculos individuales
+  const bikeSubtotal = selectedBikes.reduce(
+    (total, bike) => total + (calculatePrice(bike.category, 1) * rentalDays * bike.quantity),
+    0
+  );
+
+  const accessoriesSubtotal = selectedAccessories.reduce(
+    (total, acc) => total + (acc.price * rentalDays),
+    0
+  );
+
+  const insuranceSubtotal = hasInsurance
+    ? Math.min(
+        INSURANCE_MAX_PRICE,
+        INSURANCE_PRICE_PER_DAY * rentalDays
+      ) * selectedBikes.reduce((total, bike) => total + bike.quantity, 0)
+    : 0;
+
+  const depositTotal = selectedBikes.reduce(
+    (total, bike) => total + (calculateDeposit(bike.category)) * bike.quantity,
+    0
+  );
+
+  const orderTotal = bikeSubtotal + accessoriesSubtotal + insuranceSubtotal;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("accessoriesInsurance")}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <StoreHoursNotice t={t} />
+
+        {isLoadingAccessories ? (
+          <div className="space-y-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="animate-pulse flex items-center space-x-3 p-3 border rounded-lg">
+                <div className="w-12 h-12 bg-gray-200 rounded-lg"></div>
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                  <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div>
+              <h4 className="font-semibold mb-4">{t("accessories")}</h4>
+              <div className="grid grid-cols-1 gap-4">
+                {accessories.map((accessory) => (
+                  <div key={accessory.id} className="flex items-center space-x-3 p-3 border rounded-lg">
+                    <Checkbox
+                      id={accessory.id}
+                      checked={selectedAccessories.some((a) => a.id === accessory.id)}
+                      onCheckedChange={() => handleAccessorySelection(accessory)}
+                    />
+                    <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Package className="h-6 w-6 text-gray-400" />
+                    </div>
+                    <div className="flex-1">
+                      <Label htmlFor={accessory.id} className="font-medium">
+                        {translateBikeContent(
+                          { es: accessory.name_es, en: accessory.name_en, nl: accessory.name_nl },
+                          language
+                        )}
                       </Label>
-                    </div>
-                    <p className="text-sm text-gray-600 mt-1">
-                      {t("completeProtectionDamage")}
-                    </p>
-                  </div>
-
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex justify-between">
-                        <span>
-                          {t("bikes")} (
-                          {selectedBikes.reduce(
-                            (total, bike) => total + bike.quantity,
-                            0
-                          )}
-                          )
-                        </span>
-                        <span>
-                          {selectedBikes.reduce(
-                            (total: number, bike: SelectedBike) =>
-                              total +
-                              calculatePrice(
-                                bike.category,
-                                calculateTotalDays(
-                                  new Date(startDate!),
-                                  new Date(endDate!),
-                                  pickupTime,
-                                  returnTime
-                                ) * bike.quantity
-                              ),
-                            0
-                          )}
-                          {t("euro")}
-                        </span>
-                      </div>
-                      {selectedAccessories.length > 0 && (
-                        <div className="flex justify-between">
-                          <span>{t("accessories")}</span>
-                          <span>
-                            {selectedAccessories.reduce(
-                              (total, acc) => 
-                                total + acc.price * calculateTotalDays(
-                                  new Date(startDate!),
-                                  new Date(endDate!),
-                                  pickupTime,
-                                  returnTime
-                                ),
-                              0
-                            )}
-                            {t("euro")}
-                          </span>
-                        </div>
-                      )}
-                      {hasInsurance && (
-                        <div className="flex justify-between">
-                          <span>{t("insurance")}</span>
-                          <span>
-                            {calculateInsurance(
-                              calculateTotalDays(
-                                new Date(startDate!),
-                                new Date(endDate!),
-                                pickupTime,
-                                returnTime
-                              )
-                            ) * selectedBikes.reduce(
-                              (total, bike) => total + bike.quantity,
-                              0
-                            )}
-                            {t("euro")}
-                          </span>
-                        </div>
-                      )}
-                      <div className="border-t pt-1 flex justify-between font-semibold">
-                        <span>{t("total")}</span>
-                        <span>
-                          {calculateTotal()}
-                          {t("euro")}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-orange-600">
-                        <span>{t("depositCash")}</span>
-                        <span>
-                          {calculateTotalDeposit()}
-                          {t("euro")}
-                        </span>
-                      </div>
+                      <p className="text-sm text-gray-600">
+                        {accessory.price}
+                        {t("euro")}
+                        {t("perDay")}
+                      </p>
                     </div>
                   </div>
+                ))}
+              </div>
+            </div>
 
-                  <div className="mt-6 flex flex-col gap-4 sm:flex-row">
-                    <Button
-                      variant="outline"
-                      onClick={() => setCurrentStep("bikes")}
-                      className="w-full sm:w-auto"
-                    >
-                      {t("back")}
-                    </Button>
-                    <Button
-                      onClick={() => setCurrentStep("customer")}
-                      className="w-full sm:w-auto"
-                    >
-                      {t("continue")}
-                    </Button>
-                  </div>
+            <div className="border-t pt-6">
+              <InsuranceContractCheckbox 
+                t={t}
+                hasInsurance={hasInsurance}
+                handleInsuranceChange={handleInsuranceChange}
+                language={language}
+              />
+            </div>
+
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span>
+                    {t("bikes")} (
+                    {selectedBikes.reduce((total, bike) => total + bike.quantity, 0)}
+                    )
+                  </span>
+                  <span>
+                    {bikeSubtotal}
+                    {t("euro")}
+                  </span>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        );
+
+                {selectedAccessories.length > 0 && (
+                  <div className="flex justify-between">
+                    <span>{t("accessories")}</span>
+                    <span>
+                      {accessoriesSubtotal}
+                      {t("euro")}
+                    </span>
+                  </div>
+                )}
+
+                {hasInsurance && (
+                  <div className="flex justify-between">
+                    <span>{t("insurance")}</span>
+                    <span>
+                      {insuranceSubtotal}
+                      {t("euro")}
+                    </span>
+                  </div>
+                )}
+
+                <div className="border-t pt-1 flex justify-between font-semibold">
+                  <span>{t("total")}</span>
+                  <span>
+                    {orderTotal}
+                    {t("euro")}
+                  </span>
+                </div>
+
+                <div className="flex justify-between text-orange-600">
+                  <span>{t("depositCash")}</span>
+                  <span>
+                    {depositTotal}
+                    {t("euro")}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-4 sm:flex-row">
+              <Button
+                variant="outline"
+                onClick={() => setCurrentStep("bikes")}
+                className="w-full sm:w-auto"
+              >
+                {t("back")}
+              </Button>
+              <Button
+                onClick={() => setCurrentStep("customer")}
+                className="w-full sm:w-auto"
+              >
+                {t("continue")}
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 
       case "customer":
         return (

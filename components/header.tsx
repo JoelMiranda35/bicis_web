@@ -26,9 +26,6 @@ export function Header() {
             <Link href="/" className="text-gray-700 hover:text-green-600 transition-colors">
               {t("home")}
             </Link>
-            <Link href="/about" className="text-gray-700 hover:text-green-600 transition-colors">
-              {t("about")}
-            </Link>
             <Link href="/catalog" className="text-gray-700 hover:text-green-600 transition-colors">
               {t("catalog")}
             </Link>
@@ -57,13 +54,6 @@ export function Header() {
                 onClick={() => setIsMenuOpen(false)}
               >
                 {t("home")}
-              </Link>
-              <Link
-                href="/about"
-                className="block px-3 py-2 text-gray-700 hover:text-green-600 transition-colors"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                {t("about")}
               </Link>
               <Link
                 href="/catalog"

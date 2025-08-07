@@ -1,6 +1,6 @@
 // @/lib/translations.ts
 export type TranslationKey =
-  | 'home' | 'about' | 'catalog' | 'reserve' | 'exploreAltea' | 'rentBestBikes'
+  | 'home' | 'catalog' | 'reserve' | 'exploreAltea' | 'rentBestBikes'
   | 'reserveNow' | 'viewCatalog' | 'whyChoose' | 'yearsExperience'
   | 'qualityBikes' | 'excellentService' | 'perfectLocation' | 'ourBikes'
   | 'roadBikes' | 'mountainBikes' | 'cityBikes' | 'electricBikes'
@@ -15,6 +15,7 @@ export type TranslationKey =
   | 'payNow' | 'reservationConfirmed' | 'reservationSuccess'
   | 'reservationNumber' | 'emailSent' | 'nextSteps' | 'comeToStore'
   | 'bringDocuments' | 'reviewBikes' | 'backToHome' | 'validationNameRequired'
+  | 'validationInvalidName' | 'validationEmailRequired' | 'validationPhoneRequired'
   | 'validationInvalidEmail' | 'validationInvalidPhone'
   | 'validationInvalidDocument' | 'validationValidDocumentInfo'
   | 'validationTermsRequired' | 'storeHoursTitle' | 'storeHoursContent'
@@ -29,11 +30,28 @@ export type TranslationKey =
   | 'processingPayment' | 'paymentRetryInstructions' | 'paymentDetails'
   | 'securePaymentInfo' | 'cardNumber' | 'expiryDate' | 'cvc'
   | 'paymentSuccessful' | 'paymentProcessing' | 'paymentMethod'
-  | 'creditDebitCard' | 'paymentConfirmation';
+  | 'creditDebitCard' | 'paymentConfirmation'
+  | 'downloadInsuranceContract' | 'viewAllBikes' | 'trustStore'
+  | 'contactInfo' | 'schedule' | 'allRightsReserved' | 'bikeCatalog'
+  | 'catalogSubtitle' | 'searchBikes' | 'allCategories' | 'allSizes'
+  | 'noBikesFound' | 'readyForAdventure' | 'bookFavoriteBike'
+  | 'premiumBikes' | 'renewedFleet' | 'insuranceIncluded' | 'completeProtection'
+  | 'service24' | 'technicalAssistance' | 'recommendedBikes' | 'popularBikes'
+  | 'ourLocation' | 'locationSubtitle' | 'howToGetHere' | 'locationDesc1'
+  | 'locationDesc2';
+
+interface AmountParams {
+  amount: number;
+}
+
+interface CountParams {
+  count: number;
+}
 
 type TranslationFunction =
   | string
-  | ((params: Record<string, string | number>) => string);
+  | ((params: AmountParams) => string)
+  | ((params: CountParams) => string);
 
 interface LanguageTranslations {
   [key: string]: TranslationFunction;
@@ -42,11 +60,10 @@ interface LanguageTranslations {
 const translations = {
   en: {
     home: "Home",
-    about: "About Us",
     catalog: "Catalog",
     reserve: "Reserve",
     exploreAltea: "Explore Altea",
-    rentBestBikes: "Rent the best bikes in Altea",
+    rentBestBikes: "Train in one of Europe's most spectacular cycling destinations: the Costa Blanca awaits you with demanding routes, unbeatable views and the challenge you're looking for. Your next ride starts with a great bike!",
     reserveNow: "Reserve Now",
     viewCatalog: "View Catalog",
     whyChoose: "Why choose us?",
@@ -89,7 +106,7 @@ const translations = {
     back: "Back",
     continuePayment: "Continue to Payment",
     important: "Important",
-    depositMessage: ({ amount }: { amount: number }) => `A deposit of €${amount} will be required when picking up the bikes.`,
+    depositMessage: ({ amount }: AmountParams) => `A deposit of €${amount} will be required when picking up the bikes.`,
     finalSummary: "Final Summary",
     payWithCard: "Pay with card",
     depositInStore: "Deposit in store",
@@ -105,6 +122,9 @@ const translations = {
     reviewBikes: "Review and test the bikes before leaving",
     backToHome: "Back to Home",
     validationNameRequired: "Name is required",
+    validationInvalidName: "Invalid name format",
+    validationEmailRequired: "Email is required",
+    validationPhoneRequired: "Phone is required",
     validationInvalidEmail: "Invalid email",
     validationInvalidPhone: "Invalid phone number",
     validationInvalidDocument: "Invalid ID/Passport",
@@ -123,7 +143,8 @@ const translations = {
     rentalTermsTitle: "I accept the rental terms and conditions",
     rentalTermsContent: "By accepting, you agree to our rental terms and conditions",
     downloadTerms: "Download Terms",
-    specificBikesNoLongerAvailable: ({ count }: { count: number }) => `${count} selected bikes are no longer available. Please adjust your selection.`,
+    downloadInsuranceContract: "Download Insurance Contract",
+    specificBikesNoLongerAvailable: ({ count }: CountParams) => `${count} selected bikes are no longer available. Please adjust your selection.`,
     bikesNoLongerAvailable: "Some selected bikes are no longer available. Please adjust your selection.",
     reservationValidationError: "Please correct the errors in the form",
     reservationError: "Error creating reservation",
@@ -153,15 +174,40 @@ const translations = {
     paymentProcessing: "Processing your payment...",
     paymentMethod: "Payment Method",
     creditDebitCard: "Credit/Debit Card",
-    paymentConfirmation: "Payment Confirmation"
+    paymentConfirmation: "Payment Confirmation",
+    viewAllBikes: "View All Bikes",
+    trustStore: "Trusted Bike Rental Store",
+    contactInfo: "Contact Information",
+    schedule: "Opening Hours",
+    allRightsReserved: "All rights reserved",
+    bikeCatalog: "Bike Catalog",
+    catalogSubtitle: "Explore our wide range of bikes for your perfect ride",
+    searchBikes: "Search Bikes",
+    allCategories: "All Categories",
+    allSizes: "All Sizes",
+    noBikesFound: "No bikes found",
+    readyForAdventure: "Ready for your next adventure?",
+    bookFavoriteBike: "Book your favorite bike now",
+    premiumBikes: "Premium Bikes",
+    renewedFleet: "Renewed Fleet",
+    insuranceIncluded: "Insurance Included",
+    completeProtection: "Complete Protection",
+    service24: "Mechanical Assistance",
+    technicalAssistance: "Mechanical assistance up to 30km",
+    recommendedBikes: "Recommended Bikes",
+    popularBikes: "Popular Bikes",
+    ourLocation: "Our Location",
+    locationSubtitle: "Find us in the heart of Altea",
+    howToGetHere: "How to get here",
+    locationDesc1: "Our store is conveniently located in the city center, just a few minutes walk from the beach.",
+    locationDesc2: "Easy access by public transport and plenty of parking options nearby."
   },
   es: {
     home: "Inicio",
-    about: "Sobre Nosotros",
     catalog: "Catálogo",
     reserve: "Reservar",
     exploreAltea: "Explora Altea",
-    rentBestBikes: "Alquila las mejores bicicletas en Altea",
+    rentBestBikes: "Entrena en uno de los destinos ciclistas más espectaculares de Europa: la Costa Blanca te espera con rutas exigentes, vistas inigualables y el desafío que estás buscando. ¡Tu próxima salida empieza con una buena bici!",
     reserveNow: "Reservar Ahora",
     viewCatalog: "Ver Catálogo",
     whyChoose: "¿Por qué elegirnos?",
@@ -204,7 +250,7 @@ const translations = {
     back: "Atrás",
     continuePayment: "Continuar al Pago",
     important: "Importante",
-    depositMessage: ({ amount }: { amount: number }) => `Se requerirá un depósito de €${amount} al recoger las bicicletas.`,
+    depositMessage: ({ amount }: AmountParams) => `Se requerirá un depósito de €${amount} al recoger las bicicletas.`,
     finalSummary: "Resumen Final",
     payWithCard: "Pagar con tarjeta",
     depositInStore: "Depósito en tienda",
@@ -220,6 +266,9 @@ const translations = {
     reviewBikes: "Revisa y prueba las bicis antes de salir",
     backToHome: "Volver al Inicio",
     validationNameRequired: "El nombre es obligatorio",
+    validationInvalidName: "Formato de nombre inválido",
+    validationEmailRequired: "El email es obligatorio",
+    validationPhoneRequired: "El teléfono es obligatorio",
     validationInvalidEmail: "Email inválido",
     validationInvalidPhone: "Teléfono inválido",
     validationInvalidDocument: "DNI/NIE/Pasaporte inválido",
@@ -238,7 +287,8 @@ const translations = {
     rentalTermsTitle: "Acepto los términos y condiciones de alquiler",
     rentalTermsContent: "Al aceptar, estás de acuerdo con nuestros términos y condiciones de alquiler",
     downloadTerms: "Descargar Términos",
-    specificBikesNoLongerAvailable: ({ count }: { count: number }) => `${count} bicicletas seleccionadas ya no están disponibles. Por favor ajusta tu selección.`,
+    downloadInsuranceContract: "Descargar Contrato de Seguro",
+    specificBikesNoLongerAvailable: ({ count }: CountParams) => `${count} bicicletas seleccionadas ya no están disponibles. Por favor ajusta tu selección.`,
     bikesNoLongerAvailable: "Algunas bicicletas seleccionadas ya no están disponibles. Por favor ajusta tu selección.",
     reservationValidationError: "Por favor corrige los errores en el formulario",
     reservationError: "Error al crear la reserva",
@@ -268,15 +318,40 @@ const translations = {
     paymentProcessing: "Procesando tu pago...",
     paymentMethod: "Método de Pago",
     creditDebitCard: "Tarjeta de Crédito/Débito",
-    paymentConfirmation: "Confirmación de Pago"
+    paymentConfirmation: "Confirmación de Pago",
+    viewAllBikes: "Ver Todas las Bicicletas",
+    trustStore: "Tienda de Alquiler de Bicicletas de Confianza",
+    contactInfo: "Información de Contacto",
+    schedule: "Horario de Apertura",
+    allRightsReserved: "Todos los derechos reservados",
+    bikeCatalog: "Catálogo de Bicicletas",
+    catalogSubtitle: "Explora nuestra amplia gama de bicicletas para tu viaje perfecto",
+    searchBikes: "Buscar Bicicletas",
+    allCategories: "Todas las Categorías",
+    allSizes: "Todas las Tallas",
+    noBikesFound: "No se encontraron bicicletas",
+    readyForAdventure: "¿Listo para tu próxima aventura?",
+    bookFavoriteBike: "Reserva tu bicicleta favorita ahora",
+    premiumBikes: "Bicicletas Premium",
+    renewedFleet: "Flota Renovada",
+    insuranceIncluded: "Seguro Incluido",
+    completeProtection: "Protección Completa",
+    service24: "Asistencia mecánica hasta 30km",
+    technicalAssistance: "Asistencia Técnica",
+    recommendedBikes: "Bicicletas Recomendadas",
+    popularBikes: "Bicicletas Populares",
+    ourLocation: "Nuestra Ubicación",
+    locationSubtitle: "Encuéntranos en el corazón de Altea",
+    howToGetHere: "Cómo llegar",
+    locationDesc1: "Nuestra tienda está convenientemente ubicada en el centro de la ciudad, a pocos minutos a pie de la playa.",
+    locationDesc2: "Fácil acceso en transporte público y muchas opciones de aparcamiento cercanas."
   },
   nl: {
     home: "Home",
-    about: "Over Ons",
     catalog: "Catalogus",
     reserve: "Reserveren",
     exploreAltea: "Ontdek Altea",
-    rentBestBikes: "Huur de beste fietsen in Altea",
+    rentBestBikes: "Train in een van Europa's meest spectaculaire fietsbestemmingen: de Costa Blanca wacht op je met uitdagende routes, adembenemende uitzichten en de uitdaging waar je naar op zoek bent. Je volgende rit begint met een goede fiets!",
     reserveNow: "Nu Reserveren",
     viewCatalog: "Bekijk Catalogus",
     whyChoose: "Waarom voor ons kiezen?",
@@ -319,7 +394,7 @@ const translations = {
     back: "Terug",
     continuePayment: "Doorgaan naar Betaling",
     important: "Belangrijk",
-    depositMessage: ({ amount }: { amount: number }) => `Een borg van €${amount} is vereist bij het ophalen van de fietsen.`,
+    depositMessage: ({ amount }: AmountParams) => `Een borg van €${amount} is vereist bij het ophalen van de fietsen.`,
     finalSummary: "Eindoverzicht",
     payWithCard: "Betalen met kaart",
     depositInStore: "Borg in de winkel",
@@ -335,6 +410,9 @@ const translations = {
     reviewBikes: "Controleer en test de fietsen voor vertrek",
     backToHome: "Terug naar Home",
     validationNameRequired: "Naam is verplicht",
+    validationInvalidName: "Ongeldige naamindeling",
+    validationEmailRequired: "E-mail is verplicht",
+    validationPhoneRequired: "Telefoon is verplicht",
     validationInvalidEmail: "Ongeldig e-mailadres",
     validationInvalidPhone: "Ongeldig telefoonnummer",
     validationInvalidDocument: "Ongeldig ID/Passpoort",
@@ -353,7 +431,8 @@ const translations = {
     rentalTermsTitle: "Ik accepteer de huurvoorwaarden",
     rentalTermsContent: "Door te accepteren gaat u akkoord met onze huurvoorwaarden",
     downloadTerms: "Download Voorwaarden",
-    specificBikesNoLongerAvailable: ({ count }: { count: number }) => `${count} geselecteerde fietsen zijn niet meer beschikbaar. Pas uw selectie aan.`,
+    downloadInsuranceContract: "Download Verzekeringscontract",
+    specificBikesNoLongerAvailable: ({ count }: CountParams) => `${count} geselecteerde fietsen zijn niet meer beschikbaar. Pas uw selectie aan.`,
     bikesNoLongerAvailable: "Sommige geselecteerde fietsen zijn niet meer beschikbaar. Pas uw selectie aan.",
     reservationValidationError: "Corrigeer de fouten in het formulier",
     reservationError: "Fout bij het maken van de reservering",
@@ -383,7 +462,33 @@ const translations = {
     paymentProcessing: "Uw betaling wordt verwerkt...",
     paymentMethod: "Betalingsmethode",
     creditDebitCard: "Credit/Debit Card",
-    paymentConfirmation: "Betalingsbevestiging"
+    paymentConfirmation: "Betalingsbevestiging",
+    viewAllBikes: "Bekijk Alle Fietsen",
+    trustStore: "Betrouwbare Fietsverhuurwinkel",
+    contactInfo: "Contactgegevens",
+    schedule: "Openingstijden",
+    allRightsReserved: "Alle rechten voorbehouden",
+    bikeCatalog: "Fietscatalogus",
+    catalogSubtitle: "Ontdek ons brede assortiment fietsen voor uw perfecte rit",
+    searchBikes: "Zoek Fietsen",
+    allCategories: "Alle Categorieën",
+    allSizes: "Alle Maten",
+    noBikesFound: "Geen fietsen gevonden",
+    readyForAdventure: "Klaar voor uw volgende avontuur?",
+    bookFavoriteBike: "Boek nu uw favoriete fiets",
+    premiumBikes: "Premium Fietsen",
+    renewedFleet: "Vernieuwd Wagenpark",
+    insuranceIncluded: "Verzekering Inbegrepen",
+    completeProtection: "Volledige Bescherming",
+    service24: "Mechanische Assistentie",
+    technicalAssistance: "Mechanische assistentie tot 30km",
+    recommendedBikes: "Aanbevolen Fietsen",
+    popularBikes: "Populaire Fietsen",
+    ourLocation: "Onze Locatie",
+    locationSubtitle: "Vind ons in het hart van Altea",
+    howToGetHere: "Hoe hier te komen",
+    locationDesc1: "Onze winkel is gunstig gelegen in het stadscentrum, op slechts een paar minuten lopen van het strand.",
+    locationDesc2: "Gemakkelijk bereikbaar met het openbaar vervoer en veel parkeermogelijkheden in de buurt."
   }
 } as const;
 

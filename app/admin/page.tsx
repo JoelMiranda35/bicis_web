@@ -34,12 +34,15 @@ import {
   Clock,
   ChevronLeft,
   ChevronRight,
+  CheckCircle,
+  AlertCircle,
 } from "lucide-react"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isWithinInterval, isSunday, isSaturday, addDays, parseISO, addMonths, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
 import { calculatePrice, calculateDeposit, calculateInsurance, isValidCategory } from "@/lib/pricing"
+import { toast } from "@/components/ui/use-toast"
 
 
 type BikeCategory = "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB";
@@ -368,8 +371,21 @@ export default function AdminPage() {
 
       await fetchData()
       setEditingBike(null)
+      
+      toast({
+        title: "Bicicleta guardada",
+        description: bikeData.id ? "Bicicleta actualizada correctamente" : "Bicicleta creada correctamente",
+        variant: "default",
+        action: <CheckCircle className="h-5 w-5 text-green-500" />,
+      })
     } catch (error: any) {
       setError(`Error al guardar la bicicleta: ${error.message}`)
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+        action: <AlertCircle className="h-5 w-5 text-red-500" />,
+      })
     }
   }
 
@@ -385,8 +401,20 @@ export default function AdminPage() {
         if (error) throw error
 
         await fetchData()
+        toast({
+          title: "Bicicleta eliminada",
+          description: "La bicicleta se ha eliminado correctamente",
+          variant: "default",
+          action: <CheckCircle className="h-5 w-5 text-green-500" />,
+        })
       } catch (error: any) {
         setError(`Error al eliminar la bicicleta: ${error.message}`)
+        toast({
+          title: "Error",
+          description: error.message,
+          variant: "destructive",
+          action: <AlertCircle className="h-5 w-5 text-red-500" />,
+        })
       }
     }
   }
@@ -412,6 +440,11 @@ export default function AdminPage() {
       const dataToSave = {
         ...accessoryData,
         image_url: imageUrl,
+        name: {
+          es: accessoryData.name_es || '',
+          en: accessoryData.name_en || '',
+          nl: accessoryData.name_nl || ''
+        }
       }
 
       let result
@@ -432,8 +465,21 @@ export default function AdminPage() {
 
       await fetchData()
       setEditingAccessory(null)
+      
+      toast({
+        title: "Accesorio guardado",
+        description: accessoryData.id ? "Accesorio actualizado correctamente" : "Accesorio creado correctamente",
+        variant: "default",
+        action: <CheckCircle className="h-5 w-5 text-green-500" />,
+      })
     } catch (error: any) {
       setError(`Error al guardar el accesorio: ${error.message}`)
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+        action: <AlertCircle className="h-5 w-5 text-red-500" />,
+      })
     }
   }
 
@@ -449,112 +495,138 @@ export default function AdminPage() {
         if (error) throw error
 
         await fetchData()
+        toast({
+          title: "Accesorio eliminado",
+          description: "El accesorio se ha eliminado correctamente",
+          variant: "default",
+          action: <CheckCircle className="h-5 w-5 text-green-500" />,
+        })
       } catch (error: any) {
         setError(`Error al eliminar el accesorio: ${error.message}`)
+        toast({
+          title: "Error",
+          description: error.message,
+          variant: "destructive",
+          action: <AlertCircle className="h-5 w-5 text-red-500" />,
+        })
       }
     }
   }
 
   const createReservation = async () => {
-    try {
-      setError(null);
-      
-      if (!newReservation.customer_name || !newReservation.customer_email || 
-          !newReservation.customer_phone || !newReservation.customer_dni) {
-        throw new Error("Todos los campos del cliente son obligatorios");
-      }
-      
-      if (!newReservation.start_date || !newReservation.end_date) {
-        throw new Error("Debe seleccionar fechas de inicio y fin");
-      }
-      
-      if (newReservation.bikes.length === 0) {
-        throw new Error("Debe seleccionar al menos una bicicleta");
-      }
-      
-      const startDate = new Date(newReservation.start_date);
-      const endDate = new Date(newReservation.end_date);
-      
-      const totalDays = calculateTotalDays(
-        new Date(newReservation.start_date),
-        new Date(newReservation.end_date),
-        newReservation.pickup_time,
-        newReservation.return_time
-      );
-      
-      const bikesForDB = newReservation.bikes.map((bike: any) => ({
-        id: bike.id,
-        title_es: bike.title_es || bike.title,
-        size: bike.size,
-        category: bike.category,
-        bike_ids: [bike.id]
-      }));
-      
-      let totalAmount = 0;
-      let depositAmount = 0;
-      
-      bikesForDB.forEach((bike: any) => {
-  if (isValidCategory(bike.category)) {
-    const bikePrice = calculatePrice(bike.category, totalDays);
-    totalAmount += bikePrice * totalDays;
-    depositAmount += calculateDeposit(bike.category);
-  } else {
-    console.error("Categoría no válida en bikesForDB:", bike.category);
-  }
-});
-
-      
-      newReservation.accessories.forEach((acc: any) => {
-        totalAmount += (acc.price || 0) * totalDays;
-      });
-
-      if (newReservation.insurance) {
-        totalAmount += calculateInsurance(totalDays);
-      }
-
-      const dataToSave = {
-        ...newReservation,
-        start_date: formatDateForDB(startDate),
-        end_date: formatDateForDB(endDate),
-        total_days: totalDays,
-        total_amount: totalAmount,
-        deposit_amount: depositAmount,
-        status: "confirmed",
-        created_at: new Date().toISOString(),
-        bikes: bikesForDB,
-        accessories: newReservation.accessories.map((acc: any) => ({
-          id: acc.id,
-          name_es: acc.name_es || acc.name,
-          price: acc.price
-        }))
-      };
-
-      const { error } = await supabase
-        .from("reservations")
-        .insert([dataToSave]);
-
-      if (error) throw error;
-
-      await fetchData();
-      setNewReservation({
-        customer_name: "",
-        customer_email: "",
-        customer_phone: "",
-        customer_dni: "",
-        start_date: createLocalDate(),
-        end_date: createLocalDate(addDays(new Date(), 1)),
-        pickup_time: "10:00",
-        return_time: "18:00",
-        bikes: [],
-        accessories: [],
-        insurance: false,
-        status: "confirmed"
-      });
-      setReservationStep("dates");
-    } catch (error: any) {
-      setError(`Error al crear la reserva: ${error.message}`);
+  try {
+    setError(null);
+    
+    if (!newReservation.customer_name || !newReservation.customer_email || 
+        !newReservation.customer_phone || !newReservation.customer_dni) {
+      throw new Error("Todos los campos del cliente son obligatorios");
     }
-  };
+    
+    if (!newReservation.start_date || !newReservation.end_date) {
+      throw new Error("Debe seleccionar fechas de inicio y fin");
+    }
+    
+    if (newReservation.bikes.length === 0) {
+      throw new Error("Debe seleccionar al menos una bicicleta");
+    }
+    
+    const startDate = new Date(newReservation.start_date);
+    const endDate = new Date(newReservation.end_date);
+    
+    const totalDays = calculateTotalDays(
+      new Date(newReservation.start_date),
+      new Date(newReservation.end_date),
+      newReservation.pickup_time,
+      newReservation.return_time
+    );
+    
+    const bikesForDB = newReservation.bikes.map((bike: any) => ({
+      id: bike.id,
+      title_es: bike.title_es || bike.title,
+      size: bike.size,
+      category: bike.category,
+      bike_ids: [bike.id],
+      price_per_day: calculatePrice(bike.category, 1), // Precio por día
+      total_price: calculatePrice(bike.category, totalDays) // Precio total
+    }));
+    
+    let totalAmount = 0;
+    let depositAmount = 0;
+    
+    bikesForDB.forEach((bike: any) => {
+      if (isValidCategory(bike.category)) {
+        totalAmount += bike.total_price;
+        depositAmount += calculateDeposit(bike.category);
+      }
+    });
+    
+    newReservation.accessories.forEach((acc: any) => {
+      totalAmount += (acc.price || 0) * totalDays;
+    });
+
+    if (newReservation.insurance) {
+      totalAmount += calculateInsurance(totalDays);
+    }
+
+    const dataToSave = {
+      ...newReservation,
+      start_date: formatDateForDB(startDate),
+      end_date: formatDateForDB(endDate),
+      total_days: totalDays,
+      total_amount: totalAmount,
+      deposit_amount: depositAmount,
+      paid_amount: totalAmount,
+      status: "confirmed",
+      created_at: new Date().toISOString(),
+      locale: "es",
+      bikes: bikesForDB,
+      accessories: newReservation.accessories.map((acc: any) => ({
+        id: acc.id,
+        name_es: acc.name_es || acc.name,
+        price: acc.price,
+        total: acc.price * totalDays
+      }))
+    };
+
+    const { error } = await supabase
+      .from("reservations")
+      .insert([dataToSave]);
+
+    if (error) throw error;
+
+    await fetchData();
+    setNewReservation({
+      customer_name: "",
+      customer_email: "",
+      customer_phone: "",
+      customer_dni: "",
+      start_date: createLocalDate(),
+      end_date: createLocalDate(addDays(new Date(), 1)),
+      pickup_time: "10:00",
+      return_time: "18:00",
+      bikes: [],
+      accessories: [],
+      insurance: false,
+      status: "confirmed"
+    });
+    setReservationStep("dates");
+    
+    toast({
+      title: "Reserva creada",
+      description: "La reserva se ha creado correctamente",
+      variant: "default",
+      action: <CheckCircle className="h-5 w-5 text-green-500" />,
+    });
+  } catch (error: any) {
+    setError(`Error al crear la reserva: ${error.message}`);
+    toast({
+      title: "Error",
+      description: error.message,
+      variant: "destructive",
+      action: <AlertCircle className="h-5 w-5 text-red-500" />,
+    });
+  }
+};
 
   const updateReservationStatus = async (id: string, status: string) => {
     try {
@@ -589,33 +661,47 @@ export default function AdminPage() {
       }
 
       await fetchData();
+      
+      toast({
+        title: "Estado actualizado",
+        description: `El estado de la reserva se ha actualizado a ${status}`,
+        variant: "default",
+        action: <CheckCircle className="h-5 w-5 text-green-500" />,
+      })
     } catch (error: any) {
       setError(`Error al actualizar la reserva: ${error.message}`);
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+        action: <AlertCircle className="h-5 w-5 text-red-500" />,
+      })
     }
   };
 
-  const toggleBikeSelection = (bike: any) => {
-    const isSelected = newReservation.bikes.some((b: any) => b.id === bike.id);
-    if (isSelected) {
-      setNewReservation({
-        ...newReservation,
-        bikes: newReservation.bikes.filter((b: any) => b.id !== bike.id)
-      });
-    } else {      
-      setNewReservation({
-        ...newReservation,
-        bikes: [
-          ...newReservation.bikes,
-          {
-            id: bike.id,
-            title: bike.title_es || bike.title,
-            size: bike.size,
-            category: bike.category
-          }
-        ]
-      });
-    }
-  };
+const toggleBikeSelection = (bike: any) => {
+  const isSelected = newReservation.bikes.some((b: any) => b.id === bike.id);
+  if (isSelected) {
+    setNewReservation({
+      ...newReservation,
+      bikes: newReservation.bikes.filter((b: any) => b.id !== bike.id)
+    });
+  } else {      
+    setNewReservation({
+      ...newReservation,
+      bikes: [
+        ...newReservation.bikes,
+        {
+          id: bike.id,
+          title: bike.title_es || bike.title,
+          size: bike.size,
+          category: bike.category,
+          price_per_day: calculatePrice(bike.category, 1) // Guardamos precio por día
+        }
+      ]
+    });
+  }
+};
 
   const toggleAccessorySelection = (accessory: any) => {
     const isSelected = newReservation.accessories.some((a: any) => a.id === accessory.id)
@@ -639,53 +725,52 @@ export default function AdminPage() {
     }
   }
   
-  const calculateTotalDays = (startDate: Date, endDate: Date, pickupTime: string, returnTime: string): number => {
-    const startDay = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-    const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-    
-    if (isSameDay(startDay, endDay)) return 1;
+ const calculateTotalDays = (startDate: Date, endDate: Date, pickupTime: string, returnTime: string): number => {
+  const startDay = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+  const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+  
+  if (isSameDay(startDay, endDay)) return 1;
 
-    const diffDays = Math.ceil((endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24));
+  const diffDays = Math.ceil((endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24));
 
-    if (returnTime <= pickupTime) {
-      return diffDays;
-    }
+  if (returnTime <= pickupTime) {
+    return diffDays;
+  }
 
-    return diffDays + 1;
-  };
+  return diffDays + 1;
+};
 
   const calculateTotalDeposit = () => {
     return newReservation.bikes.reduce((sum: number, bike: any) => {
-  return sum + (isValidCategory(bike.category) ? calculateDeposit(bike.category) : 0);
-}, 0);
-
+      return sum + (isValidCategory(bike.category) ? calculateDeposit(bike.category) : 0);
+    }, 0);
   };
 
   const calculateTotalPrice = () => {
-    if (!newReservation.start_date || !newReservation.end_date) return 0;
-    
-    const days = calculateTotalDays(
-      new Date(newReservation.start_date),
-      new Date(newReservation.end_date),
-      newReservation.pickup_time,
-      newReservation.return_time
-    );
-    
-    let total = 0;
-    newReservation.bikes.forEach((bike: any) => {
-      total += (isValidCategory(bike.category) ? calculatePrice(bike.category, days) : 0) * days;
-    });
-    
-    newReservation.accessories.forEach((acc: any) => {
-      total += (acc.price || 0) * days;
-    });
-    
-    if (newReservation.insurance) {
-      total += calculateInsurance(days);
-    }
-    
-    return total;
-  };
+  if (!newReservation.start_date || !newReservation.end_date) return 0;
+  
+  const days = calculateTotalDays(
+    new Date(newReservation.start_date),
+    new Date(newReservation.end_date),
+    newReservation.pickup_time,
+    newReservation.return_time
+  );
+  
+  let total = 0;
+  newReservation.bikes.forEach((bike: any) => {
+    total += calculatePrice(bike.category, days);
+  });
+  
+  newReservation.accessories.forEach((acc: any) => {
+    total += (acc.price || 0) * days;
+  });
+  
+  if (newReservation.insurance) {
+    total += calculateInsurance(days);
+  }
+  
+  return total;
+};
 
   if (!isAuthenticated) {
     return (
@@ -969,180 +1054,182 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="reservations">
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>Gestión de Reservas</CardTitle>
-                  <div className="flex items-center gap-4">
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline">
-                          {format(selectedMonth, 'MMMM yyyy', { locale: es })}
-                          <CalendarIcon className="ml-2 h-4 w-4" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={selectedMonth}
-                          onSelect={(date) => date && setSelectedMonth(createLocalDate(date))}
-                          initialFocus
-                          locale={es}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+  <Card>
+    <CardHeader>
+      <div className="flex justify-between items-center">
+        <CardTitle>Gestión de Reservas</CardTitle>
+        <div className="flex items-center gap-4">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline">
+                {format(selectedMonth, 'MMMM yyyy', { locale: es })}
+                <CalendarIcon className="ml-2 h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0">
+              <Calendar
+                mode="single"
+                selected={selectedMonth}
+                onSelect={(date) => date && setSelectedMonth(createLocalDate(date))}
+                initialFocus
+                locale={es}
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+    </CardHeader>
+    <CardContent>
+      <div className="space-y-4">
+        {currentReservations.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            No hay reservas registradas para este mes
+          </div>
+        ) : (
+          currentReservations.map((reservation) => (
+            <div key={reservation.id} className="border rounded-lg p-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <h3 className="font-semibold">{reservation.customer_name}</h3>
+                  <p className="text-sm text-gray-600">{reservation.customer_email}</p>
+                  <p className="text-sm text-gray-600">{reservation.customer_phone}</p>
+                  <p className="text-sm text-gray-600">DNI: {reservation.customer_dni}</p>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {currentReservations.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      No hay reservas registradas para este mes
-                    </div>
-                  ) : (
-                    currentReservations.map((reservation) => (
-                      <div key={reservation.id} className="border rounded-lg p-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <h3 className="font-semibold">{reservation.customer_name}</h3>
-                            <p className="text-sm text-gray-600">{reservation.customer_email}</p>
-                            <p className="text-sm text-gray-600">{reservation.customer_phone}</p>
-                            <p className="text-sm text-gray-600">DNI: {reservation.customer_dni}</p>
-                          </div>
 
-                          <div>
-                            <p className="text-sm">
-                              <strong>Fechas:</strong> {format(reservation.start_date, 'PPP', { locale: es })} - {format(reservation.end_date, 'PPP', { locale: es })}
-                            </p>
-                            <p className="text-sm flex items-center gap-1">
-                              <Clock className="h-4 w-4" />
-                              <span>
-                                Recogida: {reservation.pickup_time} - Devolución: {reservation.return_time}
-                              </span>
-                            </p>
-                            <p className="text-sm">
-                              <strong>Días:</strong> {reservation.total_days}
-                            </p>
-                            <p className="text-sm">
-                              <strong>Total:</strong> {reservation.total_amount}€
-                            </p>
-                            <p className="text-sm">
-                              <strong>Depósito:</strong> {reservation.deposit_amount}€
-                            </p>
-                            {reservation.insurance && (
-                              <p className="text-sm">
-                                <strong>Seguro:</strong> Sí
-                              </p>
-                            )}
-                          </div>
-
-                          <div>
-                            <div className="mb-2">
-                              <Badge
-                                variant={
-                                  reservation.status === "confirmed"
-                                    ? "default"
-                                    : reservation.status === "in_process"
-                                    ? "secondary"
-                                    : reservation.status === "completed"
-                                    ? "default"
-                                    : reservation.status === "cancelled"
-                                    ? "destructive"
-                                    : "outline"
-                                }
-                              >
-                                {reservation.status}
-                              </Badge>
-                            </div>
-
-                            <Select
-                              value={reservation.status}
-                              onValueChange={(status) => updateReservationStatus(reservation.id, status)}
-                            >
-                              <SelectTrigger className="w-full">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="pending">Pendiente</SelectItem>
-                                <SelectItem value="confirmed">Confirmada</SelectItem>
-                                <SelectItem value="in_process">En proceso</SelectItem>
-                                <SelectItem value="completed">Completada</SelectItem>
-                                <SelectItem value="cancelled">Cancelada</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 pt-4 border-t">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <h4 className="font-medium mb-2">Bicicletas:</h4>
-                              {reservation.bikes?.map((bike: any, index: number) => {
-                                const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, reservation.total_days) : 0;
-                                return (
-                                  <p key={index} className="text-sm text-gray-600">
-                                    {bike.title || bike.title_es} - Talla {bike.size || bike.selectedSize} ({pricePerDay}€/día)
-                                  </p>
-                                );
-                              })}
-                            </div>
-
-                            {reservation.accessories && reservation.accessories.length > 0 && (
-                              <div>
-                                <h4 className="font-medium mb-2">Accesorios:</h4>
-                                {reservation.accessories.map((accessory: any, index: number) => (
-                                  <p key={index} className="text-sm text-gray-600">
-                                    {accessory.name || accessory.name_es} - {accessory.price}€/día
-                                  </p>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))
+                <div>
+                  <p className="text-sm">
+                    <strong>Fechas:</strong> {format(reservation.start_date, 'PPP', { locale: es })} - {format(reservation.end_date, 'PPP', { locale: es })}
+                  </p>
+                  <p className="text-sm flex items-center gap-1">
+                    <Clock className="h-4 w-4" />
+                    <span>
+                      Recogida: {reservation.pickup_time} - Devolución: {reservation.return_time}
+                    </span>
+                  </p>
+                  <p className="text-sm">
+                    <strong>Días:</strong> {reservation.total_days}
+                  </p>
+                  <p className="text-sm">
+                    <strong>Total:</strong> {reservation.total_amount}€
+                  </p>
+                  <p className="text-sm">
+                    <strong>Depósito:</strong> {reservation.deposit_amount}€
+                  </p>
+                  {reservation.insurance && (
+                    <p className="text-sm">
+                      <strong>Seguro:</strong> Sí
+                    </p>
                   )}
                 </div>
 
-                {filteredReservations.length > 0 && (
-                  <div className="flex items-center justify-between mt-6">
-                    <div className="text-sm text-gray-600">
-                      Mostrando {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, filteredReservations.length)} de {filteredReservations.length} reservas
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={prevPage}
-                        disabled={currentPage === 1}
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((number) => (
-                        <Button
-                          key={number}
-                          variant={currentPage === number ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => paginate(number)}
-                        >
-                          {number}
-                        </Button>
-                      ))}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={nextPage}
-                        disabled={currentPage === totalPages}
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                    </div>
+                <div>
+                  <div className="mb-2">
+                    <Badge
+                      variant={
+                        reservation.status === "confirmed"
+                          ? "default"
+                          : reservation.status === "in_process"
+                          ? "secondary"
+                          : reservation.status === "completed"
+                          ? "default"
+                          : reservation.status === "cancelled"
+                          ? "destructive"
+                          : "outline"
+                      }
+                    >
+                      {reservation.status}
+                    </Badge>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
+
+                  <Select
+                    value={reservation.status}
+                    onValueChange={(status) => updateReservationStatus(reservation.id, status)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="confirmed">Confirmada</SelectItem>
+                      <SelectItem value="in_process">En proceso</SelectItem>
+                      <SelectItem value="completed">Completada</SelectItem>
+                      <SelectItem value="cancelled">Cancelada</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-4 border-t">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <h4 className="font-medium mb-2">Bicicletas:</h4>
+                    {reservation.bikes?.map((bike: any, index: number) => {
+                      const pricePerDay = bike.price_per_day || 
+                        (isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0);
+                      const totalPrice = bike.total_price || pricePerDay * reservation.total_days;
+                      const bikeName = bike.title_es || bike.title || bike.model;
+                      return (
+                        <p key={index} className="text-sm text-gray-600">
+                          {bikeName} - Talla {bike.size} ({pricePerDay}€/día × {reservation.total_days} días = {totalPrice}€)
+                        </p>
+                      );
+                    })}
+                  </div>
+
+                  {reservation.accessories && reservation.accessories.length > 0 && (
+                    <div>
+                      <h4 className="font-medium mb-2">Accesorios:</h4>
+                      {reservation.accessories.map((accessory: any, index: number) => (
+                        <p key={index} className="text-sm text-gray-600">
+                          {accessory.name || accessory.name_es} - {accessory.price}€/día × {reservation.total_days} días = {accessory.price * reservation.total_days}€
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {filteredReservations.length > 0 && (
+        <div className="flex items-center justify-between mt-6">
+          <div className="text-sm text-gray-600">
+            Mostrando {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, filteredReservations.length)} de {filteredReservations.length} reservas
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={prevPage}
+              disabled={currentPage === 1}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((number) => (
+              <Button
+                key={number}
+                variant={currentPage === number ? "default" : "outline"}
+                size="sm"
+                onClick={() => paginate(number)}
+              >
+                {number}
+              </Button>
+            ))}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={nextPage}
+              disabled={currentPage === totalPages}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+    </CardContent>
+  </Card>
+</TabsContent>
 
           <TabsContent value="create-reservation">
             <Card>
@@ -1373,100 +1460,115 @@ export default function AdminPage() {
                   )}
 
                   {reservationStep === "bikes" && (
-                    <>
-                      <div className="p-4 bg-gray-50 rounded-lg mb-4">
-                        <div className="flex justify-between">
-                          <span className="font-medium">Fechas seleccionadas:</span>
-                          <span>
-                            {format(newReservation.start_date, 'PPP', { locale: es })} - {format(newReservation.end_date, 'PPP', { locale: es })}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="font-medium">Horario:</span>
-                          <span>
-                            Recogida: {newReservation.pickup_time} - Devolución: {newReservation.return_time}
-                          </span>
-                        </div>
-                      </div>
+  <>
+    <div className="p-4 bg-gray-50 rounded-lg mb-4">
+      <div className="flex justify-between">
+        <span className="font-medium">Fechas seleccionadas:</span>
+        <span>
+          {format(newReservation.start_date, 'PPP', { locale: es })} - {format(newReservation.end_date, 'PPP', { locale: es })}
+        </span>
+      </div>
+      <div className="flex justify-between">
+        <span className="font-medium">Horario:</span>
+        <span>
+          Recogida: {newReservation.pickup_time} - Devolución: {newReservation.return_time}
+        </span>
+      </div>
+    </div>
 
-                      <div>
-                        <Label>Bicicletas*</Label>
-                        {isLoadingBikes ? (
-                          <div className="text-center py-4">
-                            <p>Cargando bicicletas disponibles...</p>
-                          </div>
-                        ) : availableBikes.length === 0 ? (
-                          <div className="text-sm text-gray-500 mt-2">
-                            No hay bicicletas disponibles para las fechas seleccionadas
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
-                            {availableBikes.map((bike) => {
-                              const days = Math.ceil(
-                                (newReservation.end_date.getTime() - 
-                                newReservation.start_date.getTime()) / 
-                                (1000 * 60 * 60 * 24)
-                              );
-                              const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, days) : 0;
-                              
-                              return (
-                                <div
-                                  key={bike.id}
-                                  className="border rounded-lg p-4 flex items-center justify-between"
-                                >
-                                  <div>
-                                    <h4 className="font-medium">{bike.title_es || bike.title}</h4>
-                                    <p className="text-sm text-gray-600">Talla: {bike.size}</p>
-                                    <p className="text-sm text-gray-600">Precio: {pricePerDay}€/día</p>
-                                    <p className="text-xs text-gray-500">Depósito: {calculateDeposit(bike.category)}€</p>
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    variant={
-                                      newReservation.bikes.some((b: any) => b.id === bike.id)
-                                        ? "default"
-                                        : "outline"
-                                    }
-                                    onClick={() => toggleBikeSelection(bike)}
-                                  >
-                                    {newReservation.bikes.some((b: any) => b.id === bike.id)
-                                      ? "Seleccionada"
-                                      : "Seleccionar"}
-                                  </Button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
+    <div>
+      <Label>Bicicletas*</Label>
+      {isLoadingBikes ? (
+        <div className="text-center py-4">
+          <p>Cargando bicicletas disponibles...</p>
+        </div>
+      ) : availableBikes.length === 0 ? (
+        <div className="text-sm text-gray-500 mt-2">
+          No hay bicicletas disponibles para las fechas seleccionadas
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
+          {availableBikes.map((bike) => {
+            const days = calculateTotalDays(
+              new Date(newReservation.start_date),
+              new Date(newReservation.end_date),
+              newReservation.pickup_time,
+              newReservation.return_time
+            );
+            const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0;
+            const totalPrice = pricePerDay * days;
+            
+            return (
+              <div
+                key={bike.id}
+                className="border rounded-lg p-4 flex items-center justify-between"
+              >
+                <div>
+                  <h4 className="font-medium">{bike.title_es || bike.title}</h4>
+                  <p className="text-sm text-gray-600">Talla: {bike.size}</p>
+                  <p className="text-sm text-gray-600">
+                    Precio: {totalPrice}€ ({pricePerDay}€/día × {days} días)
+                  </p>
+                  <p className="text-xs text-gray-500">Depósito: {calculateDeposit(bike.category)}€</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant={
+                    newReservation.bikes.some((b: any) => b.id === bike.id)
+                      ? "default"
+                      : "outline"
+                  }
+                  onClick={() => toggleBikeSelection(bike)}
+                >
+                  {newReservation.bikes.some((b: any) => b.id === bike.id)
+                    ? "Seleccionada"
+                    : "Seleccionar"}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
 
-                      {newReservation.bikes.length > 0 && (
-                        <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                          <h4 className="font-medium mb-2">Bicicletas seleccionadas:</h4>
-                          {newReservation.bikes.map((bike: any, index: number) => (
-                            <p key={index} className="text-sm">
-                              {bike.title} - Talla {bike.size}
-                            </p>
-                          ))}
-                        </div>
-                      )}
+    {newReservation.bikes.length > 0 && (
+      <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+        <h4 className="font-medium mb-2">Bicicletas seleccionadas:</h4>
+        {newReservation.bikes.map((bike: any, index: number) => {
+          const days = calculateTotalDays(
+            new Date(newReservation.start_date),
+            new Date(newReservation.end_date),
+            newReservation.pickup_time,
+            newReservation.return_time
+          );
+          const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0;
+          const totalPrice = pricePerDay * days;
+          
+          return (
+            <p key={index} className="text-sm">
+              {bike.title} - Talla {bike.size} ({pricePerDay}€/día × {days} días = {totalPrice}€)
+            </p>
+          );
+        })}
+      </div>
+    )}
 
-                      <div className="flex justify-between gap-4 pt-4">
-                        <Button 
-                          variant="outline" 
-                          onClick={() => setReservationStep("dates")}
-                        >
-                          Volver a Fechas
-                        </Button>
-                        <Button 
-                          onClick={() => setReservationStep("accessories")}
-                          disabled={newReservation.bikes.length === 0}
-                        >
-                          Siguiente: Accesorios
-                        </Button>
-                      </div>
-                    </>
-                  )}
+    <div className="flex justify-between gap-4 pt-4">
+      <Button 
+        variant="outline" 
+        onClick={() => setReservationStep("dates")}
+      >
+        Volver a Fechas
+      </Button>
+      <Button 
+        onClick={() => setReservationStep("accessories")}
+        disabled={newReservation.bikes.length === 0}
+      >
+        Siguiente: Accesorios
+      </Button>
+    </div>
+  </>
+)}
 
                   {reservationStep === "accessories" && (
                     <>
@@ -1492,7 +1594,7 @@ export default function AdminPage() {
                               const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, days) : 0;
                               return (
                                 <p key={index} className="text-sm">
-                                  {bike.title} - {pricePerDay}€/día
+                                  {bike.title} - {pricePerDay}€/día × {days} días = {pricePerDay * days}€
                                 </p>
                               );
                             })}
@@ -1591,53 +1693,40 @@ export default function AdminPage() {
                   )}
 
                   {reservationStep === "customer" && (
-                    <>
-                      <div className="p-4 bg-gray-50 rounded-lg mb-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <h4 className="font-medium mb-2">Fechas:</h4>
-                            <p>
-                              {format(newReservation.start_date, 'PPP', { locale: es })} - {format(newReservation.end_date, 'PPP', { locale: es })}
-                            </p>
-                            <p>
-                              Recogida: {newReservation.pickup_time} - Devolución: {newReservation.return_time}
-                            </p>
-                          </div>
-                          <div>
-                            <h4 className="font-medium mb-2">Bicicletas:</h4>
-                            {newReservation.bikes.map((bike: any, index: number) => {
-                              const days = Math.ceil(
-                                (newReservation.end_date.getTime() - 
-                                newReservation.start_date.getTime()) / 
-                                (1000 * 60 * 60 * 24)
-                              );
-                              const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, days) : 0;
-                              return (
-                                <p key={index} className="text-sm">
-                                  {bike.title} - {pricePerDay}€/día
-                                </p>
-                              );
-                            })}
-                          </div>
-                          <div>
-                            <h4 className="font-medium mb-2">Accesorios:</h4>
-                            {newReservation.accessories.map((acc: any, index: number) => (
-                              <p key={index} className="text-sm">
-                                {acc.name} - {acc.price}€/día
-                              </p>
-                            ))}
-                            {newReservation.insurance && (
-                              <p className="text-sm">
-                                Seguro: {calculateInsurance(
-                                  Math.ceil(
-                                    (newReservation.end_date.getTime() - newReservation.start_date.getTime()) / 
-                                    (1000 * 60 * 60 * 24)
-                                  )
-                                )}€
-                              </p>
-                            )}
-                          </div>
-                        </div>
+  <>
+    <div className="p-4 bg-gray-50 rounded-lg mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <h4 className="font-medium mb-2">Fechas:</h4>
+          <p>
+            {format(newReservation.start_date, 'PPP', { locale: es })} - {format(newReservation.end_date, 'PPP', { locale: es })}
+          </p>
+          <p>
+            Recogida: {newReservation.pickup_time} - Devolución: {newReservation.return_time}
+          </p>
+        </div>
+        <div>
+          <h4 className="font-medium mb-2">Bicicletas:</h4>
+          {newReservation.bikes.map((bike: any, index: number) => (
+            <p key={index} className="text-sm">
+              {bike.title} - {isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0}€/día
+            </p>
+          ))}
+        </div>
+        <div>
+          <h4 className="font-medium mb-2">Accesorios:</h4>
+          {newReservation.accessories.map((acc: any, index: number) => (
+            <p key={index} className="text-sm">
+              {acc.name} - {acc.price}€/día
+            </p>
+          ))}
+          {newReservation.insurance && (
+            <p className="text-sm">
+              Seguro: Incluido
+            </p>
+          )}
+        </div>
+      </div>
 
                         <div className="mt-4 pt-4 border-t">
                           <div className="flex justify-between">
