@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { addDays, isSameDay, isSunday, isSaturday } from "date-fns";
 import { loadStripe } from '@stripe/stripe-js';
-import type { Stripe, StripeElements } from '@stripe/stripe-js';
+import type { Stripe, StripeElements, PaymentIntent } from '@stripe/stripe-js';
 import {
   Elements,
   CardElement,
@@ -28,6 +28,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2 } from "lucide-react";
+declare module '@stripe/stripe-js' {
+  interface PaymentIntent {
+    metadata: {
+      [key: string]: string;
+    };
+  }
+}
 
 // Icons
 import {
@@ -63,6 +70,13 @@ import {
   validateName,
 } from "@/lib/validation";
 
+
+ const convertToMadridTime = (date: Date): Date => {
+  const madridTimeZone = "Europe/Madrid";
+  const utcDate = new Date(date.toISOString());
+  const localString = utcDate.toLocaleString("en-US", { timeZone: madridTimeZone });
+  return new Date(localString);
+};
 // Initialize Stripe
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
@@ -97,6 +111,7 @@ interface SelectedBike {
   size: string;
   quantity: number;
   bikes: any[];
+  pricePerDay?: number;
 }
 
 interface Accessory {
@@ -127,19 +142,25 @@ const getTimeOptions = (isSaturday: boolean) => {
   return ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
 };
 
-const calculateTotalDays = (startDate: Date, endDate: Date, pickupTime: string, returnTime: string): number => {
-  const startDay = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-  const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+const calculateTotalDays = (start: Date, end: Date, pickup: string, returnTime: string): number => {
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
   
   if (isSameDay(startDay, endDay)) return 1;
 
   const diffDays = Math.ceil((endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24));
 
-  if (returnTime <= pickupTime) {
+  if (returnTime <= pickup) {
     return diffDays;
   }
 
   return diffDays + 1;
+};
+
+const calculateTotalDeposit = (bikes: SelectedBike[]): number => {
+  return bikes.reduce((total: number, bike: SelectedBike) => {
+    return total + calculateDeposit(bike.category) * bike.quantity;
+  }, 0);
 };
 
 const StoreHoursNotice = ({ t }: { t: (key: TranslationKey) => string }) => (
@@ -291,32 +312,172 @@ const InsuranceContractCheckbox = ({
 const StripePaymentForm = ({ 
   clientSecret,
   customerData,
-  reservationId,
   calculateTotal,
   setCurrentStep,
   setPaymentError,
   sendConfirmationEmail,
-  reservationData
+  setSelectedBikes,
+  setClientSecret,
+  language,
+  selectedBikes = [],
+  selectedAccessories = [],
+  hasInsurance = false,
+  startDate,
+  endDate,
+  pickupTime,
+  t,
+  returnTime
 }: { 
   clientSecret: string;
-  customerData: any;
-  reservationId: string;
+  customerData: { name: string; email: string; phone: string; dni: string };
   calculateTotal: () => number;
-  setCurrentStep: (step: Step) => void;
+  setCurrentStep: React.Dispatch<React.SetStateAction<Step>>;
   setPaymentError: (error: string | null) => void;
   sendConfirmationEmail: (data: any) => Promise<void>;
-  reservationData: any;
+  setSelectedBikes: React.Dispatch<React.SetStateAction<SelectedBike[]>>;
+  setClientSecret: React.Dispatch<React.SetStateAction<string | null>>;
+  language: string;
+  selectedBikes?: SelectedBike[];
+  selectedAccessories?: Accessory[];
+  hasInsurance?: boolean;
+  startDate: Date;
+  endDate: Date;
+  pickupTime: string;
+  returnTime: string;
+  t: (key: TranslationKey) => string;
 }) => {
   const stripe = useStripe();
   const elements = useElements();
   const [cardError, setCardError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [confirmedIntent, setConfirmedIntent] = useState<any>(null);
+  const [totalAmount, setTotalAmount] = useState(0);
+
+  // Calcular el total cuando cambian los parámetros relevantes
+ useEffect(() => {
+  const days = calculateTotalDays(
+    new Date(startDate),
+    new Date(endDate),
+    pickupTime,
+    returnTime
+  );
+
+  const bikeTotal = (selectedBikes || []).reduce((total: number, bike: any) => {
+    const price = calculatePrice(bike.category, days);
+    const lineTotal = price * bike.quantity;
+    return total + lineTotal;
+  }, 0);
+
+  const accessoryTotal = (selectedAccessories || []).reduce((total: number, accessory: any) => {
+    const lineTotal = accessory.price * days;
+    return total + lineTotal;
+  }, 0);
+
+  const totalBikeCount = (selectedBikes || []).reduce(
+    (total: number, bike: any) => total + bike.quantity,
+    0
+  );
+
+  const insuranceTotal = hasInsurance
+    ? calculateInsurance(days) * totalBikeCount
+    : 0;
+
+  const calculatedTotal = bikeTotal + accessoryTotal + insuranceTotal;
+
+  // DEBUG: Log para confirmar montos
+  console.log("🧾 Resumen:");
+  console.log("Bikes:", bikeTotal);
+  console.log("Accessories:", accessoryTotal);
+  console.log("Insurance:", insuranceTotal);
+  console.log("TOTAL:", calculatedTotal);
+
+  setTotalAmount(calculatedTotal);
+}, [
+  selectedBikes,
+  selectedAccessories,
+  hasInsurance,
+  startDate,
+  endDate,
+  pickupTime,
+  returnTime
+]);
+
+
+  // Función para calcular el depósito total con tipos explícitos
+  const calculateTotalDeposit = (): number => {
+    return (selectedBikes || []).reduce((total: number, bike: any) => {
+      return total + (calculateDeposit(bike.category) * bike.quantity);
+    }, 0);
+  };
+
+  // Función para calcular días totales con parámetros tipados
+  const calculateTotalDays = (start: Date, end: Date, pickup: string, returnT: string): number => {
+    const startDay = new Date(start);
+    const endDay = new Date(end);
+    
+    if (isSameDay(startDay, endDay)) return 1;
+
+    const diffDays = Math.ceil((endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (returnT <= pickup) {
+      return diffDays;
+    }
+
+    return diffDays + 1;
+  };
+
+  const createReservation = async (metadata: any, paymentIntentId: string) => {
+    try {
+      const bikesData = (selectedBikes || []).map((bike: any) => ({
+        model: bike.title_es,
+        size: bike.size,
+        quantity: bike.quantity,
+        bike_ids: bike.bikes.map((b: any) => b.id),
+        pricePerDay: calculatePrice(bike.category, 1)
+      }));
+
+      const { data, error } = await supabase
+        .from("reservations")
+        .insert([{
+          customer_name: metadata.customer_name || customerData.name,
+          customer_email: metadata.customer_email || customerData.email,
+          customer_phone: metadata.customer_phone || customerData.phone,
+          customer_dni: metadata.customer_dni || customerData.dni,
+          start_date: metadata.start_date || startDate.toISOString(),
+          end_date: metadata.end_date || endDate.toISOString(),
+          pickup_time: metadata.pickup_time || pickupTime,
+          return_time: metadata.return_time || returnTime,
+          total_days: parseInt(metadata.total_days || calculateTotalDays(startDate, endDate, pickupTime, returnTime).toString()),
+          bikes: bikesData,
+          accessories: selectedAccessories || [],
+          insurance: metadata.insurance ? metadata.insurance === "true" : hasInsurance,
+          total_amount: parseFloat(metadata.total_amount || totalAmount.toString()),
+          deposit_amount: parseFloat(metadata.deposit_amount || calculateTotalDeposit().toString()),
+          paid_amount: parseFloat(metadata.total_amount || totalAmount.toString()),
+          status: "confirmed",
+          payment_gateway: "stripe",
+          payment_status: "paid",
+          payment_reference: paymentIntentId,
+          stripe_payment_intent_id: paymentIntentId,
+          locale: metadata.locale || language
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+
+    } catch (error) {
+      console.error("Error creating reservation:", error);
+      throw error;
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     
     if (!stripe || !elements || !clientSecret) {
-      setCardError("El sistema de pago no está listo. Por favor recarga la página.");
+      setCardError("Payment system not ready. Please reload the page.");
       return;
     }
 
@@ -325,7 +486,18 @@ const StripePaymentForm = ({
     setPaymentError(null);
 
     try {
-      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+      // 1. Retrieve Payment Intent
+      const { paymentIntent: currentIntent } = await stripe.retrievePaymentIntent(clientSecret);
+      
+      if (!currentIntent || currentIntent.status !== 'requires_payment_method') {
+        throw { 
+          code: 'payment_intent_unexpected_state',
+          message: 'Payment session expired. Please restart the process.' 
+        };
+      }
+
+      // 2. Confirm Payment
+      const { error: stripeError, paymentIntent: confirmedPaymentIntent } = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
           card: elements.getElement(CardElement)!,
           billing_details: {
@@ -337,36 +509,68 @@ const StripePaymentForm = ({
         receipt_email: customerData.email
       });
 
-      if (stripeError) {
-        throw stripeError;
-      }
+      if (stripeError) throw stripeError;
 
-      if (paymentIntent?.status === "succeeded") {
-        await supabase
-          .from("reservations")
-          .update({
-            status: "confirmed",
-            payment_status: "paid",
-            payment_reference: paymentIntent.id,
-            stripe_payment_intent_id: paymentIntent.id,
-            paid_amount: calculateTotal(),
-            updated_at: new Date().toISOString()
-          })
-          .eq("id", reservationId);
+      setConfirmedIntent(confirmedPaymentIntent);
 
-        await sendConfirmationEmail({ 
-          ...reservationData, 
-          id: reservationId, 
-          payment_reference: paymentIntent.id 
+      // 3. Process Successful Payment
+      if (confirmedPaymentIntent?.status === "succeeded") {
+        // Preparar metadatos
+        const reservationMetadata = {
+          customer_name: customerData.name,
+          customer_email: customerData.email,
+          customer_phone: customerData.phone,
+          customer_dni: customerData.dni,
+          start_date: startDate.toISOString(),
+          end_date: endDate.toISOString(),
+          pickup_time: pickupTime,
+          return_time: returnTime,
+          total_days: calculateTotalDays(startDate, endDate, pickupTime, returnTime).toString(),
+          bikes: JSON.stringify((selectedBikes || []).map(bike => ({
+            model: bike.title_es,
+            size: bike.size,
+            quantity: bike.quantity,
+            bike_ids: bike.bikes.map((b: any) => b.id),
+            pricePerDay: calculatePrice(bike.category, 1)
+          }))),
+          accessories: JSON.stringify(selectedAccessories || []),
+          insurance: hasInsurance.toString(),
+          total_amount: totalAmount.toString(),
+          deposit_amount: calculateTotalDeposit().toString(),
+          locale: language
+        };
+
+        // Crear reserva
+        const reservationData = await createReservation(
+          { ...reservationMetadata, ...(confirmedPaymentIntent.metadata || {}) },
+          confirmedPaymentIntent.id
+        );
+
+        // Enviar email
+        await sendConfirmationEmail({
+          ...reservationData,
+          payment_reference: confirmedPaymentIntent.id
         });
-        
+
         setCurrentStep("confirmation");
       }
     } catch (err: any) {
-      console.error("Error en el pago:", err);
-      const errorMsg = err.message || "Ocurrió un error al procesar el pago. Inténtalo de nuevo.";
-      setCardError(errorMsg);
-      setPaymentError(errorMsg);
+      console.error("Payment Error:", {
+        error: err,
+        paymentIntentId: confirmedIntent?.id,
+        paymentStatus: confirmedIntent?.status
+      });
+
+      const errorMessage = err.code === 'payment_intent_unexpected_state' 
+        ? "Payment session expired. Please restart the checkout process."
+        : err.message || "Payment processing failed. Please try again.";
+      
+      setCardError(errorMessage);
+      setPaymentError(errorMessage);
+      
+      if (err.code === 'payment_intent_unexpected_state') {
+        setClientSecret(null);
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -375,7 +579,7 @@ const StripePaymentForm = ({
   if (!clientSecret) {
     return (
       <div className="text-red-500 p-4 border border-red-200 bg-red-50 rounded-lg">
-        Error: No se pudo iniciar el proceso de pago. Por favor recarga la página.
+        Error: Payment session expired. Please restart the process.
       </div>
     );
   }
@@ -384,56 +588,69 @@ const StripePaymentForm = ({
     return (
       <div className="flex items-center justify-center p-8">
         <Loader2 className="animate-spin h-8 w-8 text-blue-500" />
-        <span className="ml-2">Cargando sistema de pago...</span>
+        <span className="ml-2">Loading payment system...</span>
       </div>
     );
   }
 
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="border p-4 rounded-lg">
-        <CardElement 
-          options={{
-            hidePostalCode: true,
-            style: {
-              base: {
-                fontSize: "16px",
-                color: "#424770",
-                "::placeholder": {
-                  color: "#aab7c4"
-                }
+ return (
+  <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="border p-4 rounded-lg">
+      <CardElement
+        options={{
+          hidePostalCode: true,
+          style: {
+            base: {
+              fontSize: "16px",
+              color: "#424770",
+              "::placeholder": {
+                color: "#aab7c4",
               },
-              invalid: {
-                color: "#9e2146"
-              }
-            }
-          }}
-        />
+            },
+            invalid: {
+              color: "#9e2146",
+            },
+          },
+        }}
+      />
+    </div>
+
+    {cardError && (
+      <div className="text-red-500 text-sm p-2 bg-red-50 rounded">
+        {cardError}
       </div>
+    )}
 
-      {cardError && (
-        <div className="text-red-500 text-sm p-2 bg-red-50 rounded">
-          {cardError}
-        </div>
+    <Button
+      type="submit"
+      disabled={isProcessing || !stripe}
+      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+    >
+      {isProcessing ? (
+        <>
+          <Loader2 className="animate-spin h-4 w-4 mr-2" />
+          {t("processingPayment")}
+        </>
+      ) : (
+        `${t("pay")} ${totalAmount.toFixed(2)}€`
       )}
+    </Button>
 
+    <div className="mt-4">
       <Button
-        type="submit"
-        disabled={isProcessing || !stripe}
+        variant="outline"
+        onClick={() => setCurrentStep("customer")}
         className="w-full"
+        type="button"
       >
-        {isProcessing ? (
-          <>
-            <Loader2 className="animate-spin h-4 w-4 mr-2" />
-            Procesando pago...
-          </>
-        ) : (
-          `Pagar ${calculateTotal()}€`
-        )}
+        {t("goBack")}
       </Button>
-    </form>
-  );
+    </div>
+  </form>
+);
 };
+
+
 
 export default function ReservePage() {
   const { t, language } = useLanguage();
@@ -468,119 +685,174 @@ export default function ReservePage() {
   const [reservationData, setReservationData] = useState<any>(null);
 
   useEffect(() => {
-    const fetchAccessories = async () => {
-      setIsLoadingAccessories(true);
-      try {
-        const { data } = await supabase
-          .from("accessories")
-          .select("*")
-          .eq("available", true);
-        if (data) {
-          setAccessories(data);
-        }
-      } catch (error) {
-        console.error("Error fetching accessories:", error);
-      } finally {
-        setIsLoadingAccessories(false);
-      }
-    };
-    fetchAccessories();
-  }, []);
-
-  useEffect(() => {
-    if (startDate && endDate) {
-      fetchAvailableBikes();
-      setPickupTime(isSaturday(startDate) ? "10:00" : "10:00");
-      setReturnTime(isSaturday(endDate) ? "14:00" : "18:00");
-    }
-  }, [startDate, endDate]);
-
-  useEffect(() => {
-    if (availableBikes.length > 0) {
-      groupBikesByModel();
-    }
-  }, [availableBikes]);
-
-  const fetchAvailableBikes = async () => {
-    if (!startDate || !endDate) return;
-
-    setIsLoadingBikes(true);
+  const fetchAccessories = async () => {
+    setIsLoadingAccessories(true);
     try {
-      const { data: allBikes, error: bikesError } = await supabase
-        .from("bikes")
+      const { data } = await supabase
+        .from("accessories")
         .select("*")
         .eq("available", true);
-
-      if (bikesError) throw bikesError;
-
-      const { data: overlappingReservations, error: reservationsError } = await supabase
-        .from("reservations")
-        .select("bikes")
-        .or(
-          `and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`
-        )
-        .in("status", ["confirmed", "in_process"]);
-
-      if (reservationsError) throw reservationsError;
-
-      if (allBikes) {
-        const reservedBikeIds = new Set();
-        overlappingReservations?.forEach((reservation) => {
-          reservation.bikes.forEach((bike: any) => {
-            bike.bike_ids?.forEach((id: string) => reservedBikeIds.add(id));
-          });
-        });
-
-        const available = allBikes.filter(
-          (bike) => !reservedBikeIds.has(bike.id)
-        );
-        setAvailableBikes(available);
+      if (data) {
+        setAccessories(data);
       }
     } catch (error) {
-      console.error("Error fetching available bikes:", error);
+      console.error("Error fetching accessories:", error);
     } finally {
-      setIsLoadingBikes(false);
+      setIsLoadingAccessories(false);
     }
   };
+  fetchAccessories();
+}, []);
 
-  const groupBikesByModel = () => {
-    const grouped = availableBikes.reduce(
-      (acc: Record<string, BikeModel>, bike) => {
-        const key = `${bike.title_es}-${bike.category}`;
-        if (!acc[key]) {
-          acc[key] = {
-            title_es: bike.title_es,
-            title_en: bike.title_en,
-            title_nl: bike.title_nl,
-            subtitle_es: bike.subtitle_es,
-            subtitle_en: bike.subtitle_en,
-            subtitle_nl: bike.subtitle_nl,
-            category: bike.category as BikeCategory,
-            availableSizes: [],
-          };
+useEffect(() => {
+  if (startDate && endDate) {
+    // Calcular nuevos horarios
+    const newPickupTime = isSaturday(startDate) ? "10:00" : "10:00";
+    const newReturnTime = isSaturday(endDate) ? "14:00" : "18:00";
+    
+    // Actualizar solo si cambiaron
+    if (pickupTime !== newPickupTime) {
+      setPickupTime(newPickupTime);
+    }
+    if (returnTime !== newReturnTime) {
+      setReturnTime(newReturnTime);
+    }
+    
+
+ 
+
+
+
+    // Forzar actualización de disponibilidad
+    fetchAvailableBikes();
+  }
+}, [startDate, endDate, pickupTime, returnTime]); // Añadimos dependencias de tiempo
+
+useEffect(() => {
+  if (availableBikes.length > 0) {
+    groupBikesByModel();
+  }
+}, [availableBikes]);
+
+
+
+const fetchAvailableBikes = async () => {
+  if (!startDate || !endDate) return;
+
+  setIsLoadingBikes(true);
+  try {
+    const { data: allBikes, error: bikesError } = await supabase
+      .from("bikes")
+      .select("*")
+      .eq("available", true);
+
+    if (bikesError) throw bikesError;
+
+    const { data: reservations, error: resError } = await supabase
+      .from("reservations")
+      .select("bikes, start_date, end_date, pickup_time, return_time, status")
+      .or(`and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`)
+      .in("status", ["confirmed", "in_process"]);
+
+    if (resError) throw resError;
+
+    const reservedBikeIds = new Set<string>();
+
+    const selStart = convertToMadridTime(new Date(startDate));
+    selStart.setHours(Number(pickupTime.split(':')[0]), Number(pickupTime.split(':')[1]));
+
+    const selEnd = convertToMadridTime(new Date(endDate));
+    selEnd.setHours(Number(returnTime.split(':')[0]), Number(returnTime.split(':')[1]));
+
+    reservations.forEach(res => {
+      const resStart = convertToMadridTime(new Date(res.start_date));
+      resStart.setHours(Number(res.pickup_time.split(':')[0]), Number(res.pickup_time.split(':')[1]));
+
+      const resEnd = convertToMadridTime(new Date(res.end_date));
+      resEnd.setHours(Number(res.return_time.split(':')[0]), Number(res.return_time.split(':')[1]));
+
+      const overlap = selStart < resEnd && selEnd > resStart;
+
+      if (overlap) {
+        markBikesAsReserved(res.bikes, reservedBikeIds);
+      }
+    });
+
+    const filtered = allBikes.filter(b => !reservedBikeIds.has(b.id.trim()));
+    console.log("✅ Bicis disponibles:", filtered.map(b => b.id));
+    console.log("❌ Bicis bloqueadas:", [...reservedBikeIds]);
+    setAvailableBikes(filtered);
+
+  } catch (err) {
+    console.error("Error al cargar bicis:", err);
+  } finally {
+    setIsLoadingBikes(false);
+  }
+};
+
+
+
+// Función auxiliar para marcar bicicletas como reservadas
+const markBikesAsReserved = (bikesData: any, reservedBikeIds: Set<string>) => {
+  try {
+    const bikes = typeof bikesData === 'string' ? JSON.parse(bikesData) : bikesData;
+
+    if (!Array.isArray(bikes)) return;
+
+    for (const bike of bikes) {
+      const ids = Array.isArray(bike.bike_ids) ? bike.bike_ids : [];
+      for (const id of ids) {
+        if (typeof id === 'string') {
+          reservedBikeIds.add(id.trim());
         }
+      }
+    }
+  } catch (err) {
+    console.error("❌ Error parseando bikes:", bikesData, err);
+  }
+};
 
-        const existingSizeIndex = acc[key].availableSizes.findIndex(
-          (s) => s.size === bike.size
-        );
-        if (existingSizeIndex >= 0) {
-          acc[key].availableSizes[existingSizeIndex].count++;
-          acc[key].availableSizes[existingSizeIndex].bikes.push(bike);
-        } else {
-          acc[key].availableSizes.push({
-            size: bike.size,
-            count: 1,
-            bikes: [bike],
-          });
-        }
 
-        return acc;
-      },
-      {}
-    );
 
-    setBikeModels(Object.values(grouped));
-  };
+
+const groupBikesByModel = () => {
+  const grouped = availableBikes.reduce(
+    (acc: Record<string, BikeModel>, bike) => {
+      const key = `${bike.title_es}-${bike.category}`;
+      if (!acc[key]) {
+        acc[key] = {
+          title_es: bike.title_es,
+          title_en: bike.title_en,
+          title_nl: bike.title_nl,
+          subtitle_es: bike.subtitle_es,
+          subtitle_en: bike.subtitle_en,
+          subtitle_nl: bike.subtitle_nl,
+          category: bike.category as BikeCategory,
+          availableSizes: [],
+        };
+      }
+
+      const existingSizeIndex = acc[key].availableSizes.findIndex(
+        (s) => s.size === bike.size
+      );
+      if (existingSizeIndex >= 0) {
+        acc[key].availableSizes[existingSizeIndex].count++;
+        acc[key].availableSizes[existingSizeIndex].bikes.push(bike);
+      } else {
+        acc[key].availableSizes.push({
+          size: bike.size,
+          count: 1,
+          bikes: [bike],
+        });
+      }
+
+      return acc;
+    },
+    {}
+  );
+
+  setBikeModels(Object.values(grouped));
+};
 
   const validateCustomerData = () => {
   const errors: Record<string, string> = {};
@@ -759,161 +1031,148 @@ export default function ReservePage() {
     }
   };
 
-  const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
-    if (!startDate || !endDate || selectedBikes.length === 0) {
-      return { available: false, unavailableBikes: [] };
+const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
+  if (!startDate || !endDate || selectedBikes.length === 0) {
+    return { available: false, unavailableBikes: [] };
+  }
+
+  try {
+    const { data: overlappingReservations, error } = await supabase
+      .from("reservations")
+      .select("bikes, start_date, end_date, pickup_time, return_time, status")
+      .or(`and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`)
+      .in("status", ["confirmed", "in_process"]);
+
+    if (error) throw error;
+
+    const reservedBikeIds = new Set<string>();
+    const selectedBikeIds = new Set<string>(selectedBikes.flatMap(b => b.bikes.map(bike => bike.id)));
+
+    const selStart = convertToMadridTime(new Date(startDate));
+    selStart.setHours(Number(pickupTime.split(':')[0]), Number(pickupTime.split(':')[1]));
+
+    const selEnd = convertToMadridTime(new Date(endDate));
+    selEnd.setHours(Number(returnTime.split(':')[0]), Number(returnTime.split(':')[1]));
+
+    overlappingReservations?.forEach(reservation => {
+      const resStart = convertToMadridTime(new Date(reservation.start_date));
+      resStart.setHours(Number(reservation.pickup_time.split(':')[0]), Number(reservation.pickup_time.split(':')[1]));
+
+      const resEnd = convertToMadridTime(new Date(reservation.end_date));
+      resEnd.setHours(Number(reservation.return_time.split(':')[0]), Number(reservation.return_time.split(':')[1]));
+
+      const overlaps = selStart < resEnd && selEnd > resStart;
+
+      if (overlaps) {
+        markBikesAsReserved(reservation.bikes, reservedBikeIds);
+      }
+    });
+
+    const unavailableBikes = Array.from(selectedBikeIds).filter(id => reservedBikeIds.has(id));
+
+    return {
+      available: unavailableBikes.length === 0,
+      unavailableBikes
+    };
+  } catch (error) {
+    console.error("Error checking bikes availability:", error);
+    return { available: false, unavailableBikes: [] };
+  }
+};
+
+
+
+const handleSubmitReservation = async () => {
+  if (!startDate || !endDate) return;
+
+  setIsSubmitting(true);
+  setPaymentError(null);
+
+  try {
+    // Validar datos del cliente
+    if (!validateCustomerData()) {
+      throw new Error("Por favor completa todos los campos requeridos");
     }
 
-    try {
-      const { data: overlappingReservations, error } = await supabase
-        .from("reservations")
-        .select("bikes, status")
-        .or(
-          `and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`
-        )
-        .in("status", ["confirmed", "in_process", "pending_payment"]);
+    // Verificar disponibilidad de bicicletas
+    const { available, unavailableBikes } = await checkBikesAvailability();
+    if (!available) {
+      await fetchAvailableBikes();
+      const updatedBikes = selectedBikes
+        .map(bike => ({
+          ...bike,
+          bikes: bike.bikes.filter(b => !unavailableBikes.includes(b.id))
+        }))
+        .filter(bike => bike.bikes.length > 0);
 
-      if (error) throw error;
-
-      const reservedBikeIds = new Set<string>();
-      overlappingReservations?.forEach((reservation) => {
-        reservation.bikes.forEach((bike: any) => {
-          bike.bike_ids?.forEach((id: string) => reservedBikeIds.add(id));
-        });
-      });
-
-      const unavailableBikes = selectedBikes.flatMap(bike => 
-        bike.bikes.filter(b => reservedBikeIds.has(b.id)).map(b => b.id)
-      );
-
-      return {
-        available: unavailableBikes.length === 0,
-        unavailableBikes
-      };
-    } catch (error) {
-      console.error("Error checking bikes availability:", error);
-      return { available: false, unavailableBikes: [] };
+      setSelectedBikes(updatedBikes);
+      setCurrentStep("bikes");
+      return;
     }
-  };
 
-  const handleSubmitReservation = async () => {
-    if (!startDate || !endDate) return;
+    // Calcular valores
+    const totalDays = calculateTotalDays(
+      new Date(startDate),
+      new Date(endDate),
+      pickupTime,
+      returnTime
+    );
+    const totalAmount = calculateTotal();
+    const depositAmount = calculateTotalDeposit();
 
-    setIsSubmitting(true);
-    setPaymentError(null);
+    // Crear metadata COMPLETA para Stripe
+    const metadata = {
+      customer_name: customerData.name,
+      customer_email: customerData.email,
+      customer_phone: customerData.phone,
+      customer_dni: customerData.dni,
+      start_date: new Date(startDate).toISOString(),
+      end_date: new Date(endDate).toISOString(),
+      pickup_time: pickupTime,
+      return_time: returnTime,
+      total_days: totalDays.toString(),
+      bikes: JSON.stringify(
+        selectedBikes.map(bike => ({
+          model: bike.title_es,
+          size: bike.size,
+          quantity: bike.quantity,
+          bike_ids: bike.bikes.map(b => b.id),
+        }))
+      ),
+      accessories: JSON.stringify(selectedAccessories),
+      insurance: hasInsurance.toString(),
+      total_amount: totalAmount.toString(),
+      deposit_amount: depositAmount.toString(),
+      locale: language
+    };
 
-    try {
-      if (!validateCustomerData()) {
-        throw new Error("Faltan datos del cliente.");
-      }
+    // Llamar a la API de Stripe
+    const response = await fetch('/api/stripe/create-payment-intent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        amount: Math.round(totalAmount * 100),
+        currency: 'eur',
+        metadata: metadata // <- Metadata completa enviada aquí
+      })
+    });
 
-      const { available, unavailableBikes } = await checkBikesAvailability();
-      if (!available) {
-        await fetchAvailableBikes();
-        const updated = selectedBikes.map(b => ({
-          ...b,
-          bikes: b.bikes.filter(bike => !unavailableBikes.includes(bike.id))
-        })).filter(b => b.bikes.length > 0);
-
-        setSelectedBikes(updated);
-        setCurrentStep("bikes");
-        return;
-      }
-
-      // Calcular valores necesarios
-      const totalDays = calculateTotalDays(
-        new Date(startDate),
-        new Date(endDate),
-        pickupTime,
-        returnTime
-      );
-      const totalAmount = calculateTotal();
-      const depositAmount = calculateTotalDeposit();
-
-      // Preparar datos de la reserva
-      const reservationData = {
-        customer_name: customerData.name,
-        customer_email: customerData.email,
-        customer_phone: customerData.phone,
-        customer_dni: customerData.dni,
-        start_date: new Date(startDate).toISOString(),
-        end_date: new Date(endDate).toISOString(),
-        pickup_time: pickupTime,
-        return_time: returnTime,
-        total_days: totalDays,
-        bikes: selectedBikes.map(b => ({
-          model: b.title_es,
-          size: b.size,
-          quantity: b.quantity,
-          bike_ids: b.bikes.map(x => x.id),
-        })),
-        accessories: selectedAccessories,
-        insurance: hasInsurance,
-        total_amount: totalAmount,
-        deposit_amount: depositAmount,
-        paid_amount: 0,
-        status: isAdminMode ? "confirmed" : "pending_payment",
-        payment_gateway: "stripe",
-        payment_status: "pending",
-        locale: language
-      };
-
-      // Insertar en Supabase
-      const { data, error } = await supabase
-        .from("reservations")
-        .insert([reservationData])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      setReservationId(data.id);
-      setReservationData(reservationData);
-
-      // Modo admin - saltar pago
-      if (isAdminMode) {
-        await sendConfirmationEmail({ ...reservationData, id: data.id });
-        setCurrentStep("confirmation");
-        return;
-      }
-
-      // Crear Payment Intent con Stripe
-      const response = await fetch('/api/stripe/create-payment-intent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: Math.round(totalAmount * 100),
-          reservationId: data.id,
-          currency: 'eur',
-          metadata: {
-            customer_name: customerData.name,
-            customer_email: customerData.email,
-            reservation_id: data.id
-          }
-        })
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.message || "Error al crear el intento de pago.");
-      }
-
-      const paymentIntentData = await response.json();
-
-      if (!paymentIntentData.clientSecret) {
-        throw new Error("Stripe no devolvió clientSecret");
-      }
-
-      setClientSecret(paymentIntentData.clientSecret);
-      setCurrentStep("payment");
-
-    } catch (err: any) {
-      console.error("Error en la reserva:", err);
-      setPaymentError(err.message || "Error al procesar la reserva");
-    } finally {
-      setIsSubmitting(false);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || "Error al crear el pago");
     }
-  };
+
+    const { clientSecret } = await response.json();
+    setClientSecret(clientSecret);
+    setCurrentStep("payment");
+
+  } catch (err: any) {
+    console.error("Error en la reserva:", err);
+    setPaymentError(err.message || "Error al procesar la reserva");
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   const getCategoryName = (category: BikeCategory): string => {
     switch (category) {
@@ -1623,140 +1882,152 @@ export default function ReservePage() {
             </CardContent>
           </Card>
         );
-
       case "payment":
-        if (isAdminMode) {
-          return null;
-        }
+  if (isAdminMode) {
+    return null;
+  }
 
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CreditCard className="h-5 w-5" />
-                {t("paymentDetails")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <StoreHoursNotice t={t} />
-              
-              <div className="bg-gray-50 p-4 rounded-lg mb-6">
-                <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span>
-                      {t("bikes")} (
-                      {selectedBikes.reduce(
-                        (total, bike) => total + bike.quantity,
-                        0
-                      )}
-                      )
-                    </span>
-                    <span>
-                      {selectedBikes.reduce(
-                        (total: number, bike: SelectedBike) =>
-                          total +
-                          calculatePrice(
-                            bike.category,
-                            calculateTotalDays(
-                              new Date(startDate!),
-                              new Date(endDate!),
-                              pickupTime,
-                              returnTime
-                            ) * bike.quantity
-                          ),
-                        0
-                      )}
-                      {t("euro")}
-                    </span>
-                  </div>
-                  {selectedAccessories.length > 0 && (
-                    <div className="flex justify-between">
-                      <span>{t("accessories")}</span>
-                      <span>
-                        {selectedAccessories.reduce(
-                          (total, acc) => 
-                            total + acc.price * calculateTotalDays(
-                              new Date(startDate!),
-                              new Date(endDate!),
-                              pickupTime,
-                              returnTime
-                            ),
-                          0
-                        )}
-                        {t("euro")}
-                      </span>
-                    </div>
-                  )}
-                  {hasInsurance && (
-                    <div className="flex justify-between">
-                      <span>{t("insurance")}</span>
-                      <span>
-                        {calculateInsurance(
-                          calculateTotalDays(
-                            new Date(startDate!),
-                            new Date(endDate!),
-                            pickupTime,
-                            returnTime
-                          )
-                        ) * selectedBikes.reduce(
-                          (total, bike) => total + bike.quantity,
-                          0
-                        )}
-                        {t("euro")}
-                      </span>
-                    </div>
-                  )}
-                  <div className="border-t pt-1 flex justify-between font-semibold">
-                    <span>{t("total")}</span>
-                    <span>
-                      {calculateTotal()}
-                      {t("euro")}
-                    </span>
-                  </div>
-                </div>
+  // Calcular valores
+  const rentalDaysPayment = calculateTotalDays(
+    new Date(startDate!),
+    new Date(endDate!),
+    pickupTime,
+    returnTime
+  );
+
+  const bikeSubtotalPayment = selectedBikes.reduce(
+    (total, bike) => total + (calculatePrice(bike.category, 1) * rentalDaysPayment * bike.quantity),
+    0
+  );
+
+  const accessoriesSubtotalPayment = selectedAccessories.reduce(
+    (total, acc) => total + (acc.price * rentalDaysPayment),
+    0
+  );
+
+  const insuranceSubtotalPayment = hasInsurance
+    ? Math.min(
+        INSURANCE_MAX_PRICE,
+        INSURANCE_PRICE_PER_DAY * rentalDaysPayment
+      ) * selectedBikes.reduce((total, bike) => total + bike.quantity, 0)
+    : 0;
+
+  const orderTotalPayment = bikeSubtotalPayment + accessoriesSubtotalPayment + insuranceSubtotalPayment;
+
+  const depositTotalPayment = selectedBikes.reduce(
+    (total, bike) => total + (calculateDeposit(bike.category)) * bike.quantity,
+    0
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CreditCard className="h-5 w-5" />
+          {t("paymentDetails")}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <StoreHoursNotice t={t} />
+        
+        <div className="bg-gray-50 p-4 rounded-lg mb-6">
+          <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span>
+                {t("bikes")} (
+                {selectedBikes.reduce((total, bike) => total + bike.quantity, 0)}
+                )
+              </span>
+              <span>
+                {bikeSubtotalPayment.toFixed(2)}
+                {t("euro")}
+              </span>
+            </div>
+
+            {selectedAccessories.length > 0 && (
+              <div className="flex justify-between">
+                <span>{t("accessories")}</span>
+                <span>
+                  {accessoriesSubtotalPayment.toFixed(2)}
+                  {t("euro")}
+                </span>
               </div>
+            )}
 
-              <Elements 
-                stripe={stripePromise}
-                options={{
-                  clientSecret: clientSecret || '',
-                  locale: language === 'es' ? 'es' : language === 'nl' ? 'nl' : 'en',
-                  appearance: {
-                    theme: 'stripe',
-                    variables: {
-                      colorPrimary: '#4f46e5',
-                      colorBackground: '#ffffff',
-                      colorText: '#30313d',
-                      fontFamily: 'Inter, system-ui, sans-serif',
-                    }
-                  }
-                }}
-              >
-                <StripePaymentForm 
-                  clientSecret={clientSecret!}
-                  customerData={customerData}
-                  reservationId={reservationId}
-                  calculateTotal={calculateTotal}
-                  setCurrentStep={setCurrentStep}
-                  setPaymentError={setPaymentError}
-                  sendConfirmationEmail={sendConfirmationEmail}
-                  reservationData={reservationData}
-                />
-              </Elements>
-
-              <div className="mt-4">
-                <Button 
-                  variant="outline" 
-                  onClick={() => setCurrentStep("customer")}
-                  className="w-full"
-                >
-                  {t("back")}
-                </Button>
+            {hasInsurance && (
+              <div className="flex justify-between">
+                <span>{t("insurance")}</span>
+                <span>
+                  {insuranceSubtotalPayment.toFixed(2)}
+                  {t("euro")}
+                </span>
               </div>
-            </CardContent>
-          </Card>
-        );
+            )}
+
+            <div className="border-t pt-1 flex justify-between font-semibold">
+              <span>{t("total")}</span>
+              <span>
+                {orderTotalPayment.toFixed(2)}
+                {t("euro")}
+              </span>
+            </div>
+
+            <div className="flex justify-between text-orange-600">
+              <span>{t("depositCash")}</span>
+              <span>
+                {depositTotalPayment.toFixed(2)}
+                {t("euro")}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <Elements 
+          stripe={stripePromise}
+          options={{
+            clientSecret: clientSecret || '',
+            locale: language === 'es' ? 'es' : language === 'nl' ? 'nl' : 'en',
+            appearance: {
+              theme: 'stripe',
+              variables: {
+                colorPrimary: '#4f46e5',
+                colorBackground: '#ffffff',
+                colorText: '#30313d',
+                fontFamily: 'Inter, system-ui, sans-serif',
+              }
+            }
+          }}
+        >
+          <StripePaymentForm 
+  clientSecret={clientSecret!}
+  customerData={customerData}
+  calculateTotal={calculateTotal}
+  setCurrentStep={setCurrentStep}
+  setPaymentError={setPaymentError}
+  sendConfirmationEmail={sendConfirmationEmail}
+  setSelectedBikes={setSelectedBikes}
+  setClientSecret={setClientSecret}
+  language={language}
+  selectedBikes={selectedBikes}
+  selectedAccessories={selectedAccessories}
+  hasInsurance={hasInsurance}
+  startDate={startDate}
+  endDate={endDate}
+  pickupTime={pickupTime}
+  returnTime={returnTime}
+  t={t}
+/>
+        </Elements>
+
+        {paymentError && (
+          <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg">
+            {paymentError}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 
       case "confirmation":
         return (

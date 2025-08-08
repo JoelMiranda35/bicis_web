@@ -45,6 +45,14 @@ import { calculatePrice, calculateDeposit, calculateInsurance, isValidCategory }
 import { toast } from "@/components/ui/use-toast"
 
 
+const convertToMadridTime = (date: Date): Date => {
+  const madridTimeZone = "Europe/Madrid";
+  const utcDate = new Date(date.toISOString());
+  const localString = utcDate.toLocaleString("en-US", { timeZone: madridTimeZone });
+  return new Date(localString);
+};
+
+
 type BikeCategory = "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB";
 
 const CATEGORY_NAMES: Record<BikeCategory, string> = {
