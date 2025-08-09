@@ -86,7 +86,7 @@ export default function HomePage() {
                 <Shield className="h-8 w-8 text-green-600" />
               </div>
               <h3 className="text-xl font-semibold mb-2">{t("insuranceIncluded")}</h3>
-              <p className="text-gray-600">{t("completeProtection")}</p>
+              
             </div>
 
             <div className="text-center">

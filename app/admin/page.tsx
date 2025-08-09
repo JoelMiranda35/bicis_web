@@ -274,17 +274,17 @@ export default function AdminPage() {
   }
 
   const handleLogin = () => {
-    if (
-      credentials.username === "admin" &&
-      credentials.password === "Carechimba"
-    ) {
-      setIsAuthenticated(true)
-      localStorage.setItem('adminAuthenticated', 'true')
-      fetchData()
-    } else {
-      setError("Credenciales incorrectas")
-    }
+  if (
+    credentials.username === process.env.NEXT_PUBLIC_ADMIN_USERNAME &&
+    credentials.password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD
+  ) {
+    setIsAuthenticated(true);
+    localStorage.setItem('adminAuthenticated', 'true');
+    fetchData();
+  } else {
+    setError("Credenciales incorrectas");
   }
+};
 
   const handleLogout = () => {
     setIsAuthenticated(false)
@@ -427,70 +427,70 @@ export default function AdminPage() {
     }
   }
 
-  const saveAccessory = async (accessoryData: any, imageFile?: File) => {
-    try {
-      setError(null)
-      let imageUrl = accessoryData.image_url
+ const saveAccessory = async (accessoryData: any, imageFile?: File) => {
+  try {
+    setError(null)
+    let imageUrl = accessoryData.image_url
 
-      if (imageFile) {
-        const uploadedUrl = await handleImageUpload(
-          imageFile,
-          accessoryData.id || Date.now().toString(),
-          "accessory"
-        )
-        if (uploadedUrl) {
-          imageUrl = uploadedUrl
-        } else {
-          return
-        }
-      }
-
-      const dataToSave = {
-        ...accessoryData,
-        image_url: imageUrl,
-        name: {
-          es: accessoryData.name_es || '',
-          en: accessoryData.name_en || '',
-          nl: accessoryData.name_nl || ''
-        }
-      }
-
-      let result
-      if (accessoryData.id) {
-        result = await supabase
-          .from("accessories")
-          .update(dataToSave)
-          .eq("id", accessoryData.id)
-          .select()
+    if (imageFile) {
+      const uploadedUrl = await handleImageUpload(
+        imageFile,
+        accessoryData.id || Date.now().toString(),
+        "accessory"
+      )
+      if (uploadedUrl) {
+        imageUrl = uploadedUrl
       } else {
-        result = await supabase
-          .from("accessories")
-          .insert([dataToSave])
-          .select()
+        return
       }
-
-      if (result.error) throw result.error
-
-      await fetchData()
-      setEditingAccessory(null)
-      
-      toast({
-        title: "Accesorio guardado",
-        description: accessoryData.id ? "Accesorio actualizado correctamente" : "Accesorio creado correctamente",
-        variant: "default",
-        action: <CheckCircle className="h-5 w-5 text-green-500" />,
-      })
-    } catch (error: any) {
-      setError(`Error al guardar el accesorio: ${error.message}`)
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-        action: <AlertCircle className="h-5 w-5 text-red-500" />,
-      })
     }
-  }
 
+    const dataToSave = {
+      ...accessoryData,
+      image_url: imageUrl,
+      name: {
+        es: accessoryData.name_es || '',
+        en: accessoryData.name_en || '',
+        nl: accessoryData.name_nl || ''
+      },
+      price: Number(accessoryData.price) || 0
+    }
+
+    let result
+    if (accessoryData.id) {
+      result = await supabase
+        .from("accessories")
+        .update(dataToSave)
+        .eq("id", accessoryData.id)
+        .select()
+    } else {
+      result = await supabase
+        .from("accessories")
+        .insert([dataToSave])
+        .select()
+    }
+
+    if (result.error) throw result.error
+
+    await fetchData()
+    setEditingAccessory(null)
+    
+    toast({
+      title: "Accesorio guardado",
+      description: accessoryData.id ? "Accesorio actualizado correctamente" : "Accesorio creado correctamente",
+      variant: "default",
+      action: <CheckCircle className="h-5 w-5 text-green-500" />,
+    })
+  } catch (error: any) {
+    setError(`Error al guardar el accesorio: ${error.message}`)
+    toast({
+      title: "Error",
+      description: error.message,
+      variant: "destructive",
+      action: <AlertCircle className="h-5 w-5 text-red-500" />,
+    })
+  }
+}
   const deleteAccessory = async (id: string) => {
     if (confirm("¿Estás seguro de eliminar este accesorio?")) {
       try {
@@ -1029,9 +1029,10 @@ const toggleBikeSelection = (bike: any) => {
                         </div>
                       </div>
                       <h3 className="font-semibold">{accessory.name_es || accessory.name}</h3>
-                      <p className="text-sm text-gray-600">
-                        {accessory.type} - {accessory.price}€/día
-                      </p>
+                      <h3 className="font-semibold">{accessory.name?.es || accessory.name_es || accessory.name || ""}</h3>
+<p className="text-sm text-gray-600">
+  {accessory.type} - {accessory.price === 0 ? "Gratis" : `${accessory.price}€/día`}
+</p>
                       <div className="flex gap-2 mt-2">
                         <Badge>{accessory.type}</Badge>
                         <Badge variant={accessory.available ? "default" : "destructive"}>
@@ -1184,15 +1185,15 @@ const toggleBikeSelection = (bike: any) => {
                   </div>
 
                   {reservation.accessories && reservation.accessories.length > 0 && (
-                    <div>
-                      <h4 className="font-medium mb-2">Accesorios:</h4>
-                      {reservation.accessories.map((accessory: any, index: number) => (
-                        <p key={index} className="text-sm text-gray-600">
-                          {accessory.name || accessory.name_es} - {accessory.price}€/día × {reservation.total_days} días = {accessory.price * reservation.total_days}€
-                        </p>
-                      ))}
-                    </div>
-                  )}
+  <div>
+    <h4 className="font-medium mb-2">Accesorios:</h4>
+    {reservation.accessories.map((accessory: any, index: number) => (
+      <p key={index} className="text-sm text-gray-600">
+        {accessory.name?.es || accessory.name_es || accessory.name} - {accessory.price}€/día × {reservation.total_days} días = {accessory.price * reservation.total_days}€
+      </p>
+    ))}
+  </div>
+)}
                 </div>
               </div>
             </div>
@@ -2040,11 +2041,11 @@ function BikeForm({ bike, onSave, onCancel }: any) {
 
 function AccessoryForm({ accessory, onSave, onCancel }: any) {
   const [formData, setFormData] = useState({
-    name_es: accessory?.name_es || "",
-    name_en: accessory?.name_en || "",
-    name_nl: accessory?.name_nl || "",
+    name_es: accessory?.name?.es || accessory?.name_es || "",
+    name_en: accessory?.name?.en || accessory?.name_en || "",
+    name_nl: accessory?.name?.nl || accessory?.name_nl || "",
     type: accessory?.type || "pedal",
-    price: accessory?.price || 0,
+    price: accessory?.price ?? 0,
     available: accessory?.available ?? true,
     image_url: accessory?.image_url || "",
   })
@@ -2057,8 +2058,8 @@ function AccessoryForm({ accessory, onSave, onCancel }: any) {
     setIsSaving(true)
     setError(null)
     try {
-      if (!formData.name_es || formData.price <= 0) {
-        throw new Error("Nombre en español y precio válido son obligatorios")
+      if (!formData.name_es) {
+        throw new Error("Nombre en español es obligatorio")
       }
       await onSave({ ...accessory, ...formData }, imageFile)
     } catch (err: any) {
@@ -2099,7 +2100,10 @@ function AccessoryForm({ accessory, onSave, onCancel }: any) {
 
       <div>
         <Label htmlFor="type">Tipo</Label>
-        <Select value={formData.type} onValueChange={(value) => setFormData({ ...formData, type: value })}>
+        <Select 
+          value={formData.type} 
+          onValueChange={(value) => setFormData({ ...formData, type: value })}
+        >
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>

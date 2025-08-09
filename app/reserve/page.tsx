@@ -70,13 +70,13 @@ import {
   validateName,
 } from "@/lib/validation";
 
-
- const convertToMadridTime = (date: Date): Date => {
+const convertToMadridTime = (date: Date): Date => {
   const madridTimeZone = "Europe/Madrid";
   const utcDate = new Date(date.toISOString());
   const localString = utcDate.toLocaleString("en-US", { timeZone: madridTimeZone });
   return new Date(localString);
 };
+
 // Initialize Stripe
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
@@ -351,80 +351,9 @@ const StripePaymentForm = ({
   const [cardError, setCardError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmedIntent, setConfirmedIntent] = useState<any>(null);
-  const [totalAmount, setTotalAmount] = useState(0);
-
-  // Calcular el total cuando cambian los parámetros relevantes
- useEffect(() => {
-  const days = calculateTotalDays(
-    new Date(startDate),
-    new Date(endDate),
-    pickupTime,
-    returnTime
-  );
-
-  const bikeTotal = (selectedBikes || []).reduce((total: number, bike: any) => {
-    const price = calculatePrice(bike.category, days);
-    const lineTotal = price * bike.quantity;
-    return total + lineTotal;
-  }, 0);
-
-  const accessoryTotal = (selectedAccessories || []).reduce((total: number, accessory: any) => {
-    const lineTotal = accessory.price * days;
-    return total + lineTotal;
-  }, 0);
-
-  const totalBikeCount = (selectedBikes || []).reduce(
-    (total: number, bike: any) => total + bike.quantity,
-    0
-  );
-
-  const insuranceTotal = hasInsurance
-    ? calculateInsurance(days) * totalBikeCount
-    : 0;
-
-  const calculatedTotal = bikeTotal + accessoryTotal + insuranceTotal;
-
-  // DEBUG: Log para confirmar montos
-  console.log("🧾 Resumen:");
-  console.log("Bikes:", bikeTotal);
-  console.log("Accessories:", accessoryTotal);
-  console.log("Insurance:", insuranceTotal);
-  console.log("TOTAL:", calculatedTotal);
-
-  setTotalAmount(calculatedTotal);
-}, [
-  selectedBikes,
-  selectedAccessories,
-  hasInsurance,
-  startDate,
-  endDate,
-  pickupTime,
-  returnTime
-]);
-
-
-  // Función para calcular el depósito total con tipos explícitos
-  const calculateTotalDeposit = (): number => {
-    return (selectedBikes || []).reduce((total: number, bike: any) => {
-      return total + (calculateDeposit(bike.category) * bike.quantity);
-    }, 0);
-  };
-
-  // Función para calcular días totales con parámetros tipados
-  const calculateTotalDays = (start: Date, end: Date, pickup: string, returnT: string): number => {
-    const startDay = new Date(start);
-    const endDay = new Date(end);
-    
-    if (isSameDay(startDay, endDay)) return 1;
-
-    const diffDays = Math.ceil((endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24));
-
-    if (returnT <= pickup) {
-      return diffDays;
-    }
-
-    return diffDays + 1;
-  };
+  
+  // Calculamos el monto total a pagar (sin restar el depósito)
+  const totalAmount = calculateTotal();
 
   const createReservation = async (metadata: any, paymentIntentId: string) => {
     try {
@@ -452,7 +381,7 @@ const StripePaymentForm = ({
           accessories: selectedAccessories || [],
           insurance: metadata.insurance ? metadata.insurance === "true" : hasInsurance,
           total_amount: parseFloat(metadata.total_amount || totalAmount.toString()),
-          deposit_amount: parseFloat(metadata.deposit_amount || calculateTotalDeposit().toString()),
+          deposit_amount: parseFloat(metadata.deposit_amount || calculateTotalDeposit(selectedBikes).toString()),
           paid_amount: parseFloat(metadata.total_amount || totalAmount.toString()),
           status: "confirmed",
           payment_gateway: "stripe",
@@ -486,7 +415,6 @@ const StripePaymentForm = ({
     setPaymentError(null);
 
     try {
-      // 1. Retrieve Payment Intent
       const { paymentIntent: currentIntent } = await stripe.retrievePaymentIntent(clientSecret);
       
       if (!currentIntent || currentIntent.status !== 'requires_payment_method') {
@@ -496,7 +424,6 @@ const StripePaymentForm = ({
         };
       }
 
-      // 2. Confirm Payment
       const { error: stripeError, paymentIntent: confirmedPaymentIntent } = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
           card: elements.getElement(CardElement)!,
@@ -513,9 +440,7 @@ const StripePaymentForm = ({
 
       setConfirmedIntent(confirmedPaymentIntent);
 
-      // 3. Process Successful Payment
       if (confirmedPaymentIntent?.status === "succeeded") {
-        // Preparar metadatos
         const reservationMetadata = {
           customer_name: customerData.name,
           customer_email: customerData.email,
@@ -536,17 +461,15 @@ const StripePaymentForm = ({
           accessories: JSON.stringify(selectedAccessories || []),
           insurance: hasInsurance.toString(),
           total_amount: totalAmount.toString(),
-          deposit_amount: calculateTotalDeposit().toString(),
+          deposit_amount: calculateTotalDeposit(selectedBikes).toString(),
           locale: language
         };
 
-        // Crear reserva
         const reservationData = await createReservation(
           { ...reservationMetadata, ...(confirmedPaymentIntent.metadata || {}) },
           confirmedPaymentIntent.id
         );
 
-        // Enviar email
         await sendConfirmationEmail({
           ...reservationData,
           payment_reference: confirmedPaymentIntent.id
@@ -593,64 +516,64 @@ const StripePaymentForm = ({
     );
   }
 
- return (
-  <form onSubmit={handleSubmit} className="space-y-4">
-    <div className="border p-4 rounded-lg">
-      <CardElement
-        options={{
-          hidePostalCode: true,
-          style: {
-            base: {
-              fontSize: "16px",
-              color: "#424770",
-              "::placeholder": {
-                color: "#aab7c4",
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="border p-4 rounded-lg">
+        <CardElement
+          options={{
+            hidePostalCode: true,
+            style: {
+              base: {
+                fontSize: "16px",
+                color: "#424770",
+                "::placeholder": {
+                  color: "#aab7c4",
+                },
+              },
+              invalid: {
+                color: "#9e2146",
               },
             },
-            invalid: {
-              color: "#9e2146",
-            },
-          },
-        }}
-      />
-    </div>
-
-    {cardError && (
-      <div className="text-red-500 text-sm p-2 bg-red-50 rounded">
-        {cardError}
+          }}
+        />
       </div>
-    )}
 
-    <Button
-      type="submit"
-      disabled={isProcessing || !stripe}
-      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-    >
-      {isProcessing ? (
-        <>
-          <Loader2 className="animate-spin h-4 w-4 mr-2" />
-          {t("processingPayment")}
-        </>
-      ) : (
-        `${t("pay")} ${totalAmount.toFixed(2)}€`
+      {cardError && (
+        <div className="text-red-500 text-sm p-2 bg-red-50 rounded">
+          {cardError}
+        </div>
       )}
-    </Button>
 
-    <div className="mt-4">
+     
+
       <Button
-        variant="outline"
-        onClick={() => setCurrentStep("customer")}
-        className="w-full"
-        type="button"
+        type="submit"
+        disabled={isProcessing || !stripe}
+        className="w-full bg-blue-600 hover:bg-blue-700 text-white"
       >
-        {t("goBack")}
+        {isProcessing ? (
+          <>
+            <Loader2 className="animate-spin h-4 w-4 mr-2" />
+            {t("processingPayment")}
+          </>
+        ) : (
+          `${t("payOnline")} ${totalAmount.toFixed(2)}€`
+        )}
       </Button>
-    </div>
-  </form>
-);
+
+      <div className="mt-4">
+        <Button
+          variant="outline"
+          onClick={() => setCurrentStep("customer")}
+          className="w-full"
+          type="button"
+        >
+          {t("goBack")}
+        </Button>
+      </div>
+    </form>
+  );
 };
-
-
 
 export default function ReservePage() {
   const { t, language } = useLanguage();
@@ -661,7 +584,7 @@ export default function ReservePage() {
   const [startDate, setStartDate] = useState<Date>(createLocalDate());
   const [endDate, setEndDate] = useState<Date>(createLocalDate(addDays(new Date(), 1)));
   const [pickupTime, setPickupTime] = useState("10:00");
-  const [returnTime, setReturnTime] = useState("18:00");
+  const [returnTime, setReturnTime] = useState("10:00"); // Changed default to match pickup time
   const [availableBikes, setAvailableBikes] = useState<any[]>([]);
   const [bikeModels, setBikeModels] = useState<BikeModel[]>([]);
   const [selectedBikes, setSelectedBikes] = useState<SelectedBike[]>([]);
@@ -684,14 +607,21 @@ export default function ReservePage() {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [reservationData, setReservationData] = useState<any>(null);
 
-  useEffect(() => {
+ useEffect(() => {
   const fetchAccessories = async () => {
     setIsLoadingAccessories(true);
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("accessories")
         .select("*")
         .eq("available", true);
+      
+      console.log("Datos de accesorios:", data); // ← Añade esto
+      console.log("Error:", error); // ← Añade esto
+
+      if (error) {
+        throw error;
+      }
       if (data) {
         setAccessories(data);
       }
@@ -704,189 +634,171 @@ export default function ReservePage() {
   fetchAccessories();
 }, []);
 
-useEffect(() => {
+  useEffect(() => {
   if (startDate && endDate) {
-    // Calcular nuevos horarios
-    const newPickupTime = isSaturday(startDate) ? "10:00" : "10:00";
-    const newReturnTime = isSaturday(endDate) ? "14:00" : "18:00";
-    
-    // Actualizar solo si cambiaron
-    if (pickupTime !== newPickupTime) {
-      setPickupTime(newPickupTime);
+    // Solo establecer valores por defecto si no hay horas seleccionadas
+    if (!pickupTime) {
+      setPickupTime(isSaturday(startDate) ? "10:00" : "10:00");
     }
-    if (returnTime !== newReturnTime) {
-      setReturnTime(newReturnTime);
+    if (!returnTime) {
+      setReturnTime(pickupTime || (isSaturday(endDate) ? "10:00" : "10:00"));
     }
-    
 
- 
-
-
-
-    // Forzar actualización de disponibilidad
     fetchAvailableBikes();
   }
-}, [startDate, endDate, pickupTime, returnTime]); // Añadimos dependencias de tiempo
+}, [startDate, endDate]);
 
-useEffect(() => {
-  if (availableBikes.length > 0) {
-    groupBikesByModel();
-  }
-}, [availableBikes]);
+  useEffect(() => {
+    if (availableBikes.length > 0) {
+      groupBikesByModel();
+    }
+  }, [availableBikes]);
 
+  const fetchAvailableBikes = async () => {
+    if (!startDate || !endDate) return;
 
+    setIsLoadingBikes(true);
+    try {
+      const { data: allBikes, error: bikesError } = await supabase
+        .from("bikes")
+        .select("*")
+        .eq("available", true);
 
-const fetchAvailableBikes = async () => {
-  if (!startDate || !endDate) return;
+      if (bikesError) throw bikesError;
 
-  setIsLoadingBikes(true);
-  try {
-    const { data: allBikes, error: bikesError } = await supabase
-      .from("bikes")
-      .select("*")
-      .eq("available", true);
+      const { data: reservations, error: resError } = await supabase
+        .from("reservations")
+        .select("bikes, start_date, end_date, pickup_time, return_time, status")
+        .or(`and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`)
+        .in("status", ["confirmed", "in_process"]);
 
-    if (bikesError) throw bikesError;
+      if (resError) throw resError;
 
-    const { data: reservations, error: resError } = await supabase
-      .from("reservations")
-      .select("bikes, start_date, end_date, pickup_time, return_time, status")
-      .or(`and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`)
-      .in("status", ["confirmed", "in_process"]);
+      const reservedBikeIds = new Set<string>();
 
-    if (resError) throw resError;
+      const selStart = convertToMadridTime(new Date(startDate));
+      selStart.setHours(Number(pickupTime.split(':')[0]), Number(pickupTime.split(':')[1]));
 
-    const reservedBikeIds = new Set<string>();
+      const selEnd = convertToMadridTime(new Date(endDate));
+      selEnd.setHours(Number(returnTime.split(':')[0]), Number(returnTime.split(':')[1]));
 
-    const selStart = convertToMadridTime(new Date(startDate));
-    selStart.setHours(Number(pickupTime.split(':')[0]), Number(pickupTime.split(':')[1]));
+      reservations.forEach(res => {
+        const resStart = convertToMadridTime(new Date(res.start_date));
+        resStart.setHours(Number(res.pickup_time.split(':')[0]), Number(res.pickup_time.split(':')[1]));
 
-    const selEnd = convertToMadridTime(new Date(endDate));
-    selEnd.setHours(Number(returnTime.split(':')[0]), Number(returnTime.split(':')[1]));
+        const resEnd = convertToMadridTime(new Date(res.end_date));
+        resEnd.setHours(Number(res.return_time.split(':')[0]), Number(res.return_time.split(':')[1]));
 
-    reservations.forEach(res => {
-      const resStart = convertToMadridTime(new Date(res.start_date));
-      resStart.setHours(Number(res.pickup_time.split(':')[0]), Number(res.pickup_time.split(':')[1]));
+        const overlap = selStart < resEnd && selEnd > resStart;
 
-      const resEnd = convertToMadridTime(new Date(res.end_date));
-      resEnd.setHours(Number(res.return_time.split(':')[0]), Number(res.return_time.split(':')[1]));
+        if (overlap) {
+          markBikesAsReserved(res.bikes, reservedBikeIds);
+        }
+      });
 
-      const overlap = selStart < resEnd && selEnd > resStart;
+      const filtered = allBikes.filter(b => !reservedBikeIds.has(b.id.trim()));
+      console.log("✅ Bicis disponibles:", filtered.map(b => b.id));
+      console.log("❌ Bicis bloqueadas:", [...reservedBikeIds]);
+      setAvailableBikes(filtered);
 
-      if (overlap) {
-        markBikesAsReserved(res.bikes, reservedBikeIds);
-      }
-    });
+    } catch (err) {
+      console.error("Error al cargar bicis:", err);
+    } finally {
+      setIsLoadingBikes(false);
+    }
+  };
 
-    const filtered = allBikes.filter(b => !reservedBikeIds.has(b.id.trim()));
-    console.log("✅ Bicis disponibles:", filtered.map(b => b.id));
-    console.log("❌ Bicis bloqueadas:", [...reservedBikeIds]);
-    setAvailableBikes(filtered);
+  const markBikesAsReserved = (bikesData: any, reservedBikeIds: Set<string>) => {
+    try {
+      const bikes = typeof bikesData === 'string' ? JSON.parse(bikesData) : bikesData;
 
-  } catch (err) {
-    console.error("Error al cargar bicis:", err);
-  } finally {
-    setIsLoadingBikes(false);
-  }
-};
+      if (!Array.isArray(bikes)) return;
 
-
-
-// Función auxiliar para marcar bicicletas como reservadas
-const markBikesAsReserved = (bikesData: any, reservedBikeIds: Set<string>) => {
-  try {
-    const bikes = typeof bikesData === 'string' ? JSON.parse(bikesData) : bikesData;
-
-    if (!Array.isArray(bikes)) return;
-
-    for (const bike of bikes) {
-      const ids = Array.isArray(bike.bike_ids) ? bike.bike_ids : [];
-      for (const id of ids) {
-        if (typeof id === 'string') {
-          reservedBikeIds.add(id.trim());
+      for (const bike of bikes) {
+        const ids = Array.isArray(bike.bike_ids) ? bike.bike_ids : [];
+        for (const id of ids) {
+          if (typeof id === 'string') {
+            reservedBikeIds.add(id.trim());
+          }
         }
       }
+    } catch (err) {
+      console.error("❌ Error parseando bikes:", bikesData, err);
     }
-  } catch (err) {
-    console.error("❌ Error parseando bikes:", bikesData, err);
-  }
-};
+  };
 
+  const groupBikesByModel = () => {
+    const grouped = availableBikes.reduce(
+      (acc: Record<string, BikeModel>, bike) => {
+        const key = `${bike.title_es}-${bike.category}`;
+        if (!acc[key]) {
+          acc[key] = {
+            title_es: bike.title_es,
+            title_en: bike.title_en,
+            title_nl: bike.title_nl,
+            subtitle_es: bike.subtitle_es,
+            subtitle_en: bike.subtitle_en,
+            subtitle_nl: bike.subtitle_nl,
+            category: bike.category as BikeCategory,
+            availableSizes: [],
+          };
+        }
 
+        const existingSizeIndex = acc[key].availableSizes.findIndex(
+          (s) => s.size === bike.size
+        );
+        if (existingSizeIndex >= 0) {
+          acc[key].availableSizes[existingSizeIndex].count++;
+          acc[key].availableSizes[existingSizeIndex].bikes.push(bike);
+        } else {
+          acc[key].availableSizes.push({
+            size: bike.size,
+            count: 1,
+            bikes: [bike],
+          });
+        }
 
+        return acc;
+      },
+      {}
+    );
 
-const groupBikesByModel = () => {
-  const grouped = availableBikes.reduce(
-    (acc: Record<string, BikeModel>, bike) => {
-      const key = `${bike.title_es}-${bike.category}`;
-      if (!acc[key]) {
-        acc[key] = {
-          title_es: bike.title_es,
-          title_en: bike.title_en,
-          title_nl: bike.title_nl,
-          subtitle_es: bike.subtitle_es,
-          subtitle_en: bike.subtitle_en,
-          subtitle_nl: bike.subtitle_nl,
-          category: bike.category as BikeCategory,
-          availableSizes: [],
-        };
-      }
-
-      const existingSizeIndex = acc[key].availableSizes.findIndex(
-        (s) => s.size === bike.size
-      );
-      if (existingSizeIndex >= 0) {
-        acc[key].availableSizes[existingSizeIndex].count++;
-        acc[key].availableSizes[existingSizeIndex].bikes.push(bike);
-      } else {
-        acc[key].availableSizes.push({
-          size: bike.size,
-          count: 1,
-          bikes: [bike],
-        });
-      }
-
-      return acc;
-    },
-    {}
-  );
-
-  setBikeModels(Object.values(grouped));
-};
+    setBikeModels(Object.values(grouped));
+  };
 
   const validateCustomerData = () => {
-  const errors: Record<string, string> = {};
+    const errors: Record<string, string> = {};
 
-  if (!customerData.name.trim()) {
-    errors.name = t("validationNameRequired");
-  } else if (!validateName(customerData.name)) {
-    errors.name = t("validationInvalidName");
-  }
+    if (!customerData.name.trim()) {
+      errors.name = t("validationNameRequired");
+    } else if (!validateName(customerData.name)) {
+      errors.name = t("validationInvalidName");
+    }
 
-  if (!customerData.email.trim()) {
-    errors.email = t("validationEmailRequired");
-  } else if (!validateEmail(customerData.email)) {
-    errors.email = t("validationInvalidEmail");
-  }
+    if (!customerData.email.trim()) {
+      errors.email = t("validationEmailRequired");
+    } else if (!validateEmail(customerData.email)) {
+      errors.email = t("validationInvalidEmail");
+    }
 
-  if (!customerData.phone.trim()) {
-    errors.phone = t("validationPhoneRequired");
-  } else if (!validatePhone(customerData.phone)) {
-    errors.phone = t("validationInvalidPhone");
-  }
+    if (!customerData.phone.trim()) {
+      errors.phone = t("validationPhoneRequired");
+    } else if (!validatePhone(customerData.phone)) {
+      errors.phone = t("validationInvalidPhone");
+    }
 
-  const docValidation = validateDocument(customerData.dni);
-  if (!docValidation.isValid) {
-    errors.dni = t("validationInvalidDocument");
-  }
+    const docValidation = validateDocument(customerData.dni);
+    if (!docValidation.isValid) {
+      errors.dni = t("validationInvalidDocument");
+    }
 
-  if (!acceptedTerms) {
-    errors.terms = t("validationTermsRequired");
-  }
+    if (!acceptedTerms) {
+      errors.terms = t("validationTermsRequired");
+    }
 
-  setValidationErrors(errors);
-  return Object.keys(errors).length === 0;
-};
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const handleBikeSelection = (
     model: BikeModel,
@@ -951,34 +863,41 @@ const groupBikesByModel = () => {
     setHasInsurance(checked);
   };
 
-  const calculateTotal = (): number => {
-    if (!startDate || !endDate) return 0;
+ // En la función calculateTotal, asegurarnos de que nunca devuelva 0
+const calculateTotal = (): number => {
+  if (!startDate || !endDate || selectedBikes.length === 0) {
+    throw new Error("No se han seleccionado bicicletas o fechas"); // ← Esto no debería ocurrir si el flujo está bien controlado
+  }
 
-    const days = calculateTotalDays(
-      new Date(startDate),
-      new Date(endDate),
-      pickupTime,
-      returnTime
-    );
-    
-    const bikeTotal = selectedBikes.reduce((total, bike) => {
-      return total + calculatePrice(bike.category, days) * bike.quantity;
-    }, 0);
+  const days = calculateTotalDays(startDate, endDate, pickupTime, returnTime);
+  
+  // Bicicletas (siempre hay al menos 1)
+  const bikeTotal = selectedBikes.reduce((total, bike) => {
+    const price = calculatePrice(bike.category, days);
+    return total + (price * bike.quantity);
+  }, 0);
 
-    const accessoryTotal = selectedAccessories.reduce((total, accessory) => {
-      return total + accessory.price * days;
-    }, 0);
+  // Accesorios (manejar posibles valores null)
+  const accessoryTotal = selectedAccessories.reduce((total, acc) => {
+    return total + (acc.price || 0); // ← Maneja null como 0
+  }, 0);
 
-    const totalBikeCount = selectedBikes.reduce(
-      (total, bike) => total + bike.quantity,
-      0
-    );
-    const insuranceTotal = hasInsurance
-      ? calculateInsurance(days) * totalBikeCount
-      : 0;
+  // Seguro (opcional)
+  const insuranceTotal = hasInsurance
+    ? calculateInsurance(days) * selectedBikes.reduce((t, b) => t + b.quantity, 0)
+    : 0;
 
-    return bikeTotal + accessoryTotal + insuranceTotal;
-  };
+  const total = bikeTotal + accessoryTotal + insuranceTotal;
+  
+  if (total < 0) {
+    throw new Error("El total no puede ser negativo");
+}
+
+
+  return total;
+};
+
+
 
   const calculateTotalDeposit = (): number => {
     return selectedBikes.reduce((total, bike) => {
@@ -1031,149 +950,143 @@ const groupBikesByModel = () => {
     }
   };
 
-const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
-  if (!startDate || !endDate || selectedBikes.length === 0) {
-    return { available: false, unavailableBikes: [] };
-  }
+  const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
+    if (!startDate || !endDate || selectedBikes.length === 0) {
+      return { available: false, unavailableBikes: [] };
+    }
 
-  try {
-    const { data: overlappingReservations, error } = await supabase
-      .from("reservations")
-      .select("bikes, start_date, end_date, pickup_time, return_time, status")
-      .or(`and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`)
-      .in("status", ["confirmed", "in_process"]);
+    try {
+      const { data: overlappingReservations, error } = await supabase
+        .from("reservations")
+        .select("bikes, start_date, end_date, pickup_time, return_time, status")
+        .or(`and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`)
+        .in("status", ["confirmed", "in_process"]);
 
-    if (error) throw error;
+      if (error) throw error;
 
-    const reservedBikeIds = new Set<string>();
-    const selectedBikeIds = new Set<string>(selectedBikes.flatMap(b => b.bikes.map(bike => bike.id)));
+      const reservedBikeIds = new Set<string>();
+      const selectedBikeIds = new Set<string>(selectedBikes.flatMap(b => b.bikes.map(bike => bike.id)));
 
-    const selStart = convertToMadridTime(new Date(startDate));
-    selStart.setHours(Number(pickupTime.split(':')[0]), Number(pickupTime.split(':')[1]));
+      const selStart = convertToMadridTime(new Date(startDate));
+      selStart.setHours(Number(pickupTime.split(':')[0]), Number(pickupTime.split(':')[1]));
 
-    const selEnd = convertToMadridTime(new Date(endDate));
-    selEnd.setHours(Number(returnTime.split(':')[0]), Number(returnTime.split(':')[1]));
+      const selEnd = convertToMadridTime(new Date(endDate));
+      selEnd.setHours(Number(returnTime.split(':')[0]), Number(returnTime.split(':')[1]));
 
-    overlappingReservations?.forEach(reservation => {
-      const resStart = convertToMadridTime(new Date(reservation.start_date));
-      resStart.setHours(Number(reservation.pickup_time.split(':')[0]), Number(reservation.pickup_time.split(':')[1]));
+      overlappingReservations?.forEach(reservation => {
+        const resStart = convertToMadridTime(new Date(reservation.start_date));
+        resStart.setHours(Number(reservation.pickup_time.split(':')[0]), Number(reservation.pickup_time.split(':')[1]));
 
-      const resEnd = convertToMadridTime(new Date(reservation.end_date));
-      resEnd.setHours(Number(reservation.return_time.split(':')[0]), Number(reservation.return_time.split(':')[1]));
+        const resEnd = convertToMadridTime(new Date(reservation.end_date));
+        resEnd.setHours(Number(reservation.return_time.split(':')[0]), Number(reservation.return_time.split(':')[1]));
 
-      const overlaps = selStart < resEnd && selEnd > resStart;
+        const overlaps = selStart < resEnd && selEnd > resStart;
 
-      if (overlaps) {
-        markBikesAsReserved(reservation.bikes, reservedBikeIds);
-      }
-    });
+        if (overlaps) {
+          markBikesAsReserved(reservation.bikes, reservedBikeIds);
+        }
+      });
 
-    const unavailableBikes = Array.from(selectedBikeIds).filter(id => reservedBikeIds.has(id));
+      const unavailableBikes = Array.from(selectedBikeIds).filter(id => reservedBikeIds.has(id));
 
-    return {
-      available: unavailableBikes.length === 0,
-      unavailableBikes
-    };
-  } catch (error) {
-    console.error("Error checking bikes availability:", error);
-    return { available: false, unavailableBikes: [] };
-  }
-};
-
-
-
+      return {
+        available: unavailableBikes.length === 0,
+        unavailableBikes
+      };
+    } catch (error) {
+      console.error("Error checking bikes availability:", error);
+      return { available: false, unavailableBikes: [] };
+    }
+  };
 const handleSubmitReservation = async () => {
-  if (!startDate || !endDate) return;
-
   setIsSubmitting(true);
   setPaymentError(null);
 
   try {
-    // Validar datos del cliente
     if (!validateCustomerData()) {
-      throw new Error("Por favor completa todos los campos requeridos");
+      throw new Error("Completa todos los campos requeridos");
     }
 
-    // Verificar disponibilidad de bicicletas
-    const { available, unavailableBikes } = await checkBikesAvailability();
+    const { available } = await checkBikesAvailability();
     if (!available) {
-      await fetchAvailableBikes();
-      const updatedBikes = selectedBikes
-        .map(bike => ({
-          ...bike,
-          bikes: bike.bikes.filter(b => !unavailableBikes.includes(b.id))
-        }))
-        .filter(bike => bike.bikes.length > 0);
-
-      setSelectedBikes(updatedBikes);
-      setCurrentStep("bikes");
-      return;
+      throw new Error("Algunas bicicletas ya no están disponibles");
     }
 
-    // Calcular valores
-    const totalDays = calculateTotalDays(
-      new Date(startDate),
-      new Date(endDate),
-      pickupTime,
-      returnTime
-    );
+    const days = calculateTotalDays(startDate, endDate, pickupTime, returnTime);
     const totalAmount = calculateTotal();
-    const depositAmount = calculateTotalDeposit();
 
-    // Crear metadata COMPLETA para Stripe
+    // Validación adicional para asegurar que el total es válido
+    if (totalAmount <= 0) {
+      throw new Error("El monto total debe ser mayor a 0");
+    }
+
+    // Simplificar los datos de bicicletas para la metadata
+    const simplifiedBikesData = selectedBikes.map(bike => ({
+      model: bike.title_es.substring(0, 50), // Limitar longitud
+      size: bike.size,
+      quantity: bike.quantity,
+      // No incluir bike_ids en la metadata
+      price: calculatePrice(bike.category, 1)
+    }));
+
+    // Simplificar los accesorios
+    const simplifiedAccessories = selectedAccessories.map(acc => ({
+      id: acc.id,
+      name: acc.name_es.substring(0, 50),
+      price: acc.price
+    }));
+
     const metadata = {
-      customer_name: customerData.name,
-      customer_email: customerData.email,
-      customer_phone: customerData.phone,
-      customer_dni: customerData.dni,
-      start_date: new Date(startDate).toISOString(),
-      end_date: new Date(endDate).toISOString(),
+      customer_name: customerData.name.substring(0, 100),
+      customer_email: customerData.email.substring(0, 100),
+      customer_phone: customerData.phone.substring(0, 20),
+      customer_dni: customerData.dni.substring(0, 20),
+      start_date: startDate.toISOString().substring(0, 10), // Solo fecha
+      end_date: endDate.toISOString().substring(0, 10), // Solo fecha
       pickup_time: pickupTime,
       return_time: returnTime,
-      total_days: totalDays.toString(),
-      bikes: JSON.stringify(
-        selectedBikes.map(bike => ({
-          model: bike.title_es,
-          size: bike.size,
-          quantity: bike.quantity,
-          bike_ids: bike.bikes.map(b => b.id),
-        }))
-      ),
-      accessories: JSON.stringify(selectedAccessories),
-      insurance: hasInsurance.toString(),
-      total_amount: totalAmount.toString(),
-      deposit_amount: depositAmount.toString(),
+      total_days: days.toString(),
+      bikes_count: selectedBikes.reduce((total, bike) => total + bike.quantity, 0),
+      accessories_count: selectedAccessories.length,
+      insurance: hasInsurance ? "1" : "0",
+      total_amount: totalAmount.toFixed(2),
+      deposit_amount: calculateTotalDeposit().toFixed(2),
       locale: language
     };
 
-    // Llamar a la API de Stripe
+    console.log("Enviando a Stripe:", { 
+      amount: Math.round(totalAmount * 100), 
+      currency: 'eur', 
+      metadata 
+    });
+
     const response = await fetch('/api/stripe/create-payment-intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         amount: Math.round(totalAmount * 100),
         currency: 'eur',
-        metadata: metadata // <- Metadata completa enviada aquí
+        metadata
       })
     });
 
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.message || "Error al crear el pago");
+      console.error("Error response from API:", errorData);
+      throw new Error(errorData.error || "Error al crear el pago");
     }
 
     const { clientSecret } = await response.json();
     setClientSecret(clientSecret);
     setCurrentStep("payment");
 
-  } catch (err: any) {
-    console.error("Error en la reserva:", err);
-    setPaymentError(err.message || "Error al procesar la reserva");
+  } catch (error: any) {
+    console.error("Error en reserva:", error);
+    setPaymentError(error.message || "Error al procesar el pago. Por favor, inténtelo de nuevo.");
   } finally {
     setIsSubmitting(false);
   }
 };
-
   const getCategoryName = (category: BikeCategory): string => {
     switch (category) {
       case "ROAD":
@@ -1193,7 +1106,7 @@ const handleSubmitReservation = async () => {
     }
   };
 
- const renderStepContent = () => {
+  const renderStepContent = () => {
     switch (currentStep) {
       case "dates":
         return (
@@ -1208,102 +1121,99 @@ const handleSubmitReservation = async () => {
             <CardContent>
               <StoreHoursNotice t={t} />
               
-              {/* Cambio principal: Modificamos el contenedor de los calendarios */}
               <div className="flex flex-col md:flex-row gap-8 w-full">
-  <div className="w-full md:w-1/2">
-    <Label className="text-sm font-medium mb-2 block">
-      {t("startDate")}
-    </Label>
-    <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
-      <Calendar
-        mode="single"
-        selected={startDate}
-        onSelect={(date) => {
-          if (date) {
-            const newDate = createLocalDate(date);
-            if (isSunday(newDate)) return;
-            setStartDate(newDate);
-            if (endDate && newDate > endDate) {
-              setEndDate(createLocalDate(addDays(newDate, 1)));
-            }
-            setPickupTime(isSaturday(newDate) ? "10:00" : "10:00");
-          }
-        }}
-        disabled={(date) => isDateDisabled(date)}
-      />
-    </div>
-  </div>
-  
-  <div className="w-full md:w-1/2">
-    <Label className="text-sm font-medium mb-2 block">
-      {t("endDate")}
-    </Label>
-    <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
-      <Calendar
-        mode="single"
-        selected={endDate}
-        onSelect={(date) => {
-          if (date) {
-            const newDate = createLocalDate(date);
-            if (isSunday(newDate)) return;
-            if (startDate && newDate <= startDate) return;
-            setEndDate(newDate);
-            setReturnTime(isSaturday(newDate) ? "14:00" : "18:00");
-          }
-        }}
-        disabled={(date) => {
-          const today = createLocalDate();
-          const selectedDate = date ? createLocalDate(date) : new Date();
-          if (selectedDate < today) return true;
-          if (isSunday(selectedDate)) return true;
-          if (startDate && selectedDate <= startDate) return true;
-          return false;
-        }}
-      />
-    </div>
-  </div>
-</div>
+                <div className="w-full md:w-1/2">
+                  <Label className="text-sm font-medium mb-2 block">
+                    {t("startDate")}
+                  </Label>
+                  <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
+                    <Calendar
+                      mode="single"
+                      selected={startDate}
+                      onSelect={(date) => {
+  if (date) {
+    const newDate = createLocalDate(date);
+    if (isSunday(newDate)) return;
+    setStartDate(newDate);
+    if (endDate && newDate > endDate) {
+      setEndDate(createLocalDate(addDays(newDate, 1)));
+    }
+  }
+}}
+                      disabled={(date) => isDateDisabled(date)}
+                    />
+                  </div>
+                </div>
+                
+                <div className="w-full md:w-1/2">
+                  <Label className="text-sm font-medium mb-2 block">
+                    {t("endDate")}
+                  </Label>
+                  <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
+                    <Calendar
+                      mode="single"
+                      selected={endDate}
+                      onSelect={(date) => {
+  if (date) {
+    const newDate = createLocalDate(date);
+    if (isSunday(newDate)) return;
+    if (startDate && newDate <= startDate) return;
+    setEndDate(newDate);
+  }
+}}
+                      disabled={(date) => {
+                        const today = createLocalDate();
+                        const selectedDate = date ? createLocalDate(date) : new Date();
+                        if (selectedDate < today) return true;
+                        if (isSunday(selectedDate)) return true;
+                        if (startDate && selectedDate <= startDate) return true;
+                        return false;
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
             
 
               {startDate && endDate && (
                 <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div>
-                    <Label className="text-sm font-medium mb-2 block">
-                      {t("pickupTime")}
-                    </Label>
-                    <Select
-                      value={pickupTime}
-                      onValueChange={setPickupTime}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {getTimeOptions(isSaturday(startDate)).map(time => (
-                          <SelectItem key={time} value={time}>{time}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium mb-2 block">
-                      {t("returnTime")}
-                    </Label>
-                    <Select
-                      value={returnTime}
-                      onValueChange={setReturnTime}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {getTimeOptions(isSaturday(endDate)).map(time => (
-                          <SelectItem key={time} value={time}>{time}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+  <div>
+    <Label className="text-sm font-medium mb-2 block">
+      {t("pickupTime")}
+    </Label>
+    <Select
+      value={pickupTime}
+      onValueChange={setPickupTime}
+    >
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {getTimeOptions(isSaturday(startDate)).map(time => (
+          <SelectItem key={time} value={time}>{time}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  </div>
+  <div>
+    <Label className="text-sm font-medium mb-2 block">
+      {t("returnTime")}
+    </Label>
+    <Select
+      value={returnTime}
+      onValueChange={setReturnTime}
+    >
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {getTimeOptions(isSaturday(endDate)).map(time => (
+          <SelectItem key={time} value={time}>{time}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  </div>
+</div>
               )}
 
               {startDate && endDate && (
@@ -1575,174 +1485,172 @@ const handleSubmitReservation = async () => {
           </Card>
         );
 
-    case "accessories":
-  const rentalDays = calculateTotalDays(
-    new Date(startDate!),
-    new Date(endDate!),
-    pickupTime,
-    returnTime
-  );
+      case "accessories":
+        const rentalDays = calculateTotalDays(
+          new Date(startDate!),
+          new Date(endDate!),
+          pickupTime,
+          returnTime
+        );
 
-  // Cálculos individuales
-  const bikeSubtotal = selectedBikes.reduce(
-    (total, bike) => total + (calculatePrice(bike.category, 1) * rentalDays * bike.quantity),
-    0
-  );
+        const bikeSubtotal = selectedBikes.reduce(
+          (total, bike) => total + (calculatePrice(bike.category, 1) * rentalDays * bike.quantity),
+          0
+        );
 
-  const accessoriesSubtotal = selectedAccessories.reduce(
-    (total, acc) => total + (acc.price * rentalDays),
-    0
-  );
+        const accessoriesSubtotal = selectedAccessories.reduce(
+  (total, acc) => total + (acc.price ?? 0), // Maneja null como 0
+  0
+);
 
-  const insuranceSubtotal = hasInsurance
-    ? Math.min(
-        INSURANCE_MAX_PRICE,
-        INSURANCE_PRICE_PER_DAY * rentalDays
-      ) * selectedBikes.reduce((total, bike) => total + bike.quantity, 0)
-    : 0;
+        const insuranceSubtotal = hasInsurance
+          ? Math.min(
+              INSURANCE_MAX_PRICE,
+              INSURANCE_PRICE_PER_DAY * rentalDays
+            ) * selectedBikes.reduce((total, bike) => total + bike.quantity, 0)
+          : 0;
 
-  const depositTotal = selectedBikes.reduce(
-    (total, bike) => total + (calculateDeposit(bike.category)) * bike.quantity,
-    0
-  );
+        const depositTotal = selectedBikes.reduce(
+          (total, bike) => total + (calculateDeposit(bike.category)) * bike.quantity,
+          0
+        );
 
-  const orderTotal = bikeSubtotal + accessoriesSubtotal + insuranceSubtotal;
+        const orderTotal = bikeSubtotal + accessoriesSubtotal + insuranceSubtotal;
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("accessoriesInsurance")}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <StoreHoursNotice t={t} />
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("accessoriesInsurance")}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StoreHoursNotice t={t} />
 
-        {isLoadingAccessories ? (
-          <div className="space-y-4">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="animate-pulse flex items-center space-x-3 p-3 border rounded-lg">
-                <div className="w-12 h-12 bg-gray-200 rounded-lg"></div>
-                <div className="flex-1 space-y-2">
-                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                  <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+              {isLoadingAccessories ? (
+                <div className="space-y-4">
+                  {[...Array(4)].map((_, i) => (
+                    <div key={i} className="animate-pulse flex items-center space-x-3 p-3 border rounded-lg">
+                      <div className="w-12 h-12 bg-gray-200 rounded-lg"></div>
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                        <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-6">
-            <div>
-              <h4 className="font-semibold mb-4">{t("accessories")}</h4>
-              <div className="grid grid-cols-1 gap-4">
-                {accessories.map((accessory) => (
-                  <div key={accessory.id} className="flex items-center space-x-3 p-3 border rounded-lg">
-                    <Checkbox
-                      id={accessory.id}
-                      checked={selectedAccessories.some((a) => a.id === accessory.id)}
-                      onCheckedChange={() => handleAccessorySelection(accessory)}
+              ) : (
+                <div className="space-y-6">
+                  <div>
+                    <h4 className="font-semibold mb-4">{t("accessories")}</h4>
+                    <div className="grid grid-cols-1 gap-4">
+                      {accessories.map((accessory) => (
+                        <div key={accessory.id} className="flex items-center space-x-3 p-3 border rounded-lg">
+                          <Checkbox
+                            id={accessory.id}
+                            checked={selectedAccessories.some((a) => a.id === accessory.id)}
+                            onCheckedChange={() => handleAccessorySelection(accessory)}
+                          />
+                          <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <Package className="h-6 w-6 text-gray-400" />
+                          </div>
+                          <div className="flex-1">
+                            <Label htmlFor={accessory.id} className="font-medium">
+                              {translateBikeContent(
+                                { es: accessory.name_es, en: accessory.name_en, nl: accessory.name_nl },
+                                language
+                              )}
+                            </Label>
+                           <p className="text-sm text-gray-600">
+  {accessory.price ?? 0} {/* Esto maneja el caso null como 0 */}
+  {t("euro")}
+</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-6">
+                    <InsuranceContractCheckbox 
+                      t={t}
+                      hasInsurance={hasInsurance}
+                      handleInsuranceChange={handleInsuranceChange}
+                      language={language}
                     />
-                    <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Package className="h-6 w-6 text-gray-400" />
+                  </div>
+
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span>
+                          {t("bikes")} (
+                          {selectedBikes.reduce((total, bike) => total + bike.quantity, 0)}
+                          )
+                        </span>
+                        <span>
+                          {bikeSubtotal}
+                          {t("euro")}
+                        </span>
+                      </div>
+
+                      {selectedAccessories.length > 0 && (
+                        <div className="flex justify-between">
+                          <span>{t("accessories")}</span>
+                          <span>
+                            {accessoriesSubtotal}
+                            {t("euro")}
+                          </span>
+                        </div>
+                      )}
+
+                      {hasInsurance && (
+                        <div className="flex justify-between">
+                          <span>{t("insurance")}</span>
+                          <span>
+                            {insuranceSubtotal}
+                            {t("euro")}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="border-t pt-1 flex justify-between font-semibold">
+                        <span>{t("total")}</span>
+                        <span>
+                          {orderTotal}
+                          {t("euro")}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between text-orange-600">
+                        <span>{t("depositCash")}</span>
+                        <span>
+                          {depositTotal}
+                          {t("euro")}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <Label htmlFor={accessory.id} className="font-medium">
-                        {translateBikeContent(
-                          { es: accessory.name_es, en: accessory.name_en, nl: accessory.name_nl },
-                          language
-                        )}
-                      </Label>
-                      <p className="text-sm text-gray-600">
-                        {accessory.price}
-                        {t("euro")}
-                        {t("perDay")}
-                      </p>
-                    </div>
                   </div>
-                ))}
-              </div>
-            </div>
 
-            <div className="border-t pt-6">
-              <InsuranceContractCheckbox 
-                t={t}
-                hasInsurance={hasInsurance}
-                handleInsuranceChange={handleInsuranceChange}
-                language={language}
-              />
-            </div>
-
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span>
-                    {t("bikes")} (
-                    {selectedBikes.reduce((total, bike) => total + bike.quantity, 0)}
-                    )
-                  </span>
-                  <span>
-                    {bikeSubtotal}
-                    {t("euro")}
-                  </span>
-                </div>
-
-                {selectedAccessories.length > 0 && (
-                  <div className="flex justify-between">
-                    <span>{t("accessories")}</span>
-                    <span>
-                      {accessoriesSubtotal}
-                      {t("euro")}
-                    </span>
+                  <div className="mt-6 flex flex-col gap-4 sm:flex-row">
+                    <Button
+                      variant="outline"
+                      onClick={() => setCurrentStep("bikes")}
+                      className="w-full sm:w-auto"
+                    >
+                      {t("back")}
+                    </Button>
+                    <Button
+                      onClick={() => setCurrentStep("customer")}
+                      className="w-full sm:w-auto"
+                    >
+                      {t("continue")}
+                    </Button>
                   </div>
-                )}
-
-                {hasInsurance && (
-                  <div className="flex justify-between">
-                    <span>{t("insurance")}</span>
-                    <span>
-                      {insuranceSubtotal}
-                      {t("euro")}
-                    </span>
-                  </div>
-                )}
-
-                <div className="border-t pt-1 flex justify-between font-semibold">
-                  <span>{t("total")}</span>
-                  <span>
-                    {orderTotal}
-                    {t("euro")}
-                  </span>
                 </div>
-
-                <div className="flex justify-between text-orange-600">
-                  <span>{t("depositCash")}</span>
-                  <span>
-                    {depositTotal}
-                    {t("euro")}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-col gap-4 sm:flex-row">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentStep("bikes")}
-                className="w-full sm:w-auto"
-              >
-                {t("back")}
-              </Button>
-              <Button
-                onClick={() => setCurrentStep("customer")}
-                className="w-full sm:w-auto"
-              >
-                {t("continue")}
-              </Button>
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+              )}
+            </CardContent>
+          </Card>
+        );
 
       case "customer":
         return (
@@ -1883,151 +1791,150 @@ const handleSubmitReservation = async () => {
           </Card>
         );
       case "payment":
-  if (isAdminMode) {
-    return null;
-  }
+        if (isAdminMode) {
+          return null;
+        }
 
-  // Calcular valores
-  const rentalDaysPayment = calculateTotalDays(
-    new Date(startDate!),
-    new Date(endDate!),
-    pickupTime,
-    returnTime
-  );
+        const rentalDaysPayment = calculateTotalDays(
+          new Date(startDate!),
+          new Date(endDate!),
+          pickupTime,
+          returnTime
+        );
 
-  const bikeSubtotalPayment = selectedBikes.reduce(
-    (total, bike) => total + (calculatePrice(bike.category, 1) * rentalDaysPayment * bike.quantity),
-    0
-  );
+        const bikeSubtotalPayment = selectedBikes.reduce(
+          (total, bike) => total + (calculatePrice(bike.category, 1) * rentalDaysPayment * bike.quantity),
+          0
+        );
 
-  const accessoriesSubtotalPayment = selectedAccessories.reduce(
-    (total, acc) => total + (acc.price * rentalDaysPayment),
-    0
-  );
+        const accessoriesSubtotalPayment = selectedAccessories.reduce(
+          (total, acc) => total + acc.price, // Changed from acc.price * days to fixed price
+          0
+        );
 
-  const insuranceSubtotalPayment = hasInsurance
-    ? Math.min(
-        INSURANCE_MAX_PRICE,
-        INSURANCE_PRICE_PER_DAY * rentalDaysPayment
-      ) * selectedBikes.reduce((total, bike) => total + bike.quantity, 0)
-    : 0;
+        const insuranceSubtotalPayment = hasInsurance
+          ? Math.min(
+              INSURANCE_MAX_PRICE,
+              INSURANCE_PRICE_PER_DAY * rentalDaysPayment
+            ) * selectedBikes.reduce((total, bike) => total + bike.quantity, 0)
+          : 0;
 
-  const orderTotalPayment = bikeSubtotalPayment + accessoriesSubtotalPayment + insuranceSubtotalPayment;
+        const orderTotalPayment = bikeSubtotalPayment + accessoriesSubtotalPayment + insuranceSubtotalPayment;
 
-  const depositTotalPayment = selectedBikes.reduce(
-    (total, bike) => total + (calculateDeposit(bike.category)) * bike.quantity,
-    0
-  );
+        const depositTotalPayment = selectedBikes.reduce(
+          (total, bike) => total + (calculateDeposit(bike.category)) * bike.quantity,
+          0
+        );
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CreditCard className="h-5 w-5" />
-          {t("paymentDetails")}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <StoreHoursNotice t={t} />
-        
-        <div className="bg-gray-50 p-4 rounded-lg mb-6">
-          <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
-          <div className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span>
-                {t("bikes")} (
-                {selectedBikes.reduce((total, bike) => total + bike.quantity, 0)}
-                )
-              </span>
-              <span>
-                {bikeSubtotalPayment.toFixed(2)}
-                {t("euro")}
-              </span>
-            </div>
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5" />
+                {t("paymentDetails")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StoreHoursNotice t={t} />
+              
+              <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span>
+                      {t("bikes")} (
+                      {selectedBikes.reduce((total, bike) => total + bike.quantity, 0)}
+                      )
+                    </span>
+                    <span>
+                      {bikeSubtotalPayment.toFixed(2)}
+                      {t("euro")}
+                    </span>
+                  </div>
 
-            {selectedAccessories.length > 0 && (
-              <div className="flex justify-between">
-                <span>{t("accessories")}</span>
-                <span>
-                  {accessoriesSubtotalPayment.toFixed(2)}
-                  {t("euro")}
-                </span>
+                  {selectedAccessories.length > 0 && (
+                    <div className="flex justify-between">
+                      <span>{t("accessories")}</span>
+                      <span>
+                        {accessoriesSubtotalPayment.toFixed(2)}
+                        {t("euro")}
+                      </span>
+                    </div>
+                  )}
+
+                  {hasInsurance && (
+                    <div className="flex justify-between">
+                      <span>{t("insurance")}</span>
+                      <span>
+                        {insuranceSubtotalPayment.toFixed(2)}
+                        {t("euro")}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="border-t pt-1 flex justify-between font-semibold">
+                    <span>{t("total")}</span>
+                    <span>
+                      {orderTotalPayment.toFixed(2)}
+                      {t("euro")}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between text-orange-600">
+                    <span>{t("depositCash")}</span>
+                    <span>
+                      {depositTotalPayment.toFixed(2)}
+                      {t("euro")}
+                    </span>
+                  </div>
+                </div>
               </div>
-            )}
 
-            {hasInsurance && (
-              <div className="flex justify-between">
-                <span>{t("insurance")}</span>
-                <span>
-                  {insuranceSubtotalPayment.toFixed(2)}
-                  {t("euro")}
-                </span>
-              </div>
-            )}
+              <Elements 
+                stripe={stripePromise}
+                options={{
+                  clientSecret: clientSecret || '',
+                  locale: language === 'es' ? 'es' : language === 'nl' ? 'nl' : 'en',
+                  appearance: {
+                    theme: 'stripe',
+                    variables: {
+                      colorPrimary: '#4f46e5',
+                      colorBackground: '#ffffff',
+                      colorText: '#30313d',
+                      fontFamily: 'Inter, system-ui, sans-serif',
+                    }
+                  }
+                }}
+              >
+                <StripePaymentForm 
+                  clientSecret={clientSecret!}
+                  customerData={customerData}
+                  calculateTotal={calculateTotal}
+                  setCurrentStep={setCurrentStep}
+                  setPaymentError={setPaymentError}
+                  sendConfirmationEmail={sendConfirmationEmail}
+                  setSelectedBikes={setSelectedBikes}
+                  setClientSecret={setClientSecret}
+                  language={language}
+                  selectedBikes={selectedBikes}
+                  selectedAccessories={selectedAccessories}
+                  hasInsurance={hasInsurance}
+                  startDate={startDate}
+                  endDate={endDate}
+                  pickupTime={pickupTime}
+                  returnTime={returnTime}
+                  t={t}
+                />
+              </Elements>
 
-            <div className="border-t pt-1 flex justify-between font-semibold">
-              <span>{t("total")}</span>
-              <span>
-                {orderTotalPayment.toFixed(2)}
-                {t("euro")}
-              </span>
-            </div>
-
-            <div className="flex justify-between text-orange-600">
-              <span>{t("depositCash")}</span>
-              <span>
-                {depositTotalPayment.toFixed(2)}
-                {t("euro")}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <Elements 
-          stripe={stripePromise}
-          options={{
-            clientSecret: clientSecret || '',
-            locale: language === 'es' ? 'es' : language === 'nl' ? 'nl' : 'en',
-            appearance: {
-              theme: 'stripe',
-              variables: {
-                colorPrimary: '#4f46e5',
-                colorBackground: '#ffffff',
-                colorText: '#30313d',
-                fontFamily: 'Inter, system-ui, sans-serif',
-              }
-            }
-          }}
-        >
-          <StripePaymentForm 
-  clientSecret={clientSecret!}
-  customerData={customerData}
-  calculateTotal={calculateTotal}
-  setCurrentStep={setCurrentStep}
-  setPaymentError={setPaymentError}
-  sendConfirmationEmail={sendConfirmationEmail}
-  setSelectedBikes={setSelectedBikes}
-  setClientSecret={setClientSecret}
-  language={language}
-  selectedBikes={selectedBikes}
-  selectedAccessories={selectedAccessories}
-  hasInsurance={hasInsurance}
-  startDate={startDate}
-  endDate={endDate}
-  pickupTime={pickupTime}
-  returnTime={returnTime}
-  t={t}
-/>
-        </Elements>
-
-        {paymentError && (
-          <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg">
-            {paymentError}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+              {paymentError && (
+                <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg">
+                  {paymentError}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
 
       case "confirmation":
         return (

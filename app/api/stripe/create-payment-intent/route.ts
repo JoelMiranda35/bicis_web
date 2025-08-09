@@ -3,126 +3,86 @@ import Stripe from 'stripe';
 import { supabase } from '@/lib/supabase';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-07-30.basil',
-  typescript: true
+    typescript: true
 });
 
 export async function POST(request: Request) {
-  try {
-    const { 
-      amount, 
-      currency = 'eur', 
-      metadata 
-    } = await request.json();
+    try {
+        const { amount, currency = 'eur', metadata } = await request.json();
 
-    // Validaciones completas
-    if (!amount || isNaN(Number(amount)) || Number(amount) < 50) {
-      return NextResponse.json(
-        { 
-          code: 'invalid_amount', 
-          message: 'Amount must be at least 0.50€' 
-        },
-        { status: 400 }
-      );
-    }
-
-    // Validar estructura de metadata
-    const requiredMetadataFields = [
-      'customer_name',
-      'customer_email',
-      'start_date',
-      'end_date',
-      'bikes'
-    ];
-
-    if (!metadata || typeof metadata !== 'object') {
-      return NextResponse.json(
-        { 
-          code: 'invalid_metadata', 
-          message: 'Metadata must be an object with reservation details' 
-        },
-        { status: 400 }
-      );
-    }
-
-    // Verificar campos obligatorios
-    for (const field of requiredMetadataFields) {
-      if (!metadata[field]) {
-        return NextResponse.json(
-          { 
-            code: 'missing_field', 
-            message: `Metadata is missing required field: ${field}` 
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Crear Payment Intent con todos los metadatos necesarios
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(Number(amount)),
-      currency: currency.toLowerCase(),
-      metadata: {
-        ...metadata,
-        environment: process.env.NODE_ENV || 'development',
-        created_at: new Date().toISOString(),
-        app_version: '1.0.0'
-      },
-      description: `Bike rental for ${metadata.customer_name}`,
-      payment_method_types: ['card'],
-      capture_method: 'automatic',
-      shipping: {
-        name: metadata.customer_name,
-        address: {
-          country: 'ES'
+        // Validar amount (debe ser > 0)
+        const amountInCents = Math.round(Number(amount));
+        if (isNaN(amountInCents) || amountInCents <= 0) {
+            return NextResponse.json(
+                { error: 'El monto total debe ser mayor a 0' },
+                { status: 400 }
+            );
         }
-      }
-    });
 
-    // Registrar en Supabase para seguimiento
-    await supabase.from('payment_intents').insert({
-      intent_id: paymentIntent.id,
-      amount: paymentIntent.amount,
-      currency: paymentIntent.currency,
-      customer_email: metadata.customer_email,
-      status: paymentIntent.status,
-      metadata: paymentIntent.metadata
-    });
+        // Validar y limpiar metadata
+        const cleanedMetadata: Record<string, string> = {};
+        if (metadata && typeof metadata === 'object') {
+            for (const [key, value] of Object.entries(metadata)) {
+                if (value === undefined || value === null) {
+                    cleanedMetadata[key] = '';
+                } else {
+                    // Convertir a string y limitar a 500 caracteres
+                    cleanedMetadata[key] = String(value).substring(0, 500);
+                }
+            }
+        }
 
-    return NextResponse.json({
-      success: true,
-      clientSecret: paymentIntent.client_secret,
-      paymentIntentId: paymentIntent.id,
-      amount: paymentIntent.amount,
-      currency: paymentIntent.currency,
-      status: paymentIntent.status
-    });
+        // Crear PaymentIntent en Stripe
+        const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
+            amount: amountInCents,
+            currency: currency.toLowerCase(),
+            payment_method_types: ['card'],
+            metadata: cleanedMetadata
+        };
 
-  } catch (error) {
-    console.error('Stripe API Error:', error);
-    
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const errorCode = error instanceof Stripe.errors.StripeError ? error.code : 'server_error';
+        // Opcional: añadir shipping info si hay teléfono
+        if (cleanedMetadata.customer_phone) {
+            paymentIntentParams.shipping = {
+                name: cleanedMetadata.customer_name || '',
+                phone: cleanedMetadata.customer_phone,
+                address: {
+                    line1: 'Not provided',
+                    city: 'Not provided',
+                    country: 'ES'
+                }
+            };
+        }
 
-    // Registrar error en Supabase
-    await supabase.from('payment_errors').insert({
-      error_type: 'payment_intent_creation',
-      error_code: errorCode,
-      error_data: JSON.stringify({
-        message: errorMessage,
-        timestamp: new Date().toISOString(),
-        stack: error instanceof Error ? error.stack : null
-      }),
-      severity: 'critical'
-    });
+        const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
 
-    return NextResponse.json(
-      {
-        code: errorCode,
-        message: 'Error processing payment',
-        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
-      },
-      { status: 500 }
-    );
-  }
+        // Guardar en Supabase (opcional, puedes omitir si falla)
+        try {
+            await supabase.from('payment_intents').insert({
+                intent_id: paymentIntent.id,
+                amount: paymentIntent.amount,
+                currency: paymentIntent.currency,
+                customer_email: cleanedMetadata.customer_email || '',
+                status: paymentIntent.status,
+                metadata: paymentIntent.metadata
+            });
+        } catch (dbError) {
+            console.error("Error al guardar en Supabase:", dbError);
+            // Continuar aunque falle Supabase
+        }
+
+        return NextResponse.json({
+            clientSecret: paymentIntent.client_secret,
+            paymentIntentId: paymentIntent.id
+        });
+
+    } catch (error) {
+        console.error("Error en /create-payment-intent:", error);
+        return NextResponse.json(
+            { 
+                error: 'Error al procesar el pago',
+                details: error instanceof Error ? error.message : String(error)
+            },
+            { status: 500 }
+        );
+    }
 }

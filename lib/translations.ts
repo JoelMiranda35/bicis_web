@@ -38,7 +38,7 @@ export type TranslationKey =
   | 'premiumBikes' | 'renewedFleet' | 'insuranceIncluded' | 'completeProtection'
   | 'service24' | 'technicalAssistance' | 'recommendedBikes' | 'popularBikes'
   | 'ourLocation' | 'locationSubtitle' | 'howToGetHere' | 'locationDesc1'
-  | 'locationDesc2';
+  | 'locationDesc2' | 'pay' | 'goBack' | 'payOnline';
 
 interface AmountParams {
   amount: number;
@@ -131,7 +131,7 @@ const translations = {
     validationValidDocumentInfo: "Valid ID, NIE or Passport",
     validationTermsRequired: "You must accept the rental terms",
     storeHoursTitle: "Store Hours",
-    storeHoursContent: "Our store is open from 10:00 to 18:00, Tuesday to Saturday. Closed on Sundays and Mondays.",
+    storeHoursContent: "Our store is open Monday to Friday 10:00 to 18:00, Saturday: 10:00 - 14:00.",
     road: "Road",
     roadPremium: "Premium Road",
     mtb: "Mountain",
@@ -143,7 +143,7 @@ const translations = {
     rentalTermsTitle: "I accept the rental terms and conditions",
     rentalTermsContent: "By accepting, you agree to our rental terms and conditions",
     downloadTerms: "Download Terms",
-    downloadInsuranceContract: "Download Insurance Contract",
+    downloadInsuranceContract: "Download insurance terms and conditions",
     specificBikesNoLongerAvailable: ({ count }: CountParams) => `${count} selected bikes are no longer available. Please adjust your selection.`,
     bikesNoLongerAvailable: "Some selected bikes are no longer available. Please adjust your selection.",
     reservationValidationError: "Please correct the errors in the form",
@@ -190,8 +190,8 @@ const translations = {
     bookFavoriteBike: "Book your favorite bike now",
     premiumBikes: "Premium Bikes",
     renewedFleet: "Renewed Fleet",
-    insuranceIncluded: "Insurance Included",
-    completeProtection: "Complete Protection",
+    insuranceIncluded: "optional insurance",
+    completeProtection: "",
     service24: "Mechanical Assistance",
     technicalAssistance: "Mechanical assistance up to 30km",
     recommendedBikes: "Recommended Bikes",
@@ -200,7 +200,10 @@ const translations = {
     locationSubtitle: "Find us in the heart of Altea",
     howToGetHere: "How to get here",
     locationDesc1: "Our store is conveniently located in the city center, just a few minutes walk from the beach.",
-    locationDesc2: "Easy access by public transport and plenty of parking options nearby."
+    locationDesc2: "Easy access by public transport and plenty of parking options nearby.",
+    pay: "Pay",
+    goBack: "Go Back",
+    payOnline: "Pay"
   },
   es: {
     home: "Inicio",
@@ -275,7 +278,7 @@ const translations = {
     validationValidDocumentInfo: "DNI, NIE o Pasaporte válido",
     validationTermsRequired: "Debes aceptar los términos de alquiler",
     storeHoursTitle: "Horario de Tienda",
-    storeHoursContent: "Nuestra tienda está abierta de 10:00 a 18:00, de martes a sábado. Cerrado domingos y lunes.",
+    storeHoursContent: "Nuestra tienda está abierta de Lunes a Viernes 10:00 a 18:00hrs, Sábados: 10:00 - 14:00hrs.",
     road: "Carretera",
     roadPremium: "Carretera Premium",
     mtb: "Montaña",
@@ -287,7 +290,7 @@ const translations = {
     rentalTermsTitle: "Acepto los términos y condiciones de alquiler",
     rentalTermsContent: "Al aceptar, estás de acuerdo con nuestros términos y condiciones de alquiler",
     downloadTerms: "Descargar Términos",
-    downloadInsuranceContract: "Descargar Contrato de Seguro",
+    downloadInsuranceContract: "Descargar Condiciones de Seguro",
     specificBikesNoLongerAvailable: ({ count }: CountParams) => `${count} bicicletas seleccionadas ya no están disponibles. Por favor ajusta tu selección.`,
     bikesNoLongerAvailable: "Algunas bicicletas seleccionadas ya no están disponibles. Por favor ajusta tu selección.",
     reservationValidationError: "Por favor corrige los errores en el formulario",
@@ -334,8 +337,8 @@ const translations = {
     bookFavoriteBike: "Reserva tu bicicleta favorita ahora",
     premiumBikes: "Bicicletas Premium",
     renewedFleet: "Flota Renovada",
-    insuranceIncluded: "Seguro Incluido",
-    completeProtection: "Protección Completa",
+    insuranceIncluded: "Seguro Opcional",
+    completeProtection: "",
     service24: "Asistencia mecánica hasta 30km",
     technicalAssistance: "Asistencia Técnica",
     recommendedBikes: "Bicicletas Recomendadas",
@@ -344,7 +347,10 @@ const translations = {
     locationSubtitle: "Encuéntranos en el corazón de Altea",
     howToGetHere: "Cómo llegar",
     locationDesc1: "Nuestra tienda está convenientemente ubicada en el centro de la ciudad, a pocos minutos a pie de la playa.",
-    locationDesc2: "Fácil acceso en transporte público y muchas opciones de aparcamiento cercanas."
+    locationDesc2: "Fácil acceso en transporte público y muchas opciones de aparcamiento cercanas.",
+    pay: "Pagar",
+    goBack: "Volver Atrás",
+    payOnline: "Pagar"
   },
   nl: {
     home: "Home",
@@ -419,7 +425,7 @@ const translations = {
     validationValidDocumentInfo: "Geldig ID, NIE of Paspoort",
     validationTermsRequired: "U moet de huurvoorwaarden accepteren",
     storeHoursTitle: "Winkeluren",
-    storeHoursContent: "Onze winkel is open van 10:00 tot 18:00, dinsdag tot zaterdag. Gesloten op zondag en maandag.",
+    storeHoursContent: "Onze winkel is geopend van maandag tot vrijdag van 10:00 tot 18:00 uur, zaterdag: 10:00 - 14:00 uur.",
     road: "Race",
     roadPremium: "Premium Race",
     mtb: "Mountainbike",
@@ -431,7 +437,7 @@ const translations = {
     rentalTermsTitle: "Ik accepteer de huurvoorwaarden",
     rentalTermsContent: "Door te accepteren gaat u akkoord met onze huurvoorwaarden",
     downloadTerms: "Download Voorwaarden",
-    downloadInsuranceContract: "Download Verzekeringscontract",
+    downloadInsuranceContract: "Verzekeringsvoorwaarden downloaden",
     specificBikesNoLongerAvailable: ({ count }: CountParams) => `${count} geselecteerde fietsen zijn niet meer beschikbaar. Pas uw selectie aan.`,
     bikesNoLongerAvailable: "Sommige geselecteerde fietsen zijn niet meer beschikbaar. Pas uw selectie aan.",
     reservationValidationError: "Corrigeer de fouten in het formulier",
@@ -478,8 +484,8 @@ const translations = {
     bookFavoriteBike: "Boek nu uw favoriete fiets",
     premiumBikes: "Premium Fietsen",
     renewedFleet: "Vernieuwd Wagenpark",
-    insuranceIncluded: "Verzekering Inbegrepen",
-    completeProtection: "Volledige Bescherming",
+    insuranceIncluded: "optionele verzekering",
+    completeProtection: "",
     service24: "Mechanische Assistentie",
     technicalAssistance: "Mechanische assistentie tot 30km",
     recommendedBikes: "Aanbevolen Fietsen",
@@ -488,7 +494,10 @@ const translations = {
     locationSubtitle: "Vind ons in het hart van Altea",
     howToGetHere: "Hoe hier te komen",
     locationDesc1: "Onze winkel is gunstig gelegen in het stadscentrum, op slechts een paar minuten lopen van het strand.",
-    locationDesc2: "Gemakkelijk bereikbaar met het openbaar vervoer en veel parkeermogelijkheden in de buurt."
+    locationDesc2: "Gemakkelijk bereikbaar met het openbaar vervoer en veel parkeermogelijkheden in de buurt.",
+    pay: "Betalen",
+    goBack: "Teruggaan",
+    payOnline: "Betalen"
   }
 } as const;
 
