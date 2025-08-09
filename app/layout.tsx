@@ -2,13 +2,13 @@
 "use client"
 
 import React, { useEffect, useState } from "react"
-import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { LanguageProvider } from "@/lib/language-context"
 import { usePathname } from "next/navigation"
+import Head from "next/head" // Importa Head para manejar el favicon
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -19,8 +19,6 @@ export default function RootLayout({
 }) {
   const pathname = usePathname()
   const isAdmin = pathname?.startsWith("/admin") ?? false
-
-  // Estado para detectar si ya estamos en cliente
   const [isClient, setIsClient] = useState(false)
   const [whatsappLink, setWhatsappLink] = useState("")
 
@@ -31,7 +29,6 @@ export default function RootLayout({
   useEffect(() => {
     if (!isClient || typeof window === 'undefined') return
 
-    // Detección móvil en cliente
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
       navigator.userAgent
     )
@@ -49,13 +46,17 @@ export default function RootLayout({
 
   return (
     <html lang="es">
+      <Head> {/* Agrega el favicon aquí */}
+        <link rel="icon" href="/favicon.ico" />
+        <title>BIKE SHOP</title>
+        <meta name="description" content="SHOP - SERVICE - RENTAL" />
+      </Head>
       <body className={inter.className}>
         <LanguageProvider>
           <Header />
           <main>{children}</main>
           <Footer />
 
-          {/* Botón flotante WhatsApp solo en cliente y fuera de admin */}
           {!isAdmin && isClient && (
             <a
               href={whatsappLink}

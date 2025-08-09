@@ -11,7 +11,7 @@ interface BikeCardProps {
     id: string
     category: string
     size: string
-    image_url?: string | null // OPCIONAL
+    image_url?: string | null
     [key: string]: any
   }
   showSize?: boolean
@@ -61,13 +61,13 @@ export function BikeCard({ bike, showSize = true, language }: BikeCardProps) {
   return (
     <Card className="overflow-hidden hover:shadow-lg transition-shadow">
       <CardHeader className="p-0">
-        <div className="aspect-video relative bg-gray-100">
+        <div className="relative bg-white h-64">
           {bike.image_url ? (
             <Image
               src={bike.image_url}
               alt={title}
               fill
-              className="object-cover"
+              className="object-contain p-2"
               onError={(e) => {
                 const target = e.currentTarget
                 target.style.display = "none"

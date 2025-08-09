@@ -1909,7 +1909,7 @@ const handleSubmitReservation = async () => {
                 <StripePaymentForm 
                   clientSecret={clientSecret!}
                   customerData={customerData}
-                  calculateTotal={calculateTotal}
+                  calculateTotal={() => orderTotalPayment}
                   setCurrentStep={setCurrentStep}
                   setPaymentError={setPaymentError}
                   sendConfirmationEmail={sendConfirmationEmail}

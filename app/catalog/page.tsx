@@ -16,25 +16,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Search, Bike as BikeIcon, Package } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 
-// Defino interfaces claras para los objetos
 interface Bike {
   id: string
   category: string
   size: string
-  [key: string]: any // Para propiedades dinámicas como title_en, subtitle_es, etc.
+  [key: string]: any
 }
 
 interface Accessory {
   id: string
   type: string
-  name?: string // Puede que no siempre esté, porque usás name_{language}
+  name?: string
   [key: string]: any
 }
 
 export default function CatalogPage() {
   const { t, language } = useLanguage()
 
-  // Cambié any[] por Bike[] y Accessory[] para mejor tipado
   const [bikes, setBikes] = useState<Bike[]>([])
   const [accessories, setAccessories] = useState<Accessory[]>([])
   const [filteredBikes, setFilteredBikes] = useState<Bike[]>([])
@@ -129,28 +127,27 @@ export default function CatalogPage() {
     }
   }
 
-  // Tipos explícitos en reduce para evitar unknown y any implícito
-  const groupedBikes = filteredBikes.reduce<Record<string, Bike[]>>(
-    (acc, bike) => {
-      if (!acc[bike.category]) acc[bike.category] = []
-      acc[bike.category].push(bike)
-      return acc
-    },
-    {}
-  )
+  const groupedBikes = filteredBikes.reduce<Record<string, Bike[]>>((acc, bike) => {
+    if (!acc[bike.category]) acc[bike.category] = []
 
-  const groupedAccessories = filteredAccessories.reduce<Record<string, Accessory[]>>(
-    (acc, accessory) => {
-      if (!acc[accessory.type]) acc[accessory.type] = []
-      acc[accessory.type].push(accessory)
-      return acc
-    },
-    {}
-  )
+    const alreadyExists = acc[bike.category].some(
+      b => b.size === bike.size && b[`title_${language}`] === bike[`title_${language}`]
+    )
+    
+    if (!alreadyExists) {
+      acc[bike.category].push(bike)
+    }
+    return acc
+  }, {})
+
+  const groupedAccessories = filteredAccessories.reduce<Record<string, Accessory[]>>((acc, accessory) => {
+    if (!acc[accessory.type]) acc[accessory.type] = []
+    acc[accessory.type].push(accessory)
+    return acc
+  }, {})
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <section className="bg-white py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">{t("bikeCatalog")}</h1>
@@ -158,7 +155,6 @@ export default function CatalogPage() {
         </div>
       </section>
 
-      {/* Tabs */}
       <section className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <Tabs defaultValue="bikes" className="w-full">
@@ -174,7 +170,6 @@ export default function CatalogPage() {
             </TabsList>
 
             <TabsContent value="bikes">
-              {/* Filters */}
               <div className="py-6">
                 <div className="flex flex-col md:flex-row gap-4 mb-8">
                   <div className="relative flex-1">
@@ -238,7 +233,6 @@ export default function CatalogPage() {
             </TabsContent>
 
             <TabsContent value="accessories">
-              {/* Accessory Filters */}
               <div className="py-6">
                 <div className="flex flex-col md:flex-row gap-4 mb-8">
                   <div className="relative flex-1">
@@ -291,6 +285,13 @@ export default function CatalogPage() {
                           ? "Helmets"
                           : "Helmen"}
                       </SelectItem>
+                      <SelectItem value="other">
+                        {language === "es"
+                          ? "Otros"
+                          : language === "en"
+                          ? "Other"
+                          : "Overig"}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -315,17 +316,22 @@ export default function CatalogPage() {
                             : language === "en"
                             ? "Pedals"
                             : "Pedalen"
+                          : type === "helmet"
+                          ? language === "es"
+                            ? "Cascos"
+                            : language === "en"
+                            ? "Helmets"
+                            : "Helmen"
                           : language === "es"
-                          ? "Cascos"
+                          ? "Otros"
                           : language === "en"
-                          ? "Helmets"
-                          : "Helmen"}{" "}
+                          ? "Other"
+                          : "Overig"}{" "}
                         ({typeAccessories.length})
                       </h2>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                         {typeAccessories.map((accessory: Accessory) => (
-                         <AccessoryCard key={accessory.id} accessory={accessory} showPrice={false} />
-
+                          <AccessoryCard key={accessory.id} accessory={accessory} showPrice={false} />
                         ))}
                       </div>
                     </div>
@@ -337,7 +343,6 @@ export default function CatalogPage() {
         </div>
       </section>
 
-      {/* CTA */}
       <section className="bg-green-600 py-12">
         <div className="max-w-7xl mx-auto px-4 text-center">
           <h2 className="text-3xl font-bold text-white mb-4">{t("readyForAdventure")}</h2>

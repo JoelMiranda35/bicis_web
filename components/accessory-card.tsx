@@ -10,11 +10,11 @@ interface AccessoryCardProps {
   accessory: {
     id: string
     type: string
-    price?: number // OPCIONAL
-    image_url?: string | null // OPCIONAL
+    price?: number
+    image_url?: string | null
     [key: string]: any
   }
-  showPrice?: boolean // Nueva prop opcional para controlar si mostrar el precio
+  showPrice?: boolean
 }
 
 export function AccessoryCard({ accessory, showPrice = true }: AccessoryCardProps) {
@@ -34,32 +34,35 @@ export function AccessoryCard({ accessory, showPrice = true }: AccessoryCardProp
   }
 
   const getTypeName = (type: string) => {
-    switch (type) {
-      case "pedal":
-        return language === "es" ? "Pedal" : language === "en" ? "Pedal" : "Pedaal"
-      case "helmet":
-        return language === "es" ? "Casco" : language === "en" ? "Helmet" : "Helm"
-      default:
-        return type
-    }
+  switch (type) {
+    case "pedal":
+      return language === "es" ? "Pedal" : language === "en" ? "Pedal" : "Pedaal"
+    case "helmet":
+      return language === "es" ? "Casco" : language === "en" ? "Helmet" : "Helm"
+    case "other":
+      return language === "es" ? "Otros" : language === "en" ? "Other" : "Overig"
+    default:
+      return type
   }
+}
+
 
   return (
     <Card className="overflow-hidden hover:shadow-lg transition-shadow">
       <CardHeader className="p-0">
-        <div className="aspect-video relative bg-gray-100">
+        <div className="relative bg-white h-64">
           {accessory.image_url ? (
             <Image
               src={accessory.image_url}
               alt={translatedName}
               fill
-              className="object-cover"
+              className="object-contain p-2"
               onError={(e) => {
                 const target = e.currentTarget
                 target.style.display = "none"
                 const fallback = target.parentElement?.querySelector(".fallback-icon")
                 if (fallback) {
-                  ;(fallback as HTMLElement).style.display = "flex"
+                  (fallback as HTMLElement).style.display = "flex"
                 }
               }}
             />
@@ -72,7 +75,6 @@ export function AccessoryCard({ accessory, showPrice = true }: AccessoryCardProp
       </CardHeader>
       <CardContent className="p-4">
         <CardTitle className="text-lg mb-2">{translatedName}</CardTitle>
-        {/* Mostrar precio solo si showPrice es true y price existe */}
         {showPrice && accessory.price !== undefined && (
           <p className="text-sm font-medium text-green-600 mb-3">
             {`${accessory.price} ${t("euro")} ${t("perDay")}`}
