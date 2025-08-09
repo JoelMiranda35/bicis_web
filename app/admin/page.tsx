@@ -554,8 +554,8 @@ export default function AdminPage() {
       size: bike.size,
       category: bike.category,
       bike_ids: [bike.id],
-      price_per_day: calculatePrice(bike.category, 1), // Precio por día
-      total_price: calculatePrice(bike.category, totalDays) // Precio total
+      price_per_day: calculatePrice(bike.category, 1),
+      total_price: calculatePrice(bike.category, totalDays)
     }));
     
     let totalAmount = 0;
@@ -568,8 +568,9 @@ export default function AdminPage() {
       }
     });
     
+    // Accesorios - precio fijo (no multiplicar por días)
     newReservation.accessories.forEach((acc: any) => {
-      totalAmount += (acc.price || 0) * totalDays;
+      totalAmount += (acc.price || 0);
     });
 
     if (newReservation.insurance) {
@@ -592,7 +593,7 @@ export default function AdminPage() {
         id: acc.id,
         name_es: acc.name_es || acc.name,
         price: acc.price,
-        total: acc.price * totalDays
+        total: acc.price // Precio total igual al precio (no multiplicado por días)
       }))
     };
 
@@ -754,7 +755,7 @@ const toggleBikeSelection = (bike: any) => {
     }, 0);
   };
 
-  const calculateTotalPrice = () => {
+ const calculateTotalPrice = () => {
   if (!newReservation.start_date || !newReservation.end_date) return 0;
   
   const days = calculateTotalDays(
@@ -765,14 +766,18 @@ const toggleBikeSelection = (bike: any) => {
   );
   
   let total = 0;
+  
+  // Bicicletas (precio por día)
   newReservation.bikes.forEach((bike: any) => {
     total += calculatePrice(bike.category, days);
   });
   
+  // Accesorios (precio fijo, no por día)
   newReservation.accessories.forEach((acc: any) => {
-    total += (acc.price || 0) * days;
+    total += (acc.price || 0); // Precio fijo, no multiplicado por días
   });
   
+  // Seguro (si aplica)
   if (newReservation.insurance) {
     total += calculateInsurance(days);
   }
