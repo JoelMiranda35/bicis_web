@@ -2,19 +2,11 @@ import { type NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from '@supabase/supabase-js';
 
-// Configuración inicial con validación robusta
-const getSupabaseClient = () => {
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error("Supabase credentials are not configured");
-    }
-    console.warn("Supabase credentials missing - running in limited mode");
-    return null;
-  }
-  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
-};
+// Configuración de Supabase usando tus variables NEXT_PUBLIC_
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-const supabase = getSupabaseClient();
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const dynamic = 'force-dynamic';
@@ -42,21 +34,6 @@ interface ReservationData {
   total_amount: number;
   deposit_amount: number;
   locale: string;
-}
-
-interface BikeData {
-  id: string;
-  title_es?: string;
-  title_en?: string;
-  title_nl?: string;
-  size?: string;
-}
-
-interface AccessoryData {
-  id: string;
-  name_es?: string;
-  name_en?: string;
-  name_nl?: string;
 }
 
 const translations = {
@@ -153,7 +130,7 @@ export async function POST(request: NextRequest) {
   try {
     const { to, subject, reservationData, language = "es" } = await request.json();
 
-    // Función segura para obtener nombres de bicicletas
+    // Función para obtener nombres de bicicletas
     const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
       if (!supabase) {
         return bikeItems.map(bike => ({
@@ -163,34 +140,35 @@ export async function POST(request: NextRequest) {
         }));
       }
 
-      const bikeIds = bikeItems.map(b => b.id);
-      const { data, error } = await supabase
-        .from('bikes')
-        .select('id, title_es, title_en, title_nl, size')
-        .in('id', bikeIds);
+      try {
+        const bikeIds = bikeItems.map(b => b.id);
+        const { data, error } = await supabase
+          .from('bikes')
+          .select('id, title_es, title_en, title_nl, size')
+          .in('id', bikeIds);
 
-      if (error) {
-        console.error("Supabase bikes error:", error);
+        if (error) throw error;
+
+        return bikeItems.map(bike => {
+          const bikeData = data?.find((b: any) => b.id === bike.id);
+          const title = bikeData?.[`title_${lang}` as keyof typeof bikeData] || bikeData?.title_es || 'Bicicleta';
+          return {
+            title,
+            size: bike.size || bikeData?.size || 'M',
+            quantity: bike.quantity
+          };
+        });
+      } catch (error) {
+        console.error("Error fetching bikes:", error);
         return bikeItems.map(bike => ({
           title: 'Bicicleta',
           size: bike.size || 'M',
           quantity: bike.quantity
         }));
       }
-
-      return bikeItems.map(bike => {
-        const bikeData = data?.find((b: BikeData) => b.id === bike.id);
-        const titleKey = `title_${lang}` as keyof BikeData;
-        const title = (bikeData && (bikeData[titleKey] || bikeData.title_es)) || 'Bicicleta';
-        return {
-          title,
-          size: bike.size || bikeData?.size || 'M',
-          quantity: bike.quantity
-        };
-      });
     };
 
-    // Función segura para obtener nombres de accesorios
+    // Función para obtener nombres de accesorios
     const getAccessoryNames = async (accessoryItems: AccessoryItem[], lang: string) => {
       if (!supabase) {
         return accessoryItems.map(acc => ({
@@ -199,141 +177,139 @@ export async function POST(request: NextRequest) {
         }));
       }
 
-      const accessoryIds = accessoryItems.map(a => a.id);
-      const { data, error } = await supabase
-        .from('accessories')
-        .select('id, name_es, name_en, name_nl')
-        .in('id', accessoryIds);
+      try {
+        const accessoryIds = accessoryItems.map(a => a.id);
+        const { data, error } = await supabase
+          .from('accessories')
+          .select('id, name_es, name_en, name_nl')
+          .in('id', accessoryIds);
 
-      if (error) {
-        console.error("Supabase accessories error:", error);
+        if (error) throw error;
+
+        return accessoryItems.map(accessory => {
+          const accessoryData = data?.find((a: any) => a.id === accessory.id);
+          const name = accessoryData?.[`name_${lang}` as keyof typeof accessoryData] || accessoryData?.name_es || 'Accesorio';
+          return {
+            name,
+            quantity: accessory.quantity || 1
+          };
+        });
+      } catch (error) {
+        console.error("Error fetching accessories:", error);
         return accessoryItems.map(acc => ({
           name: 'Accesorio',
           quantity: acc.quantity || 1
         }));
       }
-
-      return accessoryItems.map(accessory => {
-        const accessoryData = data?.find((a: AccessoryData) => a.id === accessory.id);
-        const nameKey = `name_${lang}` as keyof AccessoryData;
-        const name = (accessoryData && (accessoryData[nameKey] || accessoryData.name_es)) || 'Accesorio';
-        return {
-          name,
-          quantity: accessory.quantity || 1
-        };
-      });
     };
 
-    const getEmailContent = async (data: ReservationData, lang: string) => {
-      const [translatedBikes, translatedAccessories] = await Promise.all([
-        getBikeNames(data.bikes, lang),
-        getAccessoryNames(data.accessories, lang)
-      ]);
+    // Función para formatear fecha en hora española
+    const formatDate = (dateString: string, lang: string) => {
+      const date = new Date(dateString);
+      const adjustedDate = new Date(date.getTime() + (2 * 60 * 60 * 1000)); // Ajuste horario
+      return adjustedDate.toLocaleDateString(lang, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }) + 'h';
+    };
 
-      const formatSpanishTime = (dateString: string) => {
-        const date = new Date(dateString);
-        const adjustedDate = new Date(date.getTime() + (2 * 60 * 60 * 1000));
-        return adjustedDate.toLocaleDateString(lang, {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false
-        }) + 'h';
-      };
+    const t = translations[language as keyof typeof translations] || translations.es;
 
-      const t = translations[lang as keyof typeof translations] || translations.es;
+    const [translatedBikes, translatedAccessories] = await Promise.all([
+      getBikeNames(reservationData.bikes, language),
+      getAccessoryNames(reservationData.accessories, language)
+    ]);
 
-      return `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background: #16a34a; color: white; padding: 20px; text-align: center; }
-            .content { padding: 20px; background: #f9f9f9; }
-            .details { background: white; padding: 15px; margin: 10px 0; border-radius: 5px; }
-            .bike-item { margin: 10px 0; padding: 10px; background: #f0f0f0; border-radius: 3px; }
-            .total { font-weight: bold; font-size: 18px; color: #16a34a; }
-            .footer { text-align: center; padding: 20px; color: #666; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>Altea Bike Shop</h1>
-              <p>${t.confirmed}</p>
-            </div>
+    const emailHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #16a34a; color: white; padding: 20px; text-align: center; }
+          .content { padding: 20px; background: #f9f9f9; }
+          .details { background: white; padding: 15px; margin: 10px 0; border-radius: 5px; }
+          .bike-item { margin: 10px 0; padding: 10px; background: #f0f0f0; border-radius: 3px; }
+          .total { font-weight: bold; font-size: 18px; color: #16a34a; }
+          .footer { text-align: center; padding: 20px; color: #666; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Altea Bike Shop</h1>
+            <p>${t.confirmed}</p>
+          </div>
+          
+          <div class="content">
+            <p>${t.greeting} ${reservationData.customer_name},</p>
             
-            <div class="content">
-              <p>${t.greeting} ${data.customer_name},</p>
-              
-              <div class="details">
-                <h3>${t.details}</h3>
-                <p><strong>${t.reservationNumber}</strong> ${data.id}</p>
-                <p><strong>${t.dates}</strong> ${formatSpanishTime(data.start_date)} - ${formatSpanishTime(data.end_date)}</p>
-                <p><strong>${t.duration}</strong> ${data.total_days} ${t.days}</p>
-              </div>
+            <div class="details">
+              <h3>${t.details}</h3>
+              <p><strong>${t.reservationNumber}</strong> ${reservationData.id}</p>
+              <p><strong>${t.dates}</strong> ${formatDate(reservationData.start_date, language)} - ${formatDate(reservationData.end_date, language)}</p>
+              <p><strong>${t.duration}</strong> ${reservationData.total_days} ${t.days}</p>
+            </div>
 
+            <div class="details">
+              <h3>${t.bikes}</h3>
+              ${translatedBikes.map(bike => `
+                <div class="bike-item">
+                  <strong>${bike.title}</strong><br>
+                  ${t.size}: ${bike.size} | ${t.quantity}: ${bike.quantity}
+                </div>
+              `).join("")}
+            </div>
+
+            ${translatedAccessories.length > 0 ? `
               <div class="details">
-                <h3>${t.bikes}</h3>
-                ${translatedBikes.map(bike => `
-                  <div class="bike-item">
-                    <strong>${bike.title}</strong><br>
-                    ${t.size}: ${bike.size} | ${t.quantity}: ${bike.quantity}
-                  </div>
+                <h3>${t.accessories}</h3>
+                ${translatedAccessories.map(acc => `
+                  <p>• ${acc.name}${acc.quantity && acc.quantity > 1 ? ` (x${acc.quantity})` : ''}</p>
                 `).join("")}
               </div>
+            ` : ""}
 
-              ${translatedAccessories.length > 0 ? `
-                <div class="details">
-                  <h3>${t.accessories}</h3>
-                  ${translatedAccessories.map(acc => `
-                    <p>• ${acc.name}${acc.quantity && acc.quantity > 1 ? ` (x${acc.quantity})` : ''}</p>
-                  `).join("")}
-                </div>
-              ` : ""}
-
-              <div class="details">
-                <p><strong>${t.insurance}</strong> ${data.insurance ? t.yes : t.no}</p>
-                <p class="total">${t.total} ${data.total_amount}€</p>
-                <p><strong>${t.deposit}</strong> ${data.deposit_amount}€</p>
-              </div>
-
-              <div class="details">
-                <h3>${t.nextSteps}</h3>
-                <p>${t.step1}</p>
-                <p>${t.step2}</p>
-                <p>${t.step3}</p>
-              </div>
-
-              <div class="details">
-                <h3>${t.contact}</h3>
-                <p>📍 Altea, Alicante</p>
-                <p>📞 +34 XXX XXX XXX</p>
-                <p>✉️ info@alteabikeshop.com</p>
-              </div>
+            <div class="details">
+              <p><strong>${t.insurance}</strong> ${reservationData.insurance ? t.yes : t.no}</p>
+              <p class="total">${t.total} ${reservationData.total_amount}€</p>
+              <p><strong>${t.deposit}</strong> ${reservationData.deposit_amount}€</p>
             </div>
 
-            <div class="footer">
-              <p>${t.thanks}</p>
-              <p>${t.team}</p>
+            <div class="details">
+              <h3>${t.nextSteps}</h3>
+              <p>${t.step1}</p>
+              <p>${t.step2}</p>
+              <p>${t.step3}</p>
+            </div>
+
+            <div class="details">
+              <h3>${t.contact}</h3>
+              <p>📍 Altea, Alicante</p>
+              <p>📞 +34 XXX XXX XXX</p>
+              <p>✉️ info@alteabikeshop.com</p>
             </div>
           </div>
-        </body>
-        </html>
-      `;
-    };
 
-    const emailHtml = await getEmailContent(reservationData, language);
+          <div class="footer">
+            <p>${t.thanks}</p>
+            <p>${t.team}</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
 
     const { data: emailData, error: emailError } = await resend.emails.send({
       from: process.env.EMAIL_FROM,
       to: [to],
-      subject: subject || translations[language as keyof typeof translations]?.subject || translations.es.subject,
+      subject: subject || t.subject,
       html: emailHtml,
     });
 
