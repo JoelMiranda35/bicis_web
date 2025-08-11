@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 
 interface BikeItem {
   title: string;
+  name?: string;
   size: string;
   quantity: number;
 }
@@ -43,6 +44,28 @@ export async function POST(request: NextRequest) {
     const { to, subject, reservationData, language = "es" } = await request.json();
 
     const getEmailContent = (data: ReservationData, lang: string) => {
+      // Función para formatear la fecha correctamente
+      const formatDate = (dateString: string) => {
+        const date = new Date(dateString);
+        return date.toLocaleDateString(lang, {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        }) + 'h';
+      };
+
+      // Función para mostrar correctamente los accesorios
+      const displayAccessories = (accessories: AccessoryItem[]) => {
+        if (!accessories) return '';
+        return accessories.map(acc => {
+          const name = typeof acc === 'string' ? acc : acc.name || acc;
+          return `<p>• ${name}</p>`;
+        }).join("");
+      };
+
       const translations = {
         es: {
           subject: "Confirmación de Reserva - Altea Bike Shop",
@@ -155,7 +178,7 @@ export async function POST(request: NextRequest) {
               <div class="details">
                 <h3>${t.details}</h3>
                 <p><strong>${t.reservationNumber}</strong> ${data.id}</p>
-                <p><strong>${t.dates}</strong> ${data.start_date} - ${data.end_date}</p>
+                <p><strong>${t.dates}</strong> ${formatDate(data.start_date)} - ${formatDate(data.end_date)}</p>
                 <p><strong>${t.duration}</strong> ${data.total_days} ${t.days}</p>
               </div>
 
@@ -165,7 +188,7 @@ export async function POST(request: NextRequest) {
                   .map(
                     (bike) => `
                   <div class="bike-item">
-                    <strong>${bike.title}</strong><br>
+                    <strong>${bike.title || bike.name || 'Bicicleta'}</strong><br>
                     ${t.size}: ${bike.size} | ${t.quantity}: ${bike.quantity}
                   </div>
                 `
@@ -174,11 +197,11 @@ export async function POST(request: NextRequest) {
               </div>
 
               ${
-                data.accessories.length > 0
+                data.accessories && data.accessories.length > 0
                   ? `
                 <div class="details">
                   <h3>${t.accessories}</h3>
-                  ${data.accessories.map((acc) => `<p>• ${acc.name}</p>`).join("")}
+                  ${displayAccessories(data.accessories)}
                 </div>
               `
                   : ""
@@ -218,7 +241,7 @@ export async function POST(request: NextRequest) {
     const emailHtml = getEmailContent(reservationData, language);
 
     const { data: emailData, error: emailError } = await resend.emails.send({
-      from: process.env.EMAIL_FROM || "onboarding@resend.dev",
+      from: process.env.EMAIL_FROM || "no-reply@alteabikeshop.com",
       to: [to],
       subject: subject,
       html: emailHtml,
