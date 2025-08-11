@@ -131,43 +131,64 @@ export async function POST(request: NextRequest) {
     const { to, subject, reservationData, language = "es" } = await request.json();
 
     // Función para obtener nombres de bicicletas
-    const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
-      if (!supabase) {
-        return bikeItems.map(bike => ({
+   // Función optimizada para obtener nombres de bicicletas según tu estructura de tabla
+const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
+  try {
+    if (!supabase) {
+      console.warn("Supabase no está configurado - usando nombres genéricos");
+      return bikeItems.map(bike => ({
+        title: 'Bicicleta',
+        size: bike.size,
+        quantity: bike.quantity
+      }));
+    }
+
+    const bikeIds = bikeItems.map(b => b.id);
+    console.log("Buscando bicis con IDs:", bikeIds);
+
+    // Consulta optimizada para tu estructura de tabla
+    const { data, error } = await supabase
+      .from('bikes')
+      .select('id, title_es, title_en, title_nl, size')
+      .in('id', bikeIds);
+
+    if (error) throw error;
+    if (!data || data.length === 0) throw new Error("No se encontraron bicis");
+
+    return bikeItems.map(bike => {
+      const bikeData = data.find(b => b.id === bike.id);
+      
+      if (!bikeData) {
+        console.warn(`Bicicleta con ID ${bike.id} no encontrada en Supabase`);
+        return {
           title: 'Bicicleta',
-          size: bike.size || 'M',
+          size: bike.size,
           quantity: bike.quantity
-        }));
+        };
       }
 
-      try {
-        const bikeIds = bikeItems.map(b => b.id);
-        const { data, error } = await supabase
-          .from('bikes')
-          .select('id, title_es, title_en, title_nl, size')
-          .in('id', bikeIds);
+      // Selección del título según el idioma
+      const title = lang === 'es' ? bikeData.title_es :
+                   lang === 'en' ? bikeData.title_en :
+                   lang === 'nl' ? bikeData.title_nl :
+                   bikeData.title_es || 'Bicicleta';
 
-        if (error) throw error;
+      return {
+        title: title || 'Bicicleta', // Fallback por si el título está vacío
+        size: bike.size || bikeData.size,
+        quantity: bike.quantity
+      };
+    });
 
-        return bikeItems.map(bike => {
-          const bikeData = data?.find((b: any) => b.id === bike.id);
-          const title = bikeData?.[`title_${lang}` as keyof typeof bikeData] || bikeData?.title_es || 'Bicicleta';
-          return {
-            title,
-            size: bike.size || bikeData?.size || 'M',
-            quantity: bike.quantity
-          };
-        });
-      } catch (error) {
-        console.error("Error fetching bikes:", error);
-        return bikeItems.map(bike => ({
-          title: 'Bicicleta',
-          size: bike.size || 'M',
-          quantity: bike.quantity
-        }));
-      }
-    };
-
+  } catch (error) {
+    console.error("Error al obtener bicicletas:", error);
+    return bikeItems.map(bike => ({
+      title: 'Bicicleta',
+      size: bike.size,
+      quantity: bike.quantity
+    }));
+  }
+};
     // Función para obtener nombres de accesorios
     const getAccessoryNames = async (accessoryItems: AccessoryItem[], lang: string) => {
       if (!supabase) {
