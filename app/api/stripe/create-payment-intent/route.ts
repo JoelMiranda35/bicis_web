@@ -10,7 +10,7 @@ export async function POST(request: Request) {
     try {
         const { amount, currency = 'eur', metadata } = await request.json();
 
-        // Validarr amount (debe ser > 0)
+        // Validar amount (debe ser > 0)
         const amountInCents = Math.round(Number(amount));
         if (isNaN(amountInCents) || amountInCents <= 0) {
             return NextResponse.json(
