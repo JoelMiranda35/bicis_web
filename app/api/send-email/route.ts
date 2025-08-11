@@ -2,8 +2,20 @@ import { type NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from '@supabase/supabase-js';
 
+// Configuración inicial con validación robusta
+const getSupabaseClient = () => {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error("Supabase credentials are not configured");
+    }
+    console.warn("Supabase credentials missing - running in limited mode");
+    return null;
+  }
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+};
+
+const supabase = getSupabaseClient();
 const resend = new Resend(process.env.RESEND_API_KEY);
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
 
 export const dynamic = 'force-dynamic';
 
@@ -129,23 +141,42 @@ const translations = {
 };
 
 export async function POST(request: NextRequest) {
+  // Verificación de configuración esencial
   if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
     console.error("Email service not configured");
-    return NextResponse.json({ error: "Email service not configured" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Service temporarily unavailable" }, 
+      { status: 503 }
+    );
   }
 
   try {
     const { to, subject, reservationData, language = "es" } = await request.json();
 
-    // Función para obtener nombres de bicicletas desde Supabase
-    const getBikeNames = async (bikeItems: BikeItem[], lang: string): Promise<Array<{title: string, size: string, quantity: number}>> => {
+    // Función segura para obtener nombres de bicicletas
+    const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
+      if (!supabase) {
+        return bikeItems.map(bike => ({
+          title: 'Bicicleta',
+          size: bike.size || 'M',
+          quantity: bike.quantity
+        }));
+      }
+
       const bikeIds = bikeItems.map(b => b.id);
       const { data, error } = await supabase
         .from('bikes')
         .select('id, title_es, title_en, title_nl, size')
         .in('id', bikeIds);
 
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase bikes error:", error);
+        return bikeItems.map(bike => ({
+          title: 'Bicicleta',
+          size: bike.size || 'M',
+          quantity: bike.quantity
+        }));
+      }
 
       return bikeItems.map(bike => {
         const bikeData = data?.find((b: BikeData) => b.id === bike.id);
@@ -159,15 +190,28 @@ export async function POST(request: NextRequest) {
       });
     };
 
-    // Función para obtener nombres de accesorios desde Supabase
-    const getAccessoryNames = async (accessoryItems: AccessoryItem[], lang: string): Promise<Array<{name: string, quantity: number}>> => {
+    // Función segura para obtener nombres de accesorios
+    const getAccessoryNames = async (accessoryItems: AccessoryItem[], lang: string) => {
+      if (!supabase) {
+        return accessoryItems.map(acc => ({
+          name: 'Accesorio',
+          quantity: acc.quantity || 1
+        }));
+      }
+
       const accessoryIds = accessoryItems.map(a => a.id);
       const { data, error } = await supabase
         .from('accessories')
         .select('id, name_es, name_en, name_nl')
         .in('id', accessoryIds);
 
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase accessories error:", error);
+        return accessoryItems.map(acc => ({
+          name: 'Accesorio',
+          quantity: acc.quantity || 1
+        }));
+      }
 
       return accessoryItems.map(accessory => {
         const accessoryData = data?.find((a: AccessoryData) => a.id === accessory.id);
@@ -181,16 +225,13 @@ export async function POST(request: NextRequest) {
     };
 
     const getEmailContent = async (data: ReservationData, lang: string) => {
-      // Obtener datos traducidos
       const [translatedBikes, translatedAccessories] = await Promise.all([
         getBikeNames(data.bikes, lang),
         getAccessoryNames(data.accessories, lang)
       ]);
 
-      // Función para formatear la fecha en hora española (CEST)
       const formatSpanishTime = (dateString: string) => {
         const date = new Date(dateString);
-        // Ajustar a hora española (UTC+2 en verano)
         const adjustedDate = new Date(date.getTime() + (2 * 60 * 60 * 1000));
         return adjustedDate.toLocaleDateString(lang, {
           year: 'numeric',
@@ -202,7 +243,7 @@ export async function POST(request: NextRequest) {
         }) + 'h';
       };
 
-      const t = (translations as Record<string, any>)[lang] || translations.es;
+      const t = translations[lang as keyof typeof translations] || translations.es;
 
       return `
         <!DOCTYPE html>
@@ -239,28 +280,22 @@ export async function POST(request: NextRequest) {
 
               <div class="details">
                 <h3>${t.bikes}</h3>
-                ${translatedBikes
-                  .map(
-                    (bike) => `
+                ${translatedBikes.map(bike => `
                   <div class="bike-item">
                     <strong>${bike.title}</strong><br>
                     ${t.size}: ${bike.size} | ${t.quantity}: ${bike.quantity}
                   </div>
-                `
-                  )
-                  .join("")}
+                `).join("")}
               </div>
 
-              ${
-                translatedAccessories.length > 0
-                  ? `
+              ${translatedAccessories.length > 0 ? `
                 <div class="details">
                   <h3>${t.accessories}</h3>
-                  ${translatedAccessories.map(acc => `<p>• ${acc.name}${acc.quantity && acc.quantity > 1 ? ` (x${acc.quantity})` : ''}</p>`).join("")}
+                  ${translatedAccessories.map(acc => `
+                    <p>• ${acc.name}${acc.quantity && acc.quantity > 1 ? ` (x${acc.quantity})` : ''}</p>
+                  `).join("")}
                 </div>
-              `
-                  : ""
-              }
+              ` : ""}
 
               <div class="details">
                 <p><strong>${t.insurance}</strong> ${data.insurance ? t.yes : t.no}</p>
@@ -296,20 +331,26 @@ export async function POST(request: NextRequest) {
     const emailHtml = await getEmailContent(reservationData, language);
 
     const { data: emailData, error: emailError } = await resend.emails.send({
-      from: process.env.EMAIL_FROM || "no-reply@alteabikeshop.com",
+      from: process.env.EMAIL_FROM,
       to: [to],
-      subject: subject || (translations as Record<string, any>)[language]?.subject || translations.es.subject,
+      subject: subject || translations[language as keyof typeof translations]?.subject || translations.es.subject,
       html: emailHtml,
     });
 
     if (emailError) {
       console.error("Error sending email:", emailError);
-      return NextResponse.json({ error: "Failed to send email" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to send email" }, 
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ success: true, data: emailData });
   } catch (error) {
     console.error("Error in send-email API:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" }, 
+      { status: 500 }
+    );
   }
 }
