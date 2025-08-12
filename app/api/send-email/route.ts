@@ -58,7 +58,7 @@ const translations = {
     deposit: "Depósito (a pagar en efectivo):",
     nextSteps: "Próximos pasos:",
     step1: "• Ven a nuestro local el día de inicio del alquiler",
-    step2: "• Trae tu DNI/Pasaporte y el depósito en efectivo",
+    step2: "• Trae tu DNI/Pasaporte/licencia de conducir y el depósito en efectivo",
     step3: "• Revisaremos las bicicletas contigo antes de la entrega",
     contact: "Contacto:",
     thanks: "¡Gracias por elegir Altea Bike Shop!",
@@ -84,7 +84,7 @@ const translations = {
     deposit: "Deposit (to pay in cash):",
     nextSteps: "Next steps:",
     step1: "• Come to our store on the rental start date",
-    step2: "• Bring your ID/Passport and the cash deposit",
+    step2: "• Bring your ID/Passport/driver's license and the cash deposit.",
     step3: "• We will review the bikes with you before delivery",
     contact: "Contact:",
     thanks: "Thank you for choosing Altea Bike Shop!",
@@ -110,7 +110,7 @@ const translations = {
     deposit: "Borg (contant te betalen):",
     nextSteps: "Volgende stappen:",
     step1: "• Kom naar onze winkel op de startdatum van de verhuur",
-    step2: "• Breng uw ID/Paspoort en de contante borg mee",
+    step2: "• Neem je identiteitskaart/paspoort/rijbewijs en de contante borg mee.",
     step3: "• We controleren de fietsen samen met u voor de levering",
     contact: "Contact:",
     thanks: "Bedankt voor het kiezen van Altea Bike Shop!",
@@ -303,9 +303,9 @@ const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
 
             <div class="details">
               <h3>${t.contact}</h3>
-              <p>📍 Altea, Alicante</p>
-              <p>📞 +34 XXX XXX XXX</p>
-              <p>✉️ info@alteabikeshop.com</p>
+              <p>📍 Calle la Tella 2, Altea 03590</p>
+              <p>📞 +34 604 535 972</p>
+              <p>✉️ Alteabikeshop@gmail.com</p>
             </div>
           </div>
 
