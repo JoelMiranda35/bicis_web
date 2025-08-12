@@ -215,7 +215,7 @@ const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
       }
     };
 
-    // Función para formatear fecha en hora española
+    // Función para formatear fecha en hora españolaa
     const formatDate = (dateString: string, lang: string) => {
       const date = new Date(dateString);
       const adjustedDate = new Date(date.getTime() + (2 * 60 * 60 * 1000)); // Ajuste horario
