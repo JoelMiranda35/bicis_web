@@ -66,7 +66,7 @@ export async function POST(request: Request) {
                 metadata: paymentIntent.metadata
             });
         } catch (dbError) {
-            console.error("Error al guardar en Supabase:", dbError);
+            //console.error("Error al guardar en Supabase:", dbError);
             // Continuar aunque falle Supabase
         }
 
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
         });
 
     } catch (error) {
-        console.error("Error en /create-payment-intent:", error);
+        //console.error("Error en /create-payment-intent:", error);
         return NextResponse.json(
             { 
                 error: 'Error al procesar el pago',

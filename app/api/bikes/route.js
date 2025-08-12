@@ -39,7 +39,7 @@ export async function GET(request) {
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (error) {
-    console.error('Error fetching bikes:', error);
+    //console.error('Error fetching bikes:', error);
     return new Response(JSON.stringify({ error: error.message || 'Internal server error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }

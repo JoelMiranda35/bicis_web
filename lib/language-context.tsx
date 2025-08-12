@@ -52,7 +52,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       try {
         return translation(params)
       } catch (error) {
-        console.error('Error executing translation function:', error)
+        //console.error('Error executing translation function:', error)
         return key
       }
     } else if (params && typeof translation === 'string') {

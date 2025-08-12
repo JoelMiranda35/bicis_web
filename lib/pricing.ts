@@ -51,7 +51,7 @@ export function calculatePrice(category: string, days: number): number {
   if (days <= 0) return 0;
 
   if (!isValidCategory(category)) {
-    console.error(`Categoría no válida: ${category}`);
+    //console.error(`Categoría no válida: ${category}`);
     return 0;
   }
 
@@ -64,7 +64,7 @@ export function calculatePrice(category: string, days: number): number {
 
 export function calculateDeposit(category: string): number {
   if (!isValidCategory(category)) {
-    console.error(`Categoría no válida para depósito: ${category}`);
+    //console.error(`Categoría no válida para depósito: ${category}`);
     return 0;
   }
   return PRICING[category].deposit;

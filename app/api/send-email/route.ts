@@ -121,7 +121,7 @@ const translations = {
 export async function POST(request: NextRequest) {
   // Verificación de configuración esencial
   if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
-    console.error("Email service not configured");
+    //console.error("Email service not configured");
     return NextResponse.json(
       { error: "Service temporarily unavailable" }, 
       { status: 503 }
@@ -170,7 +170,7 @@ const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
     });
 
   } catch (error) {
-    console.error("Error fetching bikes:", error);
+    //console.error("Error fetching bikes:", error);
     return bikeItems.map(bike => ({
       title: bike.model || 'Bicicleta',
       size: bike.size || 'M',
@@ -207,7 +207,7 @@ const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
           };
         });
       } catch (error) {
-        console.error("Error fetching accessories:", error);
+        //console.error("Error fetching accessories:", error);
         return accessoryItems.map(acc => ({
           name: 'Accesorio',
           quantity: acc.quantity || 1
@@ -326,7 +326,7 @@ const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
     });
 
     if (emailError) {
-      console.error("Error sending email:", emailError);
+      //console.error("Error sending email:", emailError);
       return NextResponse.json(
         { error: "Failed to send email" }, 
         { status: 500 }
@@ -335,7 +335,7 @@ const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
 
     return NextResponse.json({ success: true, data: emailData });
   } catch (error) {
-    console.error("Error in send-email API:", error);
+    //console.error("Error in send-email API:", error);
     return NextResponse.json(
       { error: "Internal server error" }, 
       { status: 500 }

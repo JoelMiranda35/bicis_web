@@ -397,7 +397,7 @@ const StripePaymentForm = ({
       return data;
 
     } catch (error) {
-      console.error("Error creating reservation:", error);
+      //console.error("Error creating reservation:", error);
       throw error;
     }
   };
@@ -478,11 +478,11 @@ const StripePaymentForm = ({
         setCurrentStep("confirmation");
       }
     } catch (err: any) {
-      console.error("Payment Error:", {
-        error: err,
-        paymentIntentId: confirmedIntent?.id,
-        paymentStatus: confirmedIntent?.status
-      });
+      //console.error("Payment Error:", {
+        //error: err,
+        //paymentIntentId: confirmedIntent?.id,
+        //paymentStatus: confirmedIntent?.status
+     // });
 
       const errorMessage = err.code === 'payment_intent_unexpected_state' 
         ? "Payment session expired. Please restart the checkout process."
@@ -616,8 +616,8 @@ export default function ReservePage() {
         .select("*")
         .eq("available", true);
       
-      console.log("Datos de accesorios:", data); // ← Añade esto
-      console.log("Error:", error); // ← Añade esto
+      //console.log("Datos de accesorios:", data); // ← Añade esto
+      //console.log("Error:", error); // ← Añade esto
 
       if (error) {
         throw error;
@@ -626,7 +626,7 @@ export default function ReservePage() {
         setAccessories(data);
       }
     } catch (error) {
-      console.error("Error fetching accessories:", error);
+      //console.error("Error fetching accessories:", error);
     } finally {
       setIsLoadingAccessories(false);
     }
@@ -697,12 +697,12 @@ export default function ReservePage() {
       });
 
       const filtered = allBikes.filter(b => !reservedBikeIds.has(b.id.trim()));
-      console.log("✅ Bicis disponibles:", filtered.map(b => b.id));
-      console.log("❌ Bicis bloqueadas:", [...reservedBikeIds]);
+      //console.log("✅ Bicis disponibles:", filtered.map(b => b.id));
+      //console.log("❌ Bicis bloqueadas:", [...reservedBikeIds]);
       setAvailableBikes(filtered);
 
     } catch (err) {
-      console.error("Error al cargar bicis:", err);
+      //console.error("Error al cargar bicis:", err);
     } finally {
       setIsLoadingBikes(false);
     }
@@ -723,7 +723,7 @@ export default function ReservePage() {
         }
       }
     } catch (err) {
-      console.error("❌ Error parseando bikes:", bikesData, err);
+      //console.error("❌ Error parseando bikes:", bikesData, err);
     }
   };
 
@@ -936,7 +936,7 @@ const calculateTotal = (): number => {
         throw new Error("Failed to send confirmation email");
       }
     } catch (error) {
-      console.error("Error sending email:", error);
+      //console.error("Error sending email:", error);
       await supabase
         .from("email_errors")
         .insert({
@@ -994,7 +994,7 @@ const calculateTotal = (): number => {
         unavailableBikes
       };
     } catch (error) {
-      console.error("Error checking bikes availability:", error);
+      //console.error("Error checking bikes availability:", error);
       return { available: false, unavailableBikes: [] };
     }
   };
@@ -1054,11 +1054,11 @@ const handleSubmitReservation = async () => {
       locale: language
     };
 
-    console.log("Enviando a Stripe:", { 
-      amount: Math.round(totalAmount * 100), 
-      currency: 'eur', 
-      metadata 
-    });
+    //console.log("Enviando a Stripe:", { 
+      //amount: Math.round(totalAmount * 100), 
+      //currency: 'eur', 
+      //metadata 
+    //});
 
     const response = await fetch('/api/stripe/create-payment-intent', {
       method: 'POST',
@@ -1072,7 +1072,7 @@ const handleSubmitReservation = async () => {
 
     if (!response.ok) {
       const errorData = await response.json();
-      console.error("Error response from API:", errorData);
+      //console.error("Error response from API:", errorData);
       throw new Error(errorData.error || "Error al crear el pago");
     }
 
@@ -1081,7 +1081,7 @@ const handleSubmitReservation = async () => {
     setCurrentStep("payment");
 
   } catch (error: any) {
-    console.error("Error en reserva:", error);
+    //console.error("Error en reserva:", error);
     setPaymentError(error.message || "Error al procesar el pago. Por favor, inténtelo de nuevo.");
   } finally {
     setIsSubmitting(false);

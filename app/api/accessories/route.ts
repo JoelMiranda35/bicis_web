@@ -36,7 +36,7 @@ export async function GET(request: Request) {
       headers: { 'Content-Type': 'application/json' },
     })
   } catch (error: any) {
-    console.error('Error fetching accessories:', error)
+    //console.error('Error fetching accessories:', error)
     return new Response(
       JSON.stringify({ error: error.message || 'Internal server error' }),
       {

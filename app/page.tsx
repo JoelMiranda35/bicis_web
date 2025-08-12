@@ -33,7 +33,7 @@ export default function HomePage() {
       .limit(6)
 
     if (error) {
-      console.error("Error fetching bikes:", error)
+      //console.error("Error fetching bikes:", error)
     }
 
     if (data) {

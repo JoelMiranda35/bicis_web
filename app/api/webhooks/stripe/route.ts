@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true });
 
   } catch (err) {
-    console.error('❌ Webhook error:', err);
+    //console.error('❌ Webhook error:', err);
     return NextResponse.json({ error: 'Webhook handler failed' }, { status: 400 });
   }
 }

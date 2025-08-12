@@ -65,7 +65,7 @@ export default function CatalogPage() {
       const accessoriesData = await accessoriesRes.json()
       setAccessories(accessoriesData)
     } catch (error) {
-      console.error("Error fetching data:", error)
+      //console.error("Error fetching data:", error)
     }
   }
 
