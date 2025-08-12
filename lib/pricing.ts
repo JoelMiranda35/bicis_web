@@ -18,9 +18,9 @@ const PRICING = {
     deposit: 80,
   },
   CITY_BIKE: {
-    "1-3": 20,
-    "4-9": 17,
-    "10+": 15,
+    "1-3": 1,
+    "4-9": 2,
+    "10+": 3,
     deposit: 80,
   },
   E_CITY_BIKE: {
