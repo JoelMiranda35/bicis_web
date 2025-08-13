@@ -1036,7 +1036,7 @@ const toggleBikeSelection = (bike: any) => {
                       <h3 className="font-semibold">{accessory.name_es || accessory.name}</h3>
                       <h3 className="font-semibold">{accessory.name?.es || accessory.name_es || accessory.name || ""}</h3>
 <p className="text-sm text-gray-600">
-  {accessory.type} - {accessory.price === 0 ? "Gratis" : `${accessory.price}€/día`}
+  {accessory.type} - {accessory.price === 0 ? "Gratis" : `${accessory.price}€`}
 </p>
                       <div className="flex gap-2 mt-2">
                         <Badge>{accessory.type}</Badge>
@@ -1183,7 +1183,7 @@ const toggleBikeSelection = (bike: any) => {
                       const bikeName = bike.title_es || bike.title || bike.model;
                       return (
                         <p key={index} className="text-sm text-gray-600">
-                          {bikeName} - Talla {bike.size} ({pricePerDay}€/día × {reservation.total_days} días = {totalPrice}€)
+                          {bikeName} - Talla {bike.size} 
                         </p>
                       );
                     })}
