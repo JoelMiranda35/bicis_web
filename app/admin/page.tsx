@@ -121,7 +121,8 @@ export default function AdminPage() {
     bikes: [],
     accessories: [],
     insurance: false,
-    status: "confirmed"
+    status: "confirmed",
+    locale: "es",
   })
   const [error, setError] = useState<string | null>(null)
   const [stats, setStats] = useState({
@@ -545,8 +546,37 @@ const fetchAvailableBikes = async () => {
       }
     }
   }
+<div className="flex items-center gap-2 mb-4">
+  <Label className="mr-2">Idioma:</Label>
+  <div className="flex gap-2">
+    <Button
+      type="button"
+      size="sm"
+      variant={newReservation.locale === "es" ? "default" : "outline"}
+      onClick={() => setNewReservation({ ...newReservation, locale: "es" })}
+    >
+      ES
+    </Button>
+    <Button
+      type="button"
+      size="sm"
+      variant={newReservation.locale === "en" ? "default" : "outline"}
+      onClick={() => setNewReservation({ ...newReservation, locale: "en" })}
+    >
+      EN
+    </Button>
+    <Button
+      type="button"
+      size="sm"
+      variant={newReservation.locale === "nl" ? "default" : "outline"}
+      onClick={() => setNewReservation({ ...newReservation, locale: "nl" })}
+    >
+      NL
+    </Button>
+  </div>
+</div>
 
-  const createReservation = async () => {
+const createReservation = async () => {
   try {
     const days = calculateTotalDays(
       new Date(newReservation.start_date),
@@ -594,25 +624,49 @@ const fetchAvailableBikes = async () => {
     }
 
     const dataToSave = {
-  ...newReservation,
-  start_date: formatDateForDB(new Date(newReservation.start_date)),
-  end_date: formatDateForDB(new Date(newReservation.end_date)),
-  total_days: days,
-  total_amount: totalAmount,
-  deposit_amount: depositAmount,
-  paid_amount: totalAmount,
-  bikes: bikesForDB,
-  locale: "es", // ✅ forzamos un idioma por defecto
-  payment_gateway: "admin", // ✅ opcional: dejar claro que viene del panel admin
-  payment_status: "paid"    // ✅ en admin asumimos pagado
-};
+      ...newReservation,
+      start_date: formatDateForDB(new Date(newReservation.start_date)),
+      end_date: formatDateForDB(new Date(newReservation.end_date)),
+      total_days: days,
+      total_amount: totalAmount,
+      deposit_amount: depositAmount,
+      paid_amount: totalAmount,
+      bikes: bikesForDB,
+      locale: newReservation.locale || "es", // ✅ idioma dinámico
+      payment_gateway: "admin",
+      payment_status: "paid",
+    };
 
-
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("reservations")
-      .insert([dataToSave]);
+      .insert([dataToSave])
+      .select()
+      .single();
 
     if (error) throw error;
+
+    // ✅ Enviar email de confirmación en idioma seleccionado
+    try {
+        await fetch("/api/send-email", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    to: newReservation.customer_email,
+    subject: "Confirmación de Reserva - Altea Bike Shop",
+    reservationData: {
+      ...data, // lo que devuelve Supabase
+      id: String(data.id), // 👈 forzamos string
+      accessories: data.accessories || [],
+      bikes: data.bikes || [],
+    },
+    language: newReservation.locale || "es",
+  }),
+});
+
+    
+    } catch (err) {
+      console.error("Error enviando email de confirmación:", err);
+    }
 
     toast({
       title: "Reserva creada",
@@ -633,12 +687,14 @@ const fetchAvailableBikes = async () => {
       accessories: [],
       insurance: false,
       status: "confirmed",
+      locale: "es", // ✅ reset a Español por defecto
     });
   } catch (err: any) {
     console.error("Error creando reserva:", err);
     setError(err.message || "Error creando reserva");
   }
 };
+
 
 
   const updateReservationStatus = async (id: string, status: string) => {
