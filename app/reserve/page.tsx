@@ -362,7 +362,7 @@ const StripePaymentForm = ({
         size: bike.size,
         quantity: bike.quantity,
         bike_ids: bike.bikes.map((b: any) => b.id),
-        pricePerDay: calculatePrice(bike.category, 1)
+        pricePerDay: calculatePrice(bike.category, calculateTotalDays(startDate, endDate, pickupTime, returnTime))
       }));
 
       const { data, error } = await supabase
@@ -456,7 +456,7 @@ const StripePaymentForm = ({
             size: bike.size,
             quantity: bike.quantity,
             bike_ids: bike.bikes.map((b: any) => b.id),
-            pricePerDay: calculatePrice(bike.category, 1)
+            pricePerDay: calculatePrice(bike.category, calculateTotalDays(startDate, endDate, pickupTime, returnTime))
           }))),
           accessories: JSON.stringify(selectedAccessories || []),
           insurance: hasInsurance.toString(),
@@ -1012,21 +1012,61 @@ const handleSubmitReservation = async () => {
       throw new Error("Algunas bicicletas ya no están disponibles");
     }
 
+    // 🔒 Cálculo seguro de días de alquiler
     const days = calculateTotalDays(startDate, endDate, pickupTime, returnTime);
-    const totalAmount = calculateTotal();
+    if (!Number.isFinite(days) || days <= 0) {
+      throw new Error("La duración del alquiler no es válida");
+    }
 
-    // Validación adicional para asegurar que el total es válido
+    // Cálculo correcto del precio por días reales
+    const bikeSubtotal = selectedBikes.reduce((total, bike) => {
+  const pricePerDay = Number(calculatePrice(bike.category, days));
+  const quantity = Number(bike.quantity);
+  const subtotal = Number.isFinite(pricePerDay) && Number.isFinite(quantity)
+    ? pricePerDay * days * quantity
+    : 0;
+  return total + subtotal;
+}, 0);
+
+
+
+    const accessoriesSubtotal = selectedAccessories.reduce((total, acc) => {
+  const price = Number(acc.price);
+  return total + (Number.isFinite(price) ? price : 0);
+}, 0);
+
+
+    const insuranceSubtotal = hasInsurance
+  ? Math.min(
+      INSURANCE_MAX_PRICE,
+      INSURANCE_PRICE_PER_DAY * days
+    ) * selectedBikes.reduce((total, bike) => {
+      const quantity = Number(bike.quantity);
+      return total + (Number.isFinite(quantity) ? quantity : 0);
+    }, 0)
+  : 0;
+
+
+    const totalAmount = bikeSubtotal + accessoriesSubtotal + insuranceSubtotal;
+
+    // Validación adicional del monto
     if (totalAmount <= 0) {
       throw new Error("El monto total debe ser mayor a 0");
     }
 
-    // Simplificar los datos de bicicletas para la metadata
+    // Convertir a céntimos y validar
+    const amountInCents = Math.round(totalAmount * 100);
+    if (!Number.isInteger(amountInCents) || amountInCents <= 0) {
+      throw new Error("El monto total no es válido");
+    }
+
+    // Simplificar los datos de bicicletas para la metadata (CORREGIDO)
     const simplifiedBikesData = selectedBikes.map(bike => ({
-      model: bike.title_es.substring(0, 50), // Limitar longitud
+      model: bike.title_es.substring(0, 50),
       size: bike.size,
       quantity: bike.quantity,
-      // No incluir bike_ids en la metadata
-      price: calculatePrice(bike.category, 1)
+      pricePerDay: calculatePrice(bike.category, days), // Usar days en lugar de 1
+      totalPrice: calculatePrice(bike.category, days) * days * bike.quantity
     }));
 
     // Simplificar los accesorios
@@ -1041,8 +1081,8 @@ const handleSubmitReservation = async () => {
       customer_email: customerData.email.substring(0, 100),
       customer_phone: customerData.phone.substring(0, 20),
       customer_dni: customerData.dni.substring(0, 20),
-      start_date: startDate.toISOString().substring(0, 10), // Solo fecha
-      end_date: endDate.toISOString().substring(0, 10), // Solo fecha
+      start_date: startDate.toISOString().substring(0, 10),
+      end_date: endDate.toISOString().substring(0, 10),
       pickup_time: pickupTime,
       return_time: returnTime,
       total_days: days.toString(),
@@ -1051,20 +1091,16 @@ const handleSubmitReservation = async () => {
       insurance: hasInsurance ? "1" : "0",
       total_amount: totalAmount.toFixed(2),
       deposit_amount: calculateTotalDeposit().toFixed(2),
-      locale: language
+      locale: language,
+      bikes_data: JSON.stringify(simplifiedBikesData),
+      accessories_data: JSON.stringify(simplifiedAccessories)
     };
-
-    //console.log("Enviando a Stripe:", { 
-      //amount: Math.round(totalAmount * 100), 
-      //currency: 'eur', 
-      //metadata 
-    //});
 
     const response = await fetch('/api/stripe/create-payment-intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        amount: Math.round(totalAmount * 100),
+        amount: amountInCents,
         currency: 'eur',
         metadata
       })
@@ -1072,7 +1108,6 @@ const handleSubmitReservation = async () => {
 
     if (!response.ok) {
       const errorData = await response.json();
-      //console.error("Error response from API:", errorData);
       throw new Error(errorData.error || "Error al crear el pago");
     }
 
@@ -1081,7 +1116,6 @@ const handleSubmitReservation = async () => {
     setCurrentStep("payment");
 
   } catch (error: any) {
-    //console.error("Error en reserva:", error);
     setPaymentError(error.message || "Error al procesar el pago. Por favor, inténtelo de nuevo.");
   } finally {
     setIsSubmitting(false);
@@ -1494,9 +1528,12 @@ const handleSubmitReservation = async () => {
         );
 
         const bikeSubtotal = selectedBikes.reduce(
-          (total, bike) => total + (calculatePrice(bike.category, 1) * rentalDays * bike.quantity),
-          0
-        );
+  (total, bike) => {
+    const pricePerDay = calculatePrice(bike.category, rentalDays);
+    return total + (pricePerDay * rentalDays * bike.quantity);
+  },
+  0
+);
 
         const accessoriesSubtotal = selectedAccessories.reduce(
   (total, acc) => total + (acc.price ?? 0), // Maneja null como 0
@@ -1510,10 +1547,15 @@ const handleSubmitReservation = async () => {
             ) * selectedBikes.reduce((total, bike) => total + bike.quantity, 0)
           : 0;
 
-        const depositTotal = selectedBikes.reduce(
-          (total, bike) => total + (calculateDeposit(bike.category)) * bike.quantity,
-          0
-        );
+        const depositTotal = selectedBikes.reduce((total, bike) => {
+  const deposit = Number(calculateDeposit(bike.category));
+  const quantity = Number(bike.quantity);
+  const subtotal = Number.isFinite(deposit) && Number.isFinite(quantity)
+    ? deposit * quantity
+    : 0;
+  return total + subtotal;
+}, 0);
+
 
         const orderTotal = bikeSubtotal + accessoriesSubtotal + insuranceSubtotal;
 
@@ -1791,150 +1833,174 @@ const handleSubmitReservation = async () => {
           </Card>
         );
       case "payment":
-        if (isAdminMode) {
-          return null;
-        }
+  if (isAdminMode) {
+    return null;
+  }
 
-        const rentalDaysPayment = calculateTotalDays(
-          new Date(startDate!),
-          new Date(endDate!),
-          pickupTime,
-          returnTime
-        );
+  // 🔒 Cálculo seguro de días de alquiler
+  const days = calculateTotalDays(
+    new Date(startDate),
+    new Date(endDate),
+    pickupTime,
+    returnTime
+  );
 
-        const bikeSubtotalPayment = selectedBikes.reduce(
-          (total, bike) => total + (calculatePrice(bike.category, 1) * rentalDaysPayment * bike.quantity),
-          0
-        );
+  // Validación importante para evitar NaN/undefined
+  if (!Number.isFinite(days) || days <= 0) {
+    console.error("❌ Días de alquiler inválidos:", days, {
+      startDate,
+      endDate,
+      pickupTime,
+      returnTime
+    });
+    return (
+      <div className="text-red-500 p-4 border border-red-200 bg-red-50 rounded-lg">
+        Error: La duración del alquiler no es válida. Por favor, selecciona fechas válidas.
+      </div>
+    );
+  }
 
-        const accessoriesSubtotalPayment = selectedAccessories.reduce(
-          (total, acc) => total + acc.price, // Changed from acc.price * days to fixed price
-          0
-        );
+  // Cálculo correcto del precio por días reales
+  const bikeSubtotalPayment = selectedBikes.reduce((total, bike) => {
+    const pricePerDay = calculatePrice(bike.category, days);
+    return total + (pricePerDay * days * bike.quantity);
+  }, 0);
 
-        const insuranceSubtotalPayment = hasInsurance
-          ? Math.min(
-              INSURANCE_MAX_PRICE,
-              INSURANCE_PRICE_PER_DAY * rentalDaysPayment
-            ) * selectedBikes.reduce((total, bike) => total + bike.quantity, 0)
-          : 0;
+  const accessoriesSubtotalPayment = selectedAccessories.reduce(
+    (total, acc) => total + (acc.price ?? 0), // Maneja null como 0
+    0
+  );
 
-        const orderTotalPayment = bikeSubtotalPayment + accessoriesSubtotalPayment + insuranceSubtotalPayment;
+  const insuranceSubtotalPayment = hasInsurance
+    ? calculateInsurance(days) * selectedBikes.reduce((t, b) => t + b.quantity, 0)
+    : 0;
 
-        const depositTotalPayment = selectedBikes.reduce(
-          (total, bike) => total + (calculateDeposit(bike.category)) * bike.quantity,
-          0
-        );
+  const orderTotalPayment = bikeSubtotalPayment + accessoriesSubtotalPayment + insuranceSubtotalPayment;
 
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CreditCard className="h-5 w-5" />
-                {t("paymentDetails")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <StoreHoursNotice t={t} />
-              
-              <div className="bg-gray-50 p-4 rounded-lg mb-6">
-                <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span>
-                      {t("bikes")} (
-                      {selectedBikes.reduce((total, bike) => total + bike.quantity, 0)}
-                      )
-                    </span>
-                    <span>
-                      {bikeSubtotalPayment.toFixed(2)}
-                      {t("euro")}
-                    </span>
-                  </div>
+  // Validación adicional del monto
+  if (orderTotalPayment <= 0) {
+    console.error("❌ Monto total inválido:", orderTotalPayment);
+    return (
+      <div className="text-red-500 p-4 border border-red-200 bg-red-50 rounded-lg">
+        Error: El monto total debe ser mayor a 0. Por favor, verifica tu selección.
+      </div>
+    );
+  }
 
-                  {selectedAccessories.length > 0 && (
-                    <div className="flex justify-between">
-                      <span>{t("accessories")}</span>
-                      <span>
-                        {accessoriesSubtotalPayment.toFixed(2)}
-                        {t("euro")}
-                      </span>
-                    </div>
-                  )}
+  const depositTotalPayment = selectedBikes.reduce(
+    (total, bike) => total + calculateDeposit(bike.category) * bike.quantity,
+    0
+  );
 
-                  {hasInsurance && (
-                    <div className="flex justify-between">
-                      <span>{t("insurance")}</span>
-                      <span>
-                        {insuranceSubtotalPayment.toFixed(2)}
-                        {t("euro")}
-                      </span>
-                    </div>
-                  )}
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CreditCard className="h-5 w-5" />
+          {t("paymentDetails")}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <StoreHoursNotice t={t} />
+        
+        <div className="bg-gray-50 p-4 rounded-lg mb-6">
+          <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span>
+                {t("bikes")} (
+                {selectedBikes.reduce((total, bike) => total + bike.quantity, 0)}
+                )
+              </span>
+              <span>
+                {bikeSubtotalPayment.toFixed(2)}
+                {t("euro")}
+              </span>
+            </div>
 
-                  <div className="border-t pt-1 flex justify-between font-semibold">
-                    <span>{t("total")}</span>
-                    <span>
-                      {orderTotalPayment.toFixed(2)}
-                      {t("euro")}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between text-orange-600">
-                    <span>{t("depositCash")}</span>
-                    <span>
-                      {depositTotalPayment.toFixed(2)}
-                      {t("euro")}
-                    </span>
-                  </div>
-                </div>
+            {selectedAccessories.length > 0 && (
+              <div className="flex justify-between">
+                <span>{t("accessories")}</span>
+                <span>
+                  {accessoriesSubtotalPayment.toFixed(2)}
+                  {t("euro")}
+                </span>
               </div>
+            )}
 
-              <Elements 
-                stripe={stripePromise}
-                options={{
-                  clientSecret: clientSecret || '',
-                  locale: language === 'es' ? 'es' : language === 'nl' ? 'nl' : 'en',
-                  appearance: {
-                    theme: 'stripe',
-                    variables: {
-                      colorPrimary: '#4f46e5',
-                      colorBackground: '#ffffff',
-                      colorText: '#30313d',
-                      fontFamily: 'Inter, system-ui, sans-serif',
-                    }
-                  }
-                }}
-              >
-                <StripePaymentForm 
-                  clientSecret={clientSecret!}
-                  customerData={customerData}
-                  calculateTotal={() => orderTotalPayment}
-                  setCurrentStep={setCurrentStep}
-                  setPaymentError={setPaymentError}
-                  sendConfirmationEmail={sendConfirmationEmail}
-                  setSelectedBikes={setSelectedBikes}
-                  setClientSecret={setClientSecret}
-                  language={language}
-                  selectedBikes={selectedBikes}
-                  selectedAccessories={selectedAccessories}
-                  hasInsurance={hasInsurance}
-                  startDate={startDate}
-                  endDate={endDate}
-                  pickupTime={pickupTime}
-                  returnTime={returnTime}
-                  t={t}
-                />
-              </Elements>
+            {hasInsurance && (
+              <div className="flex justify-between">
+                <span>{t("insurance")}</span>
+                <span>
+                  {insuranceSubtotalPayment.toFixed(2)}
+                  {t("euro")}
+                </span>
+              </div>
+            )}
 
-              {paymentError && (
-                <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg">
-                  {paymentError}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        );
+            <div className="border-t pt-1 flex justify-between font-semibold">
+              <span>{t("total")}</span>
+              <span>
+                {orderTotalPayment.toFixed(2)}
+                {t("euro")}
+              </span>
+            </div>
+
+            <div className="flex justify-between text-orange-600">
+              <span>{t("depositCash")}</span>
+              <span>
+                {depositTotalPayment.toFixed(2)}
+                {t("euro")}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <Elements 
+          stripe={stripePromise}
+          options={{
+            clientSecret: clientSecret || '',
+            locale: language === 'es' ? 'es' : language === 'nl' ? 'nl' : 'en',
+            appearance: {
+              theme: 'stripe',
+              variables: {
+                colorPrimary: '#4f46e5',
+                colorBackground: '#ffffff',
+                colorText: '#30313d',
+                fontFamily: 'Inter, system-ui, sans-serif',
+              }
+            }
+          }}
+        >
+          <StripePaymentForm 
+            clientSecret={clientSecret!}
+            customerData={customerData}
+            calculateTotal={() => orderTotalPayment}
+            setCurrentStep={setCurrentStep}
+            setPaymentError={setPaymentError}
+            sendConfirmationEmail={sendConfirmationEmail}
+            setSelectedBikes={setSelectedBikes}
+            setClientSecret={setClientSecret}
+            language={language}
+            selectedBikes={selectedBikes}
+            selectedAccessories={selectedAccessories}
+            hasInsurance={hasInsurance}
+            startDate={startDate}
+            endDate={endDate}
+            pickupTime={pickupTime}
+            returnTime={returnTime}
+            t={t}
+          />
+        </Elements>
+
+        {paymentError && (
+          <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg">
+            {paymentError}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 
       case "confirmation":
         return (

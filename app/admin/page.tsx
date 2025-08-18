@@ -209,51 +209,76 @@ export default function AdminPage() {
     }
   }
 
-  const fetchAvailableBikes = async () => {
-    if (!newReservation.start_date || !newReservation.end_date) return;
+const fetchAvailableBikes = async () => {
+  if (!newReservation.start_date || !newReservation.end_date) return;
+  try {
+    const { data: allBikes } = await supabase
+      .from("bikes")
+      .select("*")
+      .eq("available", true);
 
-    setIsLoadingBikes(true);
-    try {
-      const startDateStr = format(newReservation.start_date, 'yyyy-MM-dd');
-      const endDateStr = format(newReservation.end_date, 'yyyy-MM-dd');
+    const { data: reservations } = await supabase
+      .from("reservations")
+      .select("bikes, start_date, end_date, pickup_time, return_time, status")
+      .or(
+        `and(start_date.lte.${format(newReservation.end_date, 'yyyy-MM-dd')},end_date.gte.${format(newReservation.start_date, 'yyyy-MM-dd')})`
+      )
+      .in("status", ["confirmed", "in_process"]);
 
-      const { data: allBikes } = await supabase
-        .from("bikes")
-        .select("*")
-        .eq("available", true);
+    if (allBikes) {
+      const reservedBikeIds = new Set<string>();
 
-      const { data: overlappingReservations } = await supabase
-        .from("reservations")
-        .select("bikes")
-        .or(
-          `and(start_date.lte.${endDateStr},end_date.gte.${startDateStr})`
-        )
-        .in("status", ["confirmed", "in_process"]);
+      const selStart = convertToMadridTime(new Date(newReservation.start_date));
+      selStart.setHours(
+        Number(newReservation.pickup_time.split(":")[0]),
+        Number(newReservation.pickup_time.split(":")[1])
+      );
 
-      if (allBikes) {
-        const reservedBikeIds = new Set();
-        overlappingReservations?.forEach((reservation) => {
-          reservation.bikes.forEach((bike: any) => {
-            if (Array.isArray(bike.bike_ids)) {
-              bike.bike_ids.forEach((id: string) => reservedBikeIds.add(id));
-            } else {
-              reservedBikeIds.add(bike.id);
-            }
-          });
-        });
+      const selEnd = convertToMadridTime(new Date(newReservation.end_date));
+      selEnd.setHours(
+        Number(newReservation.return_time.split(":")[0]),
+        Number(newReservation.return_time.split(":")[1])
+      );
 
-        const available = allBikes.filter(
-          (bike) => !reservedBikeIds.has(bike.id)
+      reservations?.forEach((res) => {
+        const resStart = convertToMadridTime(new Date(res.start_date));
+        resStart.setHours(
+          Number(res.pickup_time.split(":")[0]),
+          Number(res.pickup_time.split(":")[1])
         );
-        setAvailableBikes(available);
-      }
-    } catch (error) {
-      console.error("Error al obtener bicicletas disponibles:", error);
-      setError("Error al obtener bicicletas disponibles");
-    } finally {
-      setIsLoadingBikes(false);
+
+        const resEnd = convertToMadridTime(new Date(res.end_date));
+        resEnd.setHours(
+          Number(res.return_time.split(":")[0]),
+          Number(res.return_time.split(":")[1])
+        );
+
+        const overlap = selStart < resEnd && selEnd > resStart;
+        if (overlap) {
+          const bikes =
+            typeof res.bikes === "string" ? JSON.parse(res.bikes) : res.bikes;
+          if (Array.isArray(bikes)) {
+            bikes.forEach((bike: any) => {
+              if (Array.isArray(bike.bike_ids)) {
+                bike.bike_ids.forEach((id: string) => reservedBikeIds.add(id));
+              } else if (bike.id) {
+                reservedBikeIds.add(bike.id);
+              }
+            });
+          }
+        }
+      });
+
+      const available = allBikes.filter((bike) => !reservedBikeIds.has(bike.id));
+      setAvailableBikes(available);
     }
-  };
+  } catch (err) {
+    console.error("Error al obtener bicicletas disponibles:", err);
+    setError("Error al obtener bicicletas disponibles");
+  }
+};
+
+
 
   const calculateStats = (reservations: any[]) => {
     const totalBikes = bikes.length
@@ -523,79 +548,65 @@ export default function AdminPage() {
 
   const createReservation = async () => {
   try {
-    setError(null);
-    
-    if (!newReservation.customer_name || !newReservation.customer_email || 
-        !newReservation.customer_phone || !newReservation.customer_dni) {
-      throw new Error("Todos los campos del cliente son obligatorios");
-    }
-    
-    if (!newReservation.start_date || !newReservation.end_date) {
-      throw new Error("Debe seleccionar fechas de inicio y fin");
-    }
-    
-    if (newReservation.bikes.length === 0) {
-      throw new Error("Debe seleccionar al menos una bicicleta");
-    }
-    
-    const startDate = new Date(newReservation.start_date);
-    const endDate = new Date(newReservation.end_date);
-    
-    const totalDays = calculateTotalDays(
+    const days = calculateTotalDays(
       new Date(newReservation.start_date),
       new Date(newReservation.end_date),
       newReservation.pickup_time,
       newReservation.return_time
     );
-    
-    const bikesForDB = newReservation.bikes.map((bike: any) => ({
-      id: bike.id,
-      title_es: bike.title_es || bike.title,
-      size: bike.size,
-      category: bike.category,
-      bike_ids: [bike.id],
-      price_per_day: calculatePrice(bike.category, 1),
-      total_price: calculatePrice(bike.category, totalDays)
-    }));
-    
+
+    const bikesForDB = newReservation.bikes.map((bike: any) => {
+      const pricePerDay = calculatePrice(bike.category, days);
+      return {
+        id: bike.id,
+        title_es: bike.title_es || bike.title,
+        size: bike.size,
+        category: bike.category,
+        bike_ids: [bike.id],
+        quantity: bike.quantity || 1,
+        price_per_day: pricePerDay,
+        total_price: pricePerDay * days * (bike.quantity || 1),
+      };
+    });
+
     let totalAmount = 0;
     let depositAmount = 0;
-    
+
     bikesForDB.forEach((bike: any) => {
       if (isValidCategory(bike.category)) {
         totalAmount += bike.total_price;
-        depositAmount += calculateDeposit(bike.category);
+        depositAmount +=
+          calculateDeposit(bike.category) * (bike.quantity || 1);
       }
     });
-    
-    // Accesorios - precio fijo (no multiplicar por días)
-    newReservation.accessories.forEach((acc: any) => {
-      totalAmount += (acc.price || 0);
-    });
+
+    newReservation.accessories.forEach(
+      (acc: any) => (totalAmount += acc.price || 0)
+    );
 
     if (newReservation.insurance) {
-      totalAmount += calculateInsurance(totalDays);
+      totalAmount +=
+        calculateInsurance(days) *
+        newReservation.bikes.reduce(
+          (sum: number, b: any) => sum + (b.quantity || 1),
+          0
+        );
     }
 
     const dataToSave = {
-      ...newReservation,
-      start_date: formatDateForDB(startDate),
-      end_date: formatDateForDB(endDate),
-      total_days: totalDays,
-      total_amount: totalAmount,
-      deposit_amount: depositAmount,
-      paid_amount: totalAmount,
-      status: "confirmed",
-      created_at: new Date().toISOString(),
-      locale: "es",
-      bikes: bikesForDB,
-      accessories: newReservation.accessories.map((acc: any) => ({
-        id: acc.id,
-        name_es: acc.name_es || acc.name,
-        price: acc.price,
-        total: acc.price // Precio total igual al precio (no multiplicado por días)
-      }))
-    };
+  ...newReservation,
+  start_date: formatDateForDB(new Date(newReservation.start_date)),
+  end_date: formatDateForDB(new Date(newReservation.end_date)),
+  total_days: days,
+  total_amount: totalAmount,
+  deposit_amount: depositAmount,
+  paid_amount: totalAmount,
+  bikes: bikesForDB,
+  locale: "es", // ✅ forzamos un idioma por defecto
+  payment_gateway: "admin", // ✅ opcional: dejar claro que viene del panel admin
+  payment_status: "paid"    // ✅ en admin asumimos pagado
+};
+
 
     const { error } = await supabase
       .from("reservations")
@@ -603,39 +614,32 @@ export default function AdminPage() {
 
     if (error) throw error;
 
-    await fetchData();
+    toast({
+      title: "Reserva creada",
+      description: "La reserva se ha creado correctamente",
+      variant: "default",
+    });
+
     setNewReservation({
       customer_name: "",
       customer_email: "",
       customer_phone: "",
       customer_dni: "",
       start_date: createLocalDate(),
-      end_date: createLocalDate(addDays(new Date(), 1)),
+      end_date: createLocalDate(new Date()),
       pickup_time: "10:00",
       return_time: "18:00",
       bikes: [],
       accessories: [],
       insurance: false,
-      status: "confirmed"
+      status: "confirmed",
     });
-    setReservationStep("dates");
-    
-    toast({
-      title: "Reserva creada",
-      description: "La reserva se ha creado correctamente",
-      variant: "default",
-      action: <CheckCircle className="h-5 w-5 text-green-500" />,
-    });
-  } catch (error: any) {
-    setError(`Error al crear la reserva: ${error.message}`);
-    toast({
-      title: "Error",
-      description: error.message,
-      variant: "destructive",
-      action: <AlertCircle className="h-5 w-5 text-red-500" />,
-    });
+  } catch (err: any) {
+    console.error("Error creando reserva:", err);
+    setError(err.message || "Error creando reserva");
   }
 };
+
 
   const updateReservationStatus = async (id: string, status: string) => {
     try {
@@ -693,9 +697,9 @@ const toggleBikeSelection = (bike: any) => {
   if (isSelected) {
     setNewReservation({
       ...newReservation,
-      bikes: newReservation.bikes.filter((b: any) => b.id !== bike.id)
+      bikes: newReservation.bikes.filter((b: any) => b.id !== bike.id),
     });
-  } else {      
+  } else {
     setNewReservation({
       ...newReservation,
       bikes: [
@@ -705,12 +709,13 @@ const toggleBikeSelection = (bike: any) => {
           title: bike.title_es || bike.title,
           size: bike.size,
           category: bike.category,
-          price_per_day: calculatePrice(bike.category, 1) // Guardamos precio por día
-        }
-      ]
+          quantity: 1, // ✅ guardamos cantidad, no precio fijo
+        },
+      ],
     });
   }
 };
+
 
   const toggleAccessorySelection = (accessory: any) => {
     const isSelected = newReservation.accessories.some((a: any) => a.id === accessory.id)
@@ -755,35 +760,43 @@ const toggleBikeSelection = (bike: any) => {
     }, 0);
   };
 
- const calculateTotalPrice = () => {
+const calculateTotalPrice = () => {
   if (!newReservation.start_date || !newReservation.end_date) return 0;
-  
+
   const days = calculateTotalDays(
     new Date(newReservation.start_date),
     new Date(newReservation.end_date),
     newReservation.pickup_time,
     newReservation.return_time
   );
-  
+
   let total = 0;
-  
-  // Bicicletas (precio por día)
+
+  // Bicis (precio por día x días x cantidad)
   newReservation.bikes.forEach((bike: any) => {
-    total += calculatePrice(bike.category, days);
+    const pricePerDay = calculatePrice(bike.category, days);
+    total += pricePerDay * days * (bike.quantity || 1);
   });
-  
-  // Accesorios (precio fijo, no por día)
+
+  // Accesorios (precio fijo)
   newReservation.accessories.forEach((acc: any) => {
-    total += (acc.price || 0); // Precio fijo, no multiplicado por días
+    total += acc.price || 0;
   });
-  
+
   // Seguro (si aplica)
   if (newReservation.insurance) {
-    total += calculateInsurance(days);
+    total +=
+      calculateInsurance(days) *
+      newReservation.bikes.reduce(
+        (sum: number, b: any) => sum + (b.quantity || 1),
+        0
+      );
   }
-  
+
   return total;
 };
+
+
 
   if (!isAuthenticated) {
     return (
