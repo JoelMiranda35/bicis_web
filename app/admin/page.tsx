@@ -791,20 +791,25 @@ const calculateTotalDays = (
     endDate.getDate()
   );
 
-  // mismo día siempre cuenta como 1 día
+  // siempre al menos 1 día
   if (isSameDay(startDay, endDay)) return 1;
 
-  const diffDays = Math.ceil(
+  const diffDays = Math.floor(
     (endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24)
   );
 
-  // si devuelve antes o igual a la hora de recogida → no sumamos día extra
-  if (returnTime <= pickupTime) {
-    return diffDays;
+  // convertir horas a minutos para comparar bien
+  const [pickupH, pickupM] = pickupTime.split(":").map(Number);
+  const [returnH, returnM] = returnTime.split(":").map(Number);
+
+  // si la devolución es más tarde que la recogida → sumar 1 día
+  if (returnH > pickupH || (returnH === pickupH && returnM > pickupM)) {
+    return diffDays + 1;
   }
 
-  return diffDays; // 👈 corregido, sin +1
+  return diffDays;
 };
+
 
   const calculateTotalDeposit = () => {
     return newReservation.bikes.reduce((sum: number, bike: any) => {
