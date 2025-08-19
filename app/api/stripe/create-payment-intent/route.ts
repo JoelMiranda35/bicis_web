@@ -11,7 +11,6 @@ if (!process.env.STRIPE_SECRET_KEY) {
 // Inicializar Stripe correctamente
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
-
 export async function POST(request: Request) {
   try {
     const { amount, currency = 'eur', metadata } = await request.json();
@@ -24,8 +23,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const amountInCents = Math.round(amount);
-    if (amountInCents <= 0) {
+    if (amount <= 0) {
       return NextResponse.json(
         { error: 'El monto total debe ser mayor a 0' },
         { status: 400 }
@@ -46,7 +44,7 @@ export async function POST(request: Request) {
 
     // Crear PaymentIntent
     const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
-      amount: amountInCents,
+      amount, // ✅ usamos el valor que viene del frontend (ya en céntimos)
       currency: currency.toLowerCase(),
       payment_method_types: ['card'],
       metadata: cleanedMetadata,
