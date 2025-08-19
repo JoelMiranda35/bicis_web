@@ -146,16 +146,21 @@ const calculateTotalDays = (start: Date, end: Date, pickup: string, returnTime: 
   const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
   
+  // mismo día siempre cuenta como 1 día
   if (isSameDay(startDay, endDay)) return 1;
 
-  const diffDays = Math.ceil((endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24));
+  const diffDays = Math.ceil(
+    (endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24)
+  );
 
+  // si devuelve antes o igual a la hora de recogida → no sumamos día extra
   if (returnTime <= pickup) {
     return diffDays;
   }
 
-  return diffDays + 1;
+  return diffDays; // 👈 corregido, sin +1
 };
+
 
 const calculateTotalDeposit = (bikes: SelectedBike[]): number => {
   return bikes.reduce((total: number, bike: SelectedBike) => {

@@ -774,19 +774,36 @@ const toggleBikeSelection = (bike: any) => {
     }
   }
   
- const calculateTotalDays = (startDate: Date, endDate: Date, pickupTime: string, returnTime: string): number => {
-  const startDay = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-  const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-  
+const calculateTotalDays = (
+  startDate: Date,
+  endDate: Date,
+  pickupTime: string,
+  returnTime: string
+): number => {
+  const startDay = new Date(
+    startDate.getFullYear(),
+    startDate.getMonth(),
+    startDate.getDate()
+  );
+  const endDay = new Date(
+    endDate.getFullYear(),
+    endDate.getMonth(),
+    endDate.getDate()
+  );
+
+  // mismo día siempre cuenta como 1 día
   if (isSameDay(startDay, endDay)) return 1;
 
-  const diffDays = Math.ceil((endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24));
+  const diffDays = Math.ceil(
+    (endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24)
+  );
 
+  // si devuelve antes o igual a la hora de recogida → no sumamos día extra
   if (returnTime <= pickupTime) {
     return diffDays;
   }
 
-  return diffDays + 1;
+  return diffDays; // 👈 corregido, sin +1
 };
 
   const calculateTotalDeposit = () => {
