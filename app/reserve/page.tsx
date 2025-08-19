@@ -1119,9 +1119,9 @@ const handleSubmitReservation = async () => {
       accessories_data: JSON.stringify(simplifiedAccessories)
     };
 
-    console.log("=== Stripe Checkout Debug ===");
-console.log("Monto enviado a Stripe (centavos):", amountInCents);
-console.log("Metadata enviada:", metadata);
+   // console.log("=== Stripe Checkout Debug ===");
+//console.log("Monto enviado a Stripe (centavos):", amountInCents);
+//console.log("Metadata enviada:", metadata);
 
 
 
