@@ -645,28 +645,7 @@ const createReservation = async () => {
 
     if (error) throw error;
 
-    // ✅ Enviar email de confirmación en idioma seleccionado
-    try {
-        await fetch("/api/send-email", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    to: newReservation.customer_email,
-    subject: "Confirmación de Reserva - Altea Bike Shop",
-    reservationData: {
-      ...data, // lo que devuelve Supabase
-      id: String(data.id), // 👈 forzamos string
-      accessories: data.accessories || [],
-      bikes: data.bikes || [],
-    },
-    language: newReservation.locale || "es",
-  }),
-});
-
-    
-    } catch (err) {
-      console.error("Error enviando email de confirmación:", err);
-    }
+   
 
     toast({
       title: "Reserva creada",
