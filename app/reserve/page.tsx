@@ -142,24 +142,42 @@ const getTimeOptions = (isSaturday: boolean) => {
   return ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
 };
 
-const calculateTotalDays = (start: Date, end: Date, pickup: string, returnTime: string): number => {
-  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-  
-  // mismo día siempre cuenta como 1 día
+const calculateTotalDays = (
+  startDate: Date,
+  endDate: Date,
+  pickupTime: string,
+  returnTime: string
+): number => {
+  const startDay = new Date(
+    startDate.getFullYear(),
+    startDate.getMonth(),
+    startDate.getDate()
+  );
+  const endDay = new Date(
+    endDate.getFullYear(),
+    endDate.getMonth(),
+    endDate.getDate()
+  );
+
+  // siempre al menos 1 día
   if (isSameDay(startDay, endDay)) return 1;
 
-  const diffDays = Math.ceil(
+  const diffDays = Math.floor(
     (endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24)
   );
 
-  // si devuelve antes o igual a la hora de recogida → no sumamos día extra
-  if (returnTime <= pickup) {
-    return diffDays;
+  // convertir horas a minutos para comparar bien
+  const [pickupH, pickupM] = pickupTime.split(":").map(Number);
+  const [returnH, returnM] = returnTime.split(":").map(Number);
+
+  // si la devolución es más tarde que la recogida → sumar 1 día
+  if (returnH > pickupH || (returnH === pickupH && returnM > pickupM)) {
+    return diffDays + 1;
   }
 
-  return diffDays; // 👈 corregido, sin +1
+  return diffDays;
 };
+
 
 
 const calculateTotalDeposit = (bikes: SelectedBike[]): number => {
@@ -1100,6 +1118,12 @@ const handleSubmitReservation = async () => {
       bikes_data: JSON.stringify(simplifiedBikesData),
       accessories_data: JSON.stringify(simplifiedAccessories)
     };
+
+    console.log("=== Stripe Checkout Debug ===");
+console.log("Monto enviado a Stripe (centavos):", amountInCents);
+console.log("Metadata enviada:", metadata);
+
+
 
     const response = await fetch('/api/stripe/create-payment-intent', {
       method: 'POST',
