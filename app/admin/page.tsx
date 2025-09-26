@@ -136,6 +136,8 @@ export default function AdminPage() {
   const [availableBikes, setAvailableBikes] = useState<any[]>([])
   const [reservationStep, setReservationStep] = useState<"dates" | "bikes" | "accessories" | "customer">("dates")
   const [isLoadingBikes, setIsLoadingBikes] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [searchTerm, setSearchTerm] = useState("")
 
   useEffect(() => {
     const savedAuth = localStorage.getItem('adminAuthenticated')
@@ -146,15 +148,32 @@ export default function AdminPage() {
   }, [])
 
   useEffect(() => {
-    if (reservations.length > 0) {
-      const filtered = reservations.filter(res => {
-        const resDate = new Date(res.start_date)
-        return isSameMonth(resDate, selectedMonth)
-      })
-      setFilteredReservations(filtered)
-      calculateStats(filtered)
+  if (reservations.length > 0) {
+    let filtered = reservations.filter(res => {
+      const resDate = new Date(res.start_date)
+      return isSameMonth(resDate, selectedMonth)
+    })
+
+    // Filtro por estado
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(res => res.status === statusFilter)
     }
-  }, [reservations, selectedMonth])
+
+    // Filtro por búsqueda
+    if (searchTerm.trim() !== "") {
+      const term = searchTerm.toLowerCase().trim()
+      filtered = filtered.filter(res => 
+        res.customer_name.toLowerCase().includes(term) ||
+        res.customer_email.toLowerCase().includes(term) ||
+        res.customer_phone.includes(term) ||
+        res.customer_dni.includes(term)
+      )
+    }
+
+    setFilteredReservations(filtered)
+    calculateStats(filtered)
+  }
+}, [reservations, selectedMonth, statusFilter, searchTerm])
 
   useEffect(() => {
     if (newReservation.start_date && newReservation.end_date) {
@@ -1140,29 +1159,60 @@ const calculateTotalPrice = () => {
           <TabsContent value="reservations">
   <Card>
     <CardHeader>
-      <div className="flex justify-between items-center">
-        <CardTitle>Gestión de Reservas</CardTitle>
-        <div className="flex items-center gap-4">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline">
-                {format(selectedMonth, 'MMMM yyyy', { locale: es })}
-                <CalendarIcon className="ml-2 h-4 w-4" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
-              <Calendar
-                mode="single"
-                selected={selectedMonth}
-                onSelect={(date) => date && setSelectedMonth(createLocalDate(date))}
-                initialFocus
-                locale={es}
-              />
-            </PopoverContent>
-          </Popover>
-        </div>
+  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <CardTitle>Gestión de Reservas</CardTitle>
+    
+    <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+      {/* Buscador */}
+      <div className="relative">
+        <Input
+          placeholder="Buscar por nombre y apellido"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full md:w-64"
+        />
       </div>
-    </CardHeader>
+
+      {/* Filtro por estado */}
+      <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <SelectTrigger className="w-full md:w-40">
+          <SelectValue placeholder="Estado" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Todos los estados</SelectItem>
+          <SelectItem value="confirmed">Confirmadas</SelectItem>
+          <SelectItem value="in_process">En proceso</SelectItem>
+          <SelectItem value="completed">Completadas</SelectItem>
+          <SelectItem value="cancelled">Canceladas</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {/* Selector de mes (directo sin calendario) */}
+      <Select 
+        value={selectedMonth.toISOString()} 
+        onValueChange={(value) => setSelectedMonth(new Date(value))}
+      >
+        <SelectTrigger className="w-full md:w-40">
+          <SelectValue>
+            {format(selectedMonth, 'MMMM yyyy', { locale: es })}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {/* Generar opciones para los últimos 12 meses */}
+          {Array.from({ length: 12 }, (_, i) => {
+            const date = new Date();
+            date.setMonth(date.getMonth() - i);
+            return (
+              <SelectItem key={date.toISOString()} value={date.toISOString()}>
+                {format(date, 'MMMM yyyy', { locale: es })}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+    </div>
+  </div>
+</CardHeader>
     <CardContent>
       <div className="space-y-4">
         {currentReservations.length === 0 ? (
@@ -1275,6 +1325,48 @@ const calculateTotalPrice = () => {
           ))
         )}
       </div>
+      {/* Indicador de resultados filtrados */}
+{(statusFilter !== "all" || searchTerm.trim() !== "") && (
+  <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="font-medium">Filtros aplicados:</span>
+      
+      {statusFilter !== "all" && (
+        <Badge variant="secondary" className="flex items-center gap-1">
+          Estado: {statusFilter}
+          <button 
+            onClick={() => setStatusFilter("all")}
+            className="ml-1 text-xs hover:text-red-500"
+          >
+            ×
+          </button>
+        </Badge>
+      )}
+      
+      {searchTerm.trim() !== "" && (
+        <Badge variant="secondary" className="flex items-center gap-1">
+          Búsqueda: "{searchTerm}"
+          <button 
+            onClick={() => setSearchTerm("")}
+            className="ml-1 text-xs hover:text-red-500"
+          >
+            ×
+          </button>
+        </Badge>
+      )}
+      
+      <button 
+        onClick={() => {
+          setStatusFilter("all");
+          setSearchTerm("");
+        }}
+        className="text-blue-600 hover:text-blue-800 text-sm"
+      >
+        Limpiar todos
+      </button>
+    </div>
+  </div>
+)}
 
       {filteredReservations.length > 0 && (
         <div className="flex items-center justify-between mt-6">

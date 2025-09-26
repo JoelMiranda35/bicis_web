@@ -226,7 +226,7 @@ const translations = {
     bikeDetails: "Detalles de la Bici",
     pricePerDay: "Precio por día",
     selectDates: "Seleccionar Fechas",
-    selectBikes: "Seleccionar Bicis",
+    selectBikes: "Seleccionar Bicicletas",
     accessoriesInsurance: "Accesorios y Seguro",
     customerData: "Datos del Cliente",
     payment: "Pago",
