@@ -151,7 +151,9 @@ export default function AdminPage() {
   if (reservations.length > 0) {
     let filtered = reservations.filter(res => {
       const resDate = new Date(res.start_date)
-      return isSameMonth(resDate, selectedMonth)
+      const selectedStart = startOfMonth(selectedMonth)
+      const selectedEnd = endOfMonth(selectedMonth)
+      return isWithinInterval(resDate, { start: selectedStart, end: selectedEnd })
     })
 
     // Filtro por estado
@@ -1187,29 +1189,29 @@ const calculateTotalPrice = () => {
         </SelectContent>
       </Select>
 
-      {/* Selector de mes (directo sin calendario) */}
-      <Select 
-        value={selectedMonth.toISOString()} 
-        onValueChange={(value) => setSelectedMonth(new Date(value))}
-      >
-        <SelectTrigger className="w-full md:w-40">
-          <SelectValue>
-            {format(selectedMonth, 'MMMM yyyy', { locale: es })}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {/* Generar opciones para los últimos 12 meses */}
-          {Array.from({ length: 12 }, (_, i) => {
-            const date = new Date();
-            date.setMonth(date.getMonth() - i);
-            return (
-              <SelectItem key={date.toISOString()} value={date.toISOString()}>
-                {format(date, 'MMMM yyyy', { locale: es })}
-              </SelectItem>
-            );
-          })}
-        </SelectContent>
-      </Select>
+      {/* Selector de mes (corregido para incluir meses futuros) */}
+<Select 
+  value={selectedMonth.toISOString()} 
+  onValueChange={(value) => setSelectedMonth(new Date(value))}
+>
+  <SelectTrigger className="w-full md:w-40">
+    <SelectValue>
+      {format(selectedMonth, 'MMMM yyyy', { locale: es })}
+    </SelectValue>
+  </SelectTrigger>
+  <SelectContent>
+    {/* Generar opciones para los últimos 6 meses y próximos 6 meses */}
+    {Array.from({ length: 13 }, (_, i) => {
+      const date = new Date();
+      date.setMonth(date.getMonth() - 6 + i);
+      return (
+        <SelectItem key={date.toISOString()} value={date.toISOString()}>
+          {format(date, 'MMMM yyyy', { locale: es })}
+        </SelectItem>
+      );
+    })}
+  </SelectContent>
+</Select>
     </div>
   </div>
 </CardHeader>
