@@ -183,35 +183,34 @@ export default function AdminPage() {
     }
   }, [newReservation.start_date, newReservation.end_date])
 
-  const fetchData = async () => {
-    try {
-      setError(null)
-      const [bikesRes, accessoriesRes, reservationsRes] = await Promise.all([
-        supabase.from("bikes").select("*").order("created_at", { ascending: false }),
-        supabase.from("accessories").select("*").order("created_at", { ascending: false }),
-        supabase.from("reservations")
-          .select(`
-            id,
-            customer_name,
-            customer_email,
-            customer_phone,
-            customer_dni,
-            start_date,
-            end_date,
-            pickup_time,
-            return_time,
-            total_days,
-            total_amount,
-            deposit_amount,
-            status,
-            bikes,
-            accessories,
-            insurance,
-            created_at
-          `)
-          .order("created_at", { ascending: false })
-      ])
-
+ const fetchData = async () => {
+  try {
+    setError(null)
+    const [bikesRes, accessoriesRes, reservationsRes] = await Promise.all([
+      supabase.from("bikes").select("*").order("created_at", { ascending: false }),
+      supabase.from("accessories").select("*").order("created_at", { ascending: false }),
+      supabase.from("reservations")
+        .select(`
+          id,
+          customer_name,
+          customer_email,
+          customer_phone,
+          customer_dni,
+          start_date,
+          end_date,
+          pickup_time,
+          return_time,
+          total_days,
+          total_amount,
+          deposit_amount,
+          status,
+          bikes,
+          accessories,
+          insurance,
+          created_at
+        `)
+        .order("start_date", { ascending: false }) // ← Esto pone las más próximas primero
+    ])
       if (bikesRes.error) throw bikesRes.error
       if (accessoriesRes.error) throw accessoriesRes.error
       if (reservationsRes.error) throw reservationsRes.error
@@ -1261,20 +1260,23 @@ const calculateTotalPrice = () => {
                 <div>
                   <div className="mb-2">
                     <Badge
-                      variant={
-                        reservation.status === "confirmed"
-                          ? "default"
-                          : reservation.status === "in_process"
-                          ? "secondary"
-                          : reservation.status === "completed"
-                          ? "default"
-                          : reservation.status === "cancelled"
-                          ? "destructive"
-                          : "outline"
-                      }
-                    >
-                      {reservation.status}
-                    </Badge>
+  className={
+    reservation.status === "confirmed"
+      ? "bg-black text-white hover:bg-gray-800 border-black" // ← NEGRO para confirmadas
+      : reservation.status === "in_process"
+      ? "bg-blue-500 text-white hover:bg-blue-600 border-blue-600"
+      : reservation.status === "completed"
+      ? "bg-green-500 text-white hover:bg-green-600 border-green-600" // ← VERDE para completadas
+      : reservation.status === "cancelled"
+      ? "bg-red-500 text-white hover:bg-red-600 border-red-600"
+      : "bg-gray-500 text-white hover:bg-gray-600 border-gray-600"
+  }
+>
+  {reservation.status === "confirmed" && "Confirmada"}
+  {reservation.status === "in_process" && "En proceso"}
+  {reservation.status === "completed" && "Completada"}
+  {reservation.status === "cancelled" && "Cancelada"}
+</Badge>
                   </div>
 
                   <Select
