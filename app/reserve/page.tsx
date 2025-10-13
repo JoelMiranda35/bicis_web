@@ -141,6 +141,10 @@ const getTimeOptions = (isSaturday: boolean) => {
   }
   return ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
 };
+const locationOptions = [
+  { value: "sucursal_centro", label_es: "Calle la Tella 2, Altea 03590", label_en: "Calle la Tella 2, Altea 03590", label_nl: "Calle la Tella 2, Altea 03590" },
+  { value: "sucursal_norte", label_es: "Av del Albir 159, El Albir", label_en: "Av Del Albir 159, El Albir", label_nl: "Av del Albir 159, el Albir" }
+];
 
 const calculateTotalDays = (
   startDate: Date,
@@ -148,6 +152,9 @@ const calculateTotalDays = (
   pickupTime: string,
   returnTime: string
 ): number => {
+  // SIEMPRE retorna 1 día para reservas en el mismo día
+  if (isSameDay(startDate, endDate)) return 1;
+
   const startDay = new Date(
     startDate.getFullYear(),
     startDate.getMonth(),
@@ -158,9 +165,6 @@ const calculateTotalDays = (
     endDate.getMonth(),
     endDate.getDate()
   );
-
-  // siempre al menos 1 día
-  if (isSameDay(startDay, endDay)) return 1;
 
   const diffDays = Math.floor(
     (endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24)
@@ -348,6 +352,7 @@ const StripePaymentForm = ({
   startDate,
   endDate,
   pickupTime,
+  pickupLocation,
   t,
   returnTime
 }: { 
@@ -366,6 +371,7 @@ const StripePaymentForm = ({
   startDate: Date;
   endDate: Date;
   pickupTime: string;
+  pickupLocation?: string;
   returnTime: string;
   t: (key: TranslationKey) => string;
 }) => {
@@ -399,6 +405,8 @@ const StripePaymentForm = ({
           end_date: metadata.end_date || endDate.toISOString(),
           pickup_time: metadata.pickup_time || pickupTime,
           return_time: metadata.return_time || returnTime,
+          pickup_location: pickupLocation,
+          return_location: pickupLocation,
           total_days: parseInt(metadata.total_days || calculateTotalDays(startDate, endDate, pickupTime, returnTime).toString()),
           bikes: bikesData,
           accessories: selectedAccessories || [],
@@ -605,7 +613,7 @@ export default function ReservePage() {
 
   const [currentStep, setCurrentStep] = useState<Step>("dates");
   const [startDate, setStartDate] = useState<Date>(createLocalDate());
-  const [endDate, setEndDate] = useState<Date>(createLocalDate(addDays(new Date(), 1)));
+  const [endDate, setEndDate] = useState<Date>(createLocalDate()); // Mismo día por defecto
   const [pickupTime, setPickupTime] = useState("10:00");
   const [returnTime, setReturnTime] = useState("10:00"); // Changed default to match pickup time
   const [availableBikes, setAvailableBikes] = useState<any[]>([]);
@@ -621,6 +629,8 @@ export default function ReservePage() {
     phone: "",
     dni: "",
   });
+  const [pickupLocation, setPickupLocation] = useState("sucursal_centro");
+  const [returnLocation, setReturnLocation] = useState("sucursal_centro");
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [reservationId, setReservationId] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1108,6 +1118,8 @@ const handleSubmitReservation = async () => {
       end_date: endDate.toISOString().substring(0, 10),
       pickup_time: pickupTime,
       return_time: returnTime,
+      pickup_location: pickupLocation,
+      return_location: pickupLocation,
       total_days: days.toString(),
       bikes_count: selectedBikes.reduce((total, bike) => total + bike.quantity, 0),
       accessories_count: selectedAccessories.length,
@@ -1171,146 +1183,221 @@ const handleSubmitReservation = async () => {
 
   const renderStepContent = () => {
     switch (currentStep) {
-      case "dates":
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CalendarDays className="h-5 w-5" />
-                {t("selectDates")}
-                {isAdminMode && <Badge variant="secondary">Modo Admin</Badge>}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <StoreHoursNotice t={t} />
-              
-              <div className="flex flex-col md:flex-row gap-8 w-full">
-                <div className="w-full md:w-1/2">
-                  <Label className="text-sm font-medium mb-2 block">
-                    {t("startDate")}
-                  </Label>
-                  <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
-                    <Calendar
-                      mode="single"
-                      selected={startDate}
-                      onSelect={(date) => {
-  if (date) {
-    const newDate = createLocalDate(date);
-    if (isSunday(newDate)) return;
-    setStartDate(newDate);
-    if (endDate && newDate > endDate) {
-      setEndDate(createLocalDate(addDays(newDate, 1)));
-    }
-  }
-}}
-                      disabled={(date) => isDateDisabled(date)}
-                    />
-                  </div>
-                </div>
-                
-                <div className="w-full md:w-1/2">
-                  <Label className="text-sm font-medium mb-2 block">
-                    {t("endDate")}
-                  </Label>
-                  <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
-                    <Calendar
-                      mode="single"
-                      selected={endDate}
-                      onSelect={(date) => {
-  if (date) {
-    const newDate = createLocalDate(date);
-    if (isSunday(newDate)) return;
-    if (startDate && newDate <= startDate) return;
-    setEndDate(newDate);
-  }
-}}
-                      disabled={(date) => {
-                        const today = createLocalDate();
-                        const selectedDate = date ? createLocalDate(date) : new Date();
-                        if (selectedDate < today) return true;
-                        if (isSunday(selectedDate)) return true;
-                        if (startDate && selectedDate <= startDate) return true;
-                        return false;
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
+     
+          case "dates":
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CalendarDays className="h-5 w-5" />
+          {t("selectDates")}
+          {isAdminMode && <Badge variant="secondary">Modo Admin</Badge>}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <StoreHoursNotice t={t} />
+        
+        <div className="flex flex-col md:flex-row gap-8 w-full">
+          <div className="w-full md:w-1/2">
+            <Label className="text-sm font-medium mb-2 block">
+              {t("startDate")}
+            </Label>
+            <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
+              <Calendar
+                mode="single"
+                selected={startDate}
+                onSelect={(date) => {
+                  if (date) {
+                    const newDate = createLocalDate(date);
+                    if (isSunday(newDate)) return;
+                    setStartDate(newDate);
+                    // Si la fecha de fin es anterior a la nueva fecha de inicio, actualizarla
+                    if (endDate && newDate > endDate) {
+                      setEndDate(newDate);
+                    }
+                  }
+                }}
+                disabled={(date) => {
+                  if (!date) return true;
+                  const today = new Date();
+                  const selectedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                  const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                  
+                  // No permitir fechas anteriores a hoy
+                  if (selectedDate < todayDate) {
+                    return true;
+                  }
+                  
+                  // No permitir domingos
+                  if (isSunday(selectedDate)) return true;
+                  
+                  return false;
+                }}
+              />
+            </div>
+          </div>
+          
+          <div className="w-full md:w-1/2">
+            <Label className="text-sm font-medium mb-2 block">
+              {t("endDate")}
+            </Label>
+            <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
+              <Calendar
+                mode="single"
+                selected={endDate}
+                onSelect={(date) => {
+                  if (date) {
+                    const newDate = createLocalDate(date);
+                    if (isSunday(newDate)) return;
+                    setEndDate(newDate);
+                  }
+                }}
+                disabled={(date) => {
+                  if (!date) return true;
+                  const today = new Date();
+                  const selectedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                  const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                  const startDateOnly = startDate ? new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()) : null;
+                  
+                  // No permitir fechas anteriores a hoy
+                  if (selectedDate < todayDate) {
+                    return true;
+                  }
+                  
+                  // No permitir domingos
+                  if (isSunday(selectedDate)) return true;
+                  
+                  // No permitir fechas anteriores a la fecha de inicio
+                  if (startDateOnly && selectedDate < startDateOnly) {
+                    return true;
+                  }
+                  
+                  return false;
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {startDate && endDate && (
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <Label className="text-sm font-medium mb-2 block">
+                {t("pickupTime")}
+              </Label>
+              <Select
+                value={pickupTime}
+                onValueChange={setPickupTime}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {getTimeOptions(isSaturday(startDate)).map(time => (
+                    <SelectItem key={time} value={time}>{time}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-sm font-medium mb-2 block">
+                {t("returnTime")}
+              </Label>
+              <Select
+                value={returnTime}
+                onValueChange={setReturnTime}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {getTimeOptions(isSaturday(endDate)).map(time => (
+                    <SelectItem key={time} value={time}>{time}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             
+            {/* SOLO UN SELECT PARA LA UBICACIÓN (RECOGIDA Y RETORNO SON EL MISMO) */}
+            <div className="md:col-span-2">
+              <Label className="text-sm font-medium mb-2 block">
+                Lugar de recogida y retorno
+              </Label>
+              <Select
+                value={pickupLocation}
+                onValueChange={(value) => {
+                  setPickupLocation(value);
+                  setReturnLocation(value); // Siempre el mismo lugar para recogida y retorno
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {locationOptions.map(location => (
+                    <SelectItem key={location.value} value={location.value}>
+                      {translateBikeContent(
+                        { 
+                          es: location.label_es, 
+                          en: location.label_en, 
+                          nl: location.label_nl 
+                        }, 
+                        language
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500 mt-1">
+  {t("pickupReturnSameLocation")}
+</p>
+            </div>
+          </div>
+        )}
 
-              {startDate && endDate && (
-                <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-  <div>
-    <Label className="text-sm font-medium mb-2 block">
-      {t("pickupTime")}
-    </Label>
-    <Select
-      value={pickupTime}
-      onValueChange={setPickupTime}
-    >
-      <SelectTrigger>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {getTimeOptions(isSaturday(startDate)).map(time => (
-          <SelectItem key={time} value={time}>{time}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  </div>
-  <div>
-    <Label className="text-sm font-medium mb-2 block">
-      {t("returnTime")}
-    </Label>
-    <Select
-      value={returnTime}
-      onValueChange={setReturnTime}
-    >
-      <SelectTrigger>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {getTimeOptions(isSaturday(endDate)).map(time => (
-          <SelectItem key={time} value={time}>{time}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  </div>
-</div>
-              )}
+        {startDate && endDate && (
+          <div className="mt-4 p-4 bg-green-50 rounded-lg">
+            <p className="text-sm text-green-800">
+              <strong>{t("duration")}:</strong>{" "}
+              {calculateTotalDays(
+                new Date(startDate),
+                new Date(endDate),
+                pickupTime,
+                returnTime
+              )}{" "}
+              {t("days")}
+            </p>
+            <p className="text-sm text-green-800">
+              <strong>{t("from")}:</strong>{" "}
+              {formatDateForDisplay(startDate, language)} {pickupTime} <strong>{t("to")}:</strong>{" "}
+              {formatDateForDisplay(endDate, language)} {returnTime}
+            </p>
+            <p className="text-sm text-green-800">
+  <strong>{t("locationLabel")}:</strong>{" "}
+  {translateBikeContent(
+    { 
+      es: locationOptions.find(loc => loc.value === pickupLocation)?.label_es || "",
+      en: locationOptions.find(loc => loc.value === pickupLocation)?.label_en || "",
+      nl: locationOptions.find(loc => loc.value === pickupLocation)?.label_nl || ""
+    }, 
+    language
+  )}
+</p>
+          </div>
+        )}
 
-              {startDate && endDate && (
-                <div className="mt-4 p-4 bg-green-50 rounded-lg">
-                  <p className="text-sm text-green-800">
-                    <strong>{t("duration")}:</strong>{" "}
-                    {calculateTotalDays(
-                      new Date(startDate),
-                      new Date(endDate),
-                      pickupTime,
-                      returnTime
-                    )}{" "}
-                    {t("days")}
-                  </p>
-                  <p className="text-sm text-green-800">
-                    <strong>{t("from")}:</strong>{" "}
-                    {formatDateForDisplay(startDate, language)} {pickupTime} <strong>{t("to")}:</strong>{" "}
-                    {formatDateForDisplay(endDate, language)} {returnTime}
-                  </p>
-                </div>
-              )}
-
-              <div className="mt-6">
-                <Button
-                  onClick={() => setCurrentStep("bikes")}
-                  disabled={!startDate || !endDate}
-                  className="w-full"
-                >
-                  {t("continue")}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        );
+        <div className="mt-6">
+          <Button
+            onClick={() => setCurrentStep("bikes")}
+            disabled={!startDate || !endDate}
+            className="w-full"
+          >
+            {t("continue")}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 
       case "bikes":
         const groupedModels = bikeModels.reduce(

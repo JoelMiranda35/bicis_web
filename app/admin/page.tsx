@@ -53,6 +53,11 @@ const convertToMadridTime = (date: Date): Date => {
 };
 
 
+const locationOptions = [
+  { value: "Calle la Tella 2, Altea 03590", label: "Calle la Tella 2, Altea 03590" },
+  { value: "Av del Albir 159, El Albir", label: "Av del Albir 159, El Albir" }
+];
+
 type BikeCategory = "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB";
 
 const CATEGORY_NAMES: Record<BikeCategory, string> = {
@@ -110,20 +115,22 @@ export default function AdminPage() {
   const [editingBike, setEditingBike] = useState<any>(null)
   const [editingAccessory, setEditingAccessory] = useState<any>(null)
   const [newReservation, setNewReservation] = useState<any>({
-    customer_name: "",
-    customer_email: "",
-    customer_phone: "",
-    customer_dni: "",
-    start_date: createLocalDate(),
-    end_date: createLocalDate(addDays(new Date(), 1)),
-    pickup_time: "10:00",
-    return_time: "18:00",
-    bikes: [],
-    accessories: [],
-    insurance: false,
-    status: "confirmed",
-    locale: "es",
-  })
+  customer_name: "",
+  customer_email: "",
+  customer_phone: "",
+  customer_dni: "",
+  start_date: createLocalDate(),
+  end_date: createLocalDate(),
+  pickup_time: "10:00",
+  return_time: "18:00",
+ pickup_location: "Calle la Tella 2, Altea 03590", // ← DIRECCIÓN DIRECTA
+  return_location: "Calle la Tella 2, Altea 03590",
+  bikes: [],
+  accessories: [],
+  insurance: false,
+  status: "confirmed",
+  locale: "es",
+})
   const [error, setError] = useState<string | null>(null)
   const [stats, setStats] = useState({
     totalBikes: 0,
@@ -200,6 +207,8 @@ export default function AdminPage() {
           end_date,
           pickup_time,
           return_time,
+          pickup_location,   
+          return_location,
           total_days,
           total_amount,
           deposit_amount,
@@ -655,6 +664,8 @@ const createReservation = async () => {
       locale: newReservation.locale || "es", // ✅ idioma dinámico
       payment_gateway: "admin",
       payment_status: "paid",
+       pickup_location: newReservation.pickup_location, // ← NUEVO
+  return_location: newReservation.return_location, // ← NUEVO
     };
 
     const { data, error } = await supabase
@@ -800,6 +811,9 @@ const calculateTotalDays = (
   pickupTime: string,
   returnTime: string
 ): number => {
+  // SIEMPRE retorna 1 día para reservas en el mismo día
+  if (isSameDay(startDate, endDate)) return 1;
+
   const startDay = new Date(
     startDate.getFullYear(),
     startDate.getMonth(),
@@ -810,9 +824,6 @@ const calculateTotalDays = (
     endDate.getMonth(),
     endDate.getDate()
   );
-
-  // siempre al menos 1 día
-  if (isSameDay(startDay, endDay)) return 1;
 
   const diffDays = Math.floor(
     (endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24)
@@ -1189,6 +1200,7 @@ const calculateTotalPrice = () => {
       </Select>
 
       {/* Selector de mes (corregido para incluir meses futuros) */}
+{/* Selector de mes (automático desde primer mes con reservas) */}
 <Select 
   value={selectedMonth.toISOString()} 
   onValueChange={(value) => setSelectedMonth(new Date(value))}
@@ -1199,16 +1211,31 @@ const calculateTotalPrice = () => {
     </SelectValue>
   </SelectTrigger>
   <SelectContent>
-    {/* Generar opciones para los últimos 6 meses y próximos 6 meses */}
-    {Array.from({ length: 13 }, (_, i) => {
-      const date = new Date();
-      date.setMonth(date.getMonth() - 6 + i);
-      return (
+    {(() => {
+      const options = [];
+      const today = new Date();
+      
+      // Encontrar el mes más antiguo con reservas, o usar fecha fija si no hay
+      const oldestReservation = reservations.length > 0 
+        ? new Date(Math.min(...reservations.map(r => new Date(r.start_date).getTime())))
+        : new Date(2024, 0, 1); // Fecha por defecto si no hay reservas
+      
+      const startDate = new Date(oldestReservation.getFullYear(), oldestReservation.getMonth(), 1);
+      const endDate = new Date(today.getFullYear(), today.getMonth() + 12, 1);
+      
+      // Agregar todos los meses
+      let current = new Date(startDate);
+      while (current <= endDate) {
+        options.push(new Date(current));
+        current.setMonth(current.getMonth() + 1);
+      }
+      
+      return options.map((date) => (
         <SelectItem key={date.toISOString()} value={date.toISOString()}>
           {format(date, 'MMMM yyyy', { locale: es })}
         </SelectItem>
-      );
-    })}
+      ));
+    })()}
   </SelectContent>
 </Select>
     </div>
@@ -1232,30 +1259,33 @@ const calculateTotalPrice = () => {
                 </div>
 
                 <div>
-                  <p className="text-sm">
-                    <strong>Fechas:</strong> {format(reservation.start_date, 'PPP', { locale: es })} - {format(reservation.end_date, 'PPP', { locale: es })}
-                  </p>
-                  <p className="text-sm flex items-center gap-1">
-                    <Clock className="h-4 w-4" />
-                    <span>
-                      Recogida: {reservation.pickup_time} - Devolución: {reservation.return_time}
-                    </span>
-                  </p>
-                  <p className="text-sm">
-                    <strong>Días:</strong> {reservation.total_days}
-                  </p>
-                  <p className="text-sm">
-                    <strong>Total:</strong> {reservation.total_amount}€
-                  </p>
-                  <p className="text-sm">
-                    <strong>Depósito:</strong> {reservation.deposit_amount}€
-                  </p>
-                  {reservation.insurance && (
-                    <p className="text-sm">
-                      <strong>Seguro:</strong> Sí
-                    </p>
-                  )}
-                </div>
+  <p className="text-sm">
+    <strong>Fechas:</strong> {format(reservation.start_date, 'PPP', { locale: es })} - {format(reservation.end_date, 'PPP', { locale: es })}
+  </p>
+  <p className="text-sm flex items-center gap-1">
+    <Clock className="h-4 w-4" />
+    <span>
+      Recogida: {reservation.pickup_time} - Devolución: {reservation.return_time}
+    </span>
+  </p>
+  <p className="text-sm">
+    <strong>Ubicación:</strong> {locationOptions.find(loc => loc.value === reservation.pickup_location)?.label || "No especificada"}
+  </p>
+  <p className="text-sm">
+    <strong>Días:</strong> {reservation.total_days}
+  </p>
+  <p className="text-sm">
+    <strong>Total:</strong> {reservation.total_amount}€
+  </p>
+  <p className="text-sm">
+    <strong>Depósito:</strong> {reservation.deposit_amount}€
+  </p>
+  {reservation.insurance && (
+    <p className="text-sm">
+      <strong>Seguro:</strong> Sí
+    </p>
+  )}
+</div>
 
                 <div>
                   <div className="mb-2">
@@ -1418,226 +1448,279 @@ const calculateTotalPrice = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {reservationStep === "dates" && (
-                    <>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label>Fecha de inicio*</Label>
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant={"outline"}
-                                className="w-full justify-start text-left font-normal"
-                              >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {newReservation.start_date ? (
-                                  format(newReservation.start_date, "PPP", { locale: es })
-                                ) : (
-                                  <span>Selecciona una fecha</span>
-                                )}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0">
-                              <Calendar
-                                mode="single"
-                                selected={newReservation.start_date}
-                                onSelect={(date) => {
-                                  if (!date) return;
-                                  const newDate = createLocalDate(date);
-                                  const isSaturday = newDate.getDay() === 6;
+                 {reservationStep === "dates" && (
+  <>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <Label>Fecha de inicio*</Label>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant={"outline"}
+              className="w-full justify-start text-left font-normal"
+            >
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {newReservation.start_date ? (
+                format(newReservation.start_date, "PPP", { locale: es })
+              ) : (
+                <span>Selecciona una fecha</span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0">
+            <Calendar
+              mode="single"
+              selected={newReservation.start_date}
+              onSelect={(date) => {
+                if (!date) return;
+                const newDate = createLocalDate(date);
+                const isSaturday = newDate.getDay() === 6;
 
-                                  if (isSunday(newDate)) {
-                                    setError("No se puede seleccionar domingo como fecha de inicio");
-                                    return;
-                                  }
+                if (isSunday(newDate)) {
+                  setError("No se puede seleccionar domingo como fecha de inicio");
+                  return;
+                }
 
-                                  setNewReservation({
-                                    ...newReservation,
-                                    start_date: newDate,
-                                    pickup_time: isSaturday ? "10:00" : "10:00",
-                                    return_time: isSaturday ? "14:00" : "18:00",
-                                  });
-                                  setError(null);
-                                }}
-                                initialFocus
-                                locale={es}
-                                disabled={(date) => {
-                                  const today = createLocalDate();
-                                  if (date < today && !isSameDay(date, today)) {
-                                    return true;
-                                  }
-                                  return isSunday(date);
-                                }}
-                              />
-                            </PopoverContent>
-                          </Popover>
-                        </div>
-                        <div>
-                          <Label>Fecha de fin*</Label>
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant={"outline"}
-                                className="w-full justify-start text-left font-normal"
-                              >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {newReservation.end_date ? (
-                                  format(newReservation.end_date, "PPP", { locale: es })
-                                ) : (
-                                  <span>Selecciona una fecha</span>
-                                )}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0">
-                              <Calendar
-                                mode="single"
-                                selected={newReservation.end_date}
-                                onSelect={(date) => {
-                                  if (!date) return;
-                                  const newDate = createLocalDate(date);
-                                  
-                                  if (isSunday(newDate)) {
-                                    setError("No se puede seleccionar domingo como fecha de fin");
-                                    return;
-                                  }
-                                  
-                                  if (newReservation.start_date && newDate <= newReservation.start_date) {
-                                    setError("La fecha de fin debe ser posterior a la fecha de inicio");
-                                    return;
-                                  }
+                setNewReservation({
+                  ...newReservation,
+                  start_date: newDate,
+                  // Si la fecha de fin es anterior a la nueva fecha de inicio, actualizarla
+                  end_date: newReservation.end_date && newDate > newReservation.end_date ? newDate : newReservation.end_date,
+                  pickup_time: isSaturday ? "10:00" : "10:00",
+                  return_time: isSaturday ? "14:00" : "18:00",
+                });
+                setError(null);
+              }}
+              initialFocus
+              locale={es}
+              disabled={(date) => {
+                const today = createLocalDate();
+                if (date < today && !isSameDay(date, today)) {
+                  return true;
+                }
+                return isSunday(date);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+      <div>
+        <Label>Fecha de fin*</Label>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant={"outline"}
+              className="w-full justify-start text-left font-normal"
+            >
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {newReservation.end_date ? (
+                format(newReservation.end_date, "PPP", { locale: es })
+              ) : (
+                <span>Selecciona una fecha</span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0">
+            <Calendar
+              mode="single"
+              selected={newReservation.end_date}
+              onSelect={(date) => {
+                if (!date) return;
+                const newDate = createLocalDate(date);
+                
+                if (isSunday(newDate)) {
+                  setError("No se puede seleccionar domingo como fecha de fin");
+                  return;
+                }
 
-                                  const isSaturday = newDate.getDay() === 6;
-                                  setNewReservation({
-                                    ...newReservation,
-                                    end_date: newDate,
-                                    return_time: isSaturday ? "14:00" : "18:00"
-                                  });
-                                  setError(null);
-                                }}
-                                initialFocus
-                                locale={es}
-                                disabled={(date) => {
-                                  const today = createLocalDate();
-                                  const selectedDate = date ? createLocalDate(date) : new Date();
-                                  
-                                  if (selectedDate < today) return true;
-                                  
-                                  if (isSunday(selectedDate)) return true;
-                                  
-                                  if (newReservation.start_date && selectedDate <= newReservation.start_date) return true;
-                                  
-                                  return false;
-                                }}
-                              />
-                            </PopoverContent>
-                          </Popover>
-                        </div>
-                      </div>
+                // CORRECCIÓN COMPLETA: Permitir cualquier fecha válida
+                // Si selecciona una fecha anterior al inicio, mostrar advertencia pero permitirlo
+                if (newReservation.start_date && newDate < newReservation.start_date) {
+                  // En lugar de bloquear, mostramos advertencia pero permitimos la selección
+                  setError("Advertencia: La fecha de fin es anterior a la fecha de inicio. Se ajustará automáticamente.");
+                  
+                  // Ajustamos automáticamente la fecha de inicio
+                  setNewReservation({
+                    ...newReservation,
+                    start_date: newDate,
+                    end_date: newDate,
+                    pickup_time: isSaturday(newDate) ? "10:00" : "10:00",
+                    return_time: isSaturday(newDate) ? "14:00" : "18:00",
+                  });
+                } else {
+                  // Fecha normal - igual o posterior al inicio
+                  const isSaturday = newDate.getDay() === 6;
+                  setNewReservation({
+                    ...newReservation,
+                    end_date: newDate,
+                    return_time: isSaturday ? "14:00" : "18:00"
+                  });
+                  setError(null);
+                }
+              }}
+              initialFocus
+              locale={es}
+              disabled={(date) => {
+                const today = createLocalDate();
+                const selectedDate = date ? createLocalDate(date) : new Date();
+                
+                // No permitir fechas pasadas (excepto si es el día actual)
+                if (selectedDate < today && !isSameDay(selectedDate, today)) {
+                  return true;
+                }
+                
+                // No permitir domingos
+                if (isSunday(selectedDate)) return true;
+                
+                // PERMITIR TODAS LAS FECHAS VÁLIDAS - sin restricción por fecha de inicio
+                return false;
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+    </div>
 
-                      {error && (
-                        <div className="text-red-500 text-sm">{error}</div>
-                      )}
+    {error && (
+      <div className={`text-sm ${error.includes("Advertencia") ? "text-amber-600" : "text-red-500"}`}>
+        {error}
+      </div>
+    )}
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label>Hora de recogida*</Label>
-                          <Select
-                            value={newReservation.pickup_time}
-                            onValueChange={(value) => setNewReservation({ ...newReservation, pickup_time: value })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {getTimeOptions(isSaturday(newReservation.start_date)).map(time => (
-                                <SelectItem key={time} value={time}>{time}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <p className="text-xs text-gray-500 mt-1">
-                            Lunes a Viernes: 10:00 - 18:00 | Sábados: 10:00 - 14:00
-                          </p>
-                        </div>
-                        <div>
-                          <Label>Hora de devolución*</Label>
-                          <Select
-                            value={newReservation.return_time}
-                            onValueChange={(value) => setNewReservation({ ...newReservation, return_time: value })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {getTimeOptions(isSaturday(newReservation.end_date)).map(time => (
-                                <SelectItem key={time} value={time}>{time}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <div>
+    <Label>Hora de recogida*</Label>
+    <Select
+      value={newReservation.pickup_time}
+      onValueChange={(value) => setNewReservation({ ...newReservation, pickup_time: value })}
+    >
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {getTimeOptions(isSaturday(newReservation.start_date)).map(time => (
+          <SelectItem key={time} value={time}>{time}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+    <p className="text-xs text-gray-500 mt-1">
+      Lunes a Viernes: 10:00 - 18:00 | Sábados: 10:00 - 14:00
+    </p>
+  </div>
+  <div>
+    <Label>Hora de devolución*</Label>
+    <Select
+      value={newReservation.return_time}
+      onValueChange={(value) => setNewReservation({ ...newReservation, return_time: value })}
+    >
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {getTimeOptions(isSaturday(newReservation.end_date)).map(time => (
+          <SelectItem key={time} value={time}>{time}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  </div>
+</div>
 
-                      {newReservation.start_date && newReservation.end_date && (
-                        <div className="mt-4 p-4 bg-green-50 rounded-lg">
-                          <p className="text-sm text-green-800">
-                            <strong>Duración:</strong>{" "}
-                            {calculateTotalDays(
-                              new Date(newReservation.start_date),
-                              new Date(newReservation.end_date),
-                              newReservation.pickup_time,
-                              newReservation.return_time
-                            )}{" "}
-                            días
-                          </p>
-                          <p className="text-sm text-green-800">
-                            <strong>Desde:</strong>{" "}
-                            {format(newReservation.start_date, 'PPP', { locale: es })} {newReservation.pickup_time} <strong>Hasta:</strong>{" "}
-                            {format(newReservation.end_date, 'PPP', { locale: es })} {newReservation.return_time}
-                          </p>
-                        </div>
-                      )}
+{/* NUEVO: Selector de ubicación */}
+<div className="md:col-span-2">
+  <Label>Lugar de recogida y retorno*</Label>
+  <Select
+    value={newReservation.pickup_location}
+    onValueChange={(value) => {
+      setNewReservation({
+        ...newReservation,
+        pickup_location: value,
+        return_location: value // Siempre el mismo lugar para recogida y retorno
+      });
+    }}
+  >
+    <SelectTrigger>
+      <SelectValue />
+    </SelectTrigger>
+    <SelectContent>
+      {locationOptions.map(location => (
+        <SelectItem key={location.value} value={location.value}>
+          {location.label}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+  <p className="text-xs text-gray-500 mt-1">
+    El mismo lugar para recogida y devolución
+  </p>
+</div>
 
-                      <div className="flex justify-end gap-4 pt-4">
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            setNewReservation({
-                              customer_name: "",
-                              customer_email: "",
-                              customer_phone: "",
-                              customer_dni: "",
-                              start_date: createLocalDate(),
-                              end_date: createLocalDate(addDays(new Date(), 1)),
-                              pickup_time: "10:00",
-                              return_time: "18:00",
-                              bikes: [],
-                              accessories: [],
-                              insurance: false,
-                              status: "confirmed"
-                            })
-                            setError(null);
-                          }}
-                        >
-                          Cancelar
-                        </Button>
-                        <Button 
-                          onClick={() => {
-                            if (!newReservation.start_date || !newReservation.end_date) {
-                              setError("Debes seleccionar fechas de inicio y fin");
-                              return;
-                            }
-                            if (isSunday(newReservation.start_date) || isSunday(newReservation.end_date)) {
-                              setError("No se pueden seleccionar domingos como fecha de inicio o fin");
-                              return;
-                            }
-                            setReservationStep("bikes");
-                            setError(null);
-                          }}
-                        >
-                          Siguiente: Seleccionar Bicicletas
-                        </Button>
-                      </div>
-                    </>
-                  )}
+    {newReservation.start_date && newReservation.end_date && (
+      <div className="mt-4 p-4 bg-green-50 rounded-lg">
+        <p className="text-sm text-green-800">
+          <strong>Duración:</strong>{" "}
+          {calculateTotalDays(
+            new Date(newReservation.start_date),
+            new Date(newReservation.end_date),
+            newReservation.pickup_time,
+            newReservation.return_time
+          )}{" "}
+          días
+        </p>
+        <p className="text-sm text-green-800">
+          <strong>Desde:</strong>{" "}
+          {format(newReservation.start_date, 'PPP', { locale: es })} {newReservation.pickup_time} <strong>Hasta:</strong>{" "}
+          {format(newReservation.end_date, 'PPP', { locale: es })} {newReservation.return_time}
+        </p>
+      </div>
+    )}
+
+    <div className="flex justify-end gap-4 pt-4">
+      <Button
+        variant="outline"
+        onClick={() => {
+          setNewReservation({
+            customer_name: "",
+            customer_email: "",
+            customer_phone: "",
+            customer_dni: "",
+            start_date: createLocalDate(),
+            end_date: createLocalDate(),
+            pickup_time: "10:00",
+            return_time: "18:00",
+            bikes: [],
+            accessories: [],
+            insurance: false,
+            status: "confirmed",
+            locale: "es"
+          })
+          setError(null);
+        }}
+      >
+        Cancelar
+      </Button>
+      <Button 
+        onClick={() => {
+          if (!newReservation.start_date || !newReservation.end_date) {
+            setError("Debes seleccionar fechas de inicio y fin");
+            return;
+          }
+          if (isSunday(newReservation.start_date) || isSunday(newReservation.end_date)) {
+            setError("No se pueden seleccionar domingos como fecha de inicio o fin");
+            return;
+          }
+          if (newReservation.end_date < newReservation.start_date) {
+            setError("La fecha de fin debe ser igual o posterior a la fecha de inicio");
+            return;
+          }
+          setReservationStep("bikes");
+          setError(null);
+        }}
+      >
+        Siguiente: Seleccionar Bicicletas
+      </Button>
+    </div>
+  </>
+)}
 
                   {reservationStep === "bikes" && (
   <>

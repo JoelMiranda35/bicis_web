@@ -38,7 +38,21 @@ export type TranslationKey =
   | 'premiumBikes' | 'renewedFleet' | 'insuranceIncluded' | 'completeProtection'
   | 'service24' | 'technicalAssistance' | 'recommendedBikes' | 'popularBikes'
   | 'ourLocation' | 'locationSubtitle' | 'howToGetHere' | 'locationDesc1'
-  | 'locationDesc2' | 'pay' | 'goBack' | 'payOnline';
+  | 'locationDesc2' | 'pay' | 'goBack' | 'payOnline'
+  // Nuevas traducciones agregadas
+  | 'pickupReturnLocation' | 'pickupReturnSameLocation'
+  | 'locationAltea' | 'locationAlbir'
+  | 'locationAlteaAddress' | 'locationAlbirAddress'
+  | 'ourServices' | 'trekOfficialDealer' | 'trekOfficialDealerDesc'
+  | 'bikeRental' | 'bikeRentalDesc' | 'technicalService' | 'technicalServiceDesc'
+  | 'equipmentSales' | 'equipmentSalesDesc'
+  | 'alteaBikeShop' | 'albirCycling' | 'alteaLocationTitle' | 'alteaLocationDesc'
+  | 'albirLocationTitle' | 'albirLocationDesc'| 'locationLabel'
+  // Nuevas traducciones para page.tsx
+  | 'alteaBikeShopTitle' | 'alteaBikeShopSubtitle' | 'alteaHowToGetHere'
+  | 'alteaLocationDesc1' | 'alteaLocationDesc2' | 'viewOnGoogleMaps'
+  | 'albirCyclingTitle' | 'albirCyclingSubtitle' | 'albirHowToGetHere'
+  | 'albirLocationDesc1' | 'albirLocationDesc2';
 
 interface AmountParams {
   amount: number;
@@ -203,7 +217,42 @@ const translations = {
     locationDesc2: "Easy access by public transport and plenty of parking options nearby.",
     pay: "Pay",
     goBack: "Go Back",
-    payOnline: "Pay"
+    payOnline: "Pay",
+    // Nuevas traducciones agregadas
+    pickupReturnLocation: "Pickup and return location",
+    pickupReturnSameLocation: "Pickup and return must be at the same location",
+    locationAltea: "Altea Bike Shop",
+    locationAlbir: "Albir Cycling", 
+    locationAlteaAddress: "Calle la Tella 2, Altea 03590",
+    locationAlbirAddress: "Av del Albir 159, El Albir",
+    ourServices: "Our Services",
+    trekOfficialDealer: "Official Trek Dealer",
+    trekOfficialDealerDesc: "Sale of new Trek bikes and official brand service.",
+    bikeRental: "Bike Rental",
+    bikeRentalDesc: "Road, mountain and electric bikes for all Costa Blanca routes.",
+    technicalService: "Technical Service",
+    technicalServiceDesc: "Professional repair and maintenance for your bicycle.",
+    equipmentSales: "Equipment Sales",
+    equipmentSalesDesc: "Helmets, accessories and everything you need for your safety and comfort.",
+    alteaBikeShop: "Altea Bike Shop",
+    albirCycling: "Albir Cycling",
+    alteaLocationTitle: "Altea Bike Shop",
+    alteaLocationDesc: "Our main location in Altea",
+    albirLocationTitle: "Albir Cycling", 
+    albirLocationDesc: "Our location in L'Alfàs del Pi",
+    locationLabel: "Location",
+    // Nuevas traducciones para page.tsx
+    alteaBikeShopTitle: "Altea Bike Shop",
+    alteaBikeShopSubtitle: "Our main location in the heart of Altea",
+    alteaHowToGetHere: "How to get to Altea Bike Shop",
+    alteaLocationDesc1: "Our Altea store is conveniently located in the city center, just a few minutes walk from the beach and the famous church of Altea.",
+    alteaLocationDesc2: "Easy access by public transport with bus stops nearby and plenty of parking options in the surrounding streets.",
+    viewOnGoogleMaps: "View on Google Maps",
+    albirCyclingTitle: "Albir Cycling",
+    albirCyclingSubtitle: "Our location in L'Alfàs del Pi",
+    albirHowToGetHere: "How to get to Albir Cycling",
+    albirLocationDesc1: "Our location is on Avenida l'Albir opposite the Lidl supermarket, close to the beautiful Albir beach and promenade.",
+    albirLocationDesc2: "Conveniently accessible by car with parking available, and well connected by local bus services."
   },
   es: {
     home: "Inicio",
@@ -350,7 +399,42 @@ const translations = {
     locationDesc2: "Fácil acceso en transporte público y muchas opciones de aparcamiento cercanas.",
     pay: "Pagar",
     goBack: "Volver Atrás",
-    payOnline: "Pagar"
+    payOnline: "Pagar",
+    // Nuevas traducciones agregadas
+    pickupReturnLocation: "Lugar de recogida y retorno",
+    pickupReturnSameLocation: "El lugar de recogida y retorno debe ser el mismo",
+    locationAltea: "Altea Bike Shop",
+    locationAlbir: "Albir Cycling",
+    locationAlteaAddress: "Calle la Tella 2, Altea 03590",
+    locationAlbirAddress: "Av Del Albir 159, El Albir",
+    ourServices: "Nuestros Servicios",
+    trekOfficialDealer: "Distribuidor Oficial Trek",
+    trekOfficialDealerDesc: "Venta de bicicletas Trek nuevas y servicio oficial de la marca.",
+    bikeRental: "Alquiler de Bicicletas",
+    bikeRentalDesc: "Bicicletas de carretera, montaña y eléctricas para todas las rutas de la Costa Blanca.",
+    technicalService: "Servicio Técnico",
+    technicalServiceDesc: "Reparación y mantenimiento profesional para tu bicicleta.",
+    equipmentSales: "Venta de Equipamiento",
+    equipmentSalesDesc: "Cascos, accesorios y todo lo necesario para tu seguridad y comodidad.",
+    alteaBikeShop: "Altea Bike Shop",
+    albirCycling: "Albir Cycling",
+    alteaLocationTitle: "Altea Bike Shop",
+    alteaLocationDesc: "Nuestra ubicación principal en Altea",
+    albirLocationTitle: "Albir Cycling",
+    albirLocationDesc: "Nuestra ubicación en L'Alfàs del Pi",
+    locationLabel: "Ubicación",
+    // Nuevas traducciones para page.tsx
+    alteaBikeShopTitle: "Altea Bike Shop",
+    alteaBikeShopSubtitle: "Nuestra ubicación principal en el corazón de Altea",
+    alteaHowToGetHere: "Cómo llegar a Altea Bike Shop",
+    alteaLocationDesc1: "Nuestra tienda de Altea está convenientemente ubicada en el centro de la ciudad, a pocos minutos a pie de la playa y la famosa iglesia de Altea.",
+    alteaLocationDesc2: "Fácil acceso en transporte público con paradas de autobús cercanas y muchas opciones de aparcamiento en las calles aledañas.",
+    viewOnGoogleMaps: "Ver en Google Maps",
+    albirCyclingTitle: "Albir Cycling",
+    albirCyclingSubtitle: "Nuestra ubicación en L'Alfàs del Pi",
+    albirHowToGetHere: "Cómo llegar a Albir Cycling",
+    albirLocationDesc1: "Nuestra ubicacion es sobre la avenida del albir frente al supermercado lidl, cerca de la bonita playa de Albir y el paseo marítimo.",
+    albirLocationDesc2: "Acceso conveniente en coche con aparcamiento disponible, y bien conectado con los servicios de autobús local."
   },
   nl: {
     home: "Home",
@@ -497,9 +581,62 @@ const translations = {
     locationDesc2: "Gemakkelijk bereikbaar met het openbaar vervoer en veel parkeermogelijkheden in de buurt.",
     pay: "Betalen",
     goBack: "Teruggaan",
-    payOnline: "Betalen"
+    payOnline: "Betalen",
+    // Nuevas traducciones agregadas
+    pickupReturnLocation: "Ophaal- en retouradres",
+    pickupReturnSameLocation: "Ophaal- en retouradres moeten hetzelfde zijn",
+    locationAltea: "Altea Bike Shop",
+    locationAlbir: "Albir Cycling",
+    locationAlteaAddress: "Calle la Tella 2, Altea 03590",
+    locationAlbirAddress: "Av del Albir 159, El Albir",
+    ourServices: "Onze Diensten",
+    trekOfficialDealer: "Officiële Trek Dealer",
+    trekOfficialDealerDesc: "Verkoop van nieuwe Trek fietsen en officiële merk service.",
+    bikeRental: "Fietsverhuur",
+    bikeRentalDesc: "Race-, mountainbikes en elektrische fietsen voor alle Costa Blanca routes.",
+    technicalService: "Technische Service",
+    technicalServiceDesc: "Professionele reparatie en onderhoud voor uw fiets.",
+    equipmentSales: "Uitrusting Verkoop",
+    equipmentSalesDesc: "Helmen, accessoires en alles wat u nodig heeft voor uw veiligheid en comfort.",
+    alteaBikeShop: "Altea Bike Shop",
+    albirCycling: "Albir Cycling",
+    alteaLocationTitle: "Altea Bike Shop",
+    alteaLocationDesc: "Onze hoofdlocatie in Altea",
+    albirLocationTitle: "Albir Cycling",
+    albirLocationDesc: "Onze locatie in L'Alfàs del Pi",
+    locationLabel: "Locatie",
+    // Nuevas traducciones para page.tsx
+    alteaBikeShopTitle: "Altea Bike Shop",
+    alteaBikeShopSubtitle: "Onze hoofdlocatie in het hart van Altea",
+    alteaHowToGetHere: "Hoe kom ik bij Altea Bike Shop",
+    alteaLocationDesc1: "Onze Altea-winkel is gunstig gelegen in het stadscentrum, op slechts een paar minuten lopen van het strand en de beroemde kerk van Altea.",
+    alteaLocationDesc2: "Gemakkelijk bereikbaar met het openbaar vervoer met bushaltes in de buurt en veel parkeermogelijkheden in de omliggende straten.",
+    viewOnGoogleMaps: "Bekijk op Google Maps",
+    albirCyclingTitle: "Albir Cycling",
+    albirCyclingSubtitle: "Onze locatie in L'Alfàs del Pi",
+    albirHowToGetHere: "Hoe kom ik bij Albir Cycling",
+    albirLocationDesc1: "Onze locatie bevindt zich aan de Avenida L'Albir tegenover de Lidl supermarkt, dicht bij het prachtige Albir strand en de promenade.",
+    albirLocationDesc2: "Gemakkelijk bereikbaar met de auto met parkeergelegenheid en goed verbonden met lokale busdiensten."
   }
 } as const;
+
+
+
+export const getTranslation = (language: Language) => {
+  return (key: TranslationKey, params?: Record<string, any>): string => {
+    const translation = translations[language][key];
+    
+    if (typeof translation === 'function') {
+      return translation(params as any);
+    }
+    
+    return translation;
+  };
+};
+
+export const getAvailableLanguages = (): Language[] => {
+  return Object.keys(translations) as Language[];
+};
 
 export type Language = keyof typeof translations;
 export default translations;

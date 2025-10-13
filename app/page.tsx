@@ -122,47 +122,95 @@ export default function HomePage() {
         </div>
       </section>
 
-     {/* Location Section */}
-<section className="py-16 bg-gray-50">
+     {/* Location Section - Altea Bike Shop */}
+<section className="py-16 bg-white">
   <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
     <div className="text-center mb-12">
-      <h2 className="text-3xl font-bold text-gray-900 mb-4">{t("ourLocation")}</h2>
-      <p className="text-lg text-gray-600">{t("locationSubtitle")}</p>
+      <h2 className="text-3xl font-bold text-gray-900 mb-4">{t("alteaBikeShopTitle")}</h2>
+      <p className="text-lg text-gray-600">{t("alteaBikeShopSubtitle")}</p>
     </div>
 
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
       <div>
-        <h3 className="text-xl font-semibold mb-4">{t("howToGetHere")}</h3>
+        <h3 className="text-xl font-semibold mb-4">{t("alteaHowToGetHere")}</h3>
         <div className="space-y-4 text-gray-600">
-          <p>{t("locationDesc1")}</p>
-          <p>{t("locationDesc2")}</p>
+          <p>{t("alteaLocationDesc1")}</p>
+          <p>{t("alteaLocationDesc2")}</p>
         </div>
 
         <div className="mt-6 space-y-2">
           <div className="flex items-center">
             <MapPin className="h-5 w-5 text-green-600 mr-2" />
-            <span>Calle la Tella 2, Altea 03590, Alicante</span>
+            <span>{t("locationAlteaAddress")}</span>
           </div>
         </div>
       </div>
 
-      {/* Contenedor del mapa con enlace - Tamaño reducido */}
+      {/* Mapa Altea Bike Shop */}
       <a 
         href="https://www.google.com/maps/place/Calle+la+Tella,+2,+03590+Altea,+Alicante/" 
         target="_blank" 
         rel="noopener noreferrer"
-        className="relative group overflow-hidden rounded-lg shadow-lg h-[600px]"
+        className="relative group overflow-hidden rounded-lg shadow-lg h-[400px]"
       >
         <Image
           src="/images/Alteamap.jpg"
-          alt="Ubicación de Altea Bike Shop en mapa"
+          alt={t("alteaLocationTitle")}
           width={600}
           height={400}
           className="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105"
         />
         <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 flex items-center justify-center">
           <span className="bg-white px-4 py-2 rounded-full font-medium text-sm shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-            Ver en Google Maps →
+            {t("viewOnGoogleMaps")}
+          </span>
+        </div>
+      </a>
+    </div>
+  </div>
+</section>
+
+{/* Location Section - Albir Cycling */}
+<section className="py-16 bg-gray-50">
+  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="text-center mb-12">
+      <h2 className="text-3xl font-bold text-gray-900 mb-4">{t("albirCyclingTitle")}</h2>
+      <p className="text-lg text-gray-600">{t("albirCyclingSubtitle")}</p>
+    </div>
+
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+      <div>
+        <h3 className="text-xl font-semibold mb-4">{t("albirHowToGetHere")}</h3>
+        <div className="space-y-4 text-gray-600">
+          <p>{t("albirLocationDesc1")}</p>
+          <p>{t("albirLocationDesc2")}</p>
+        </div>
+
+        <div className="mt-6 space-y-2">
+          <div className="flex items-center">
+            <MapPin className="h-5 w-5 text-green-600 mr-2" />
+            <span>{t("locationAlbirAddress")}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Mapa Albir Cycling */}
+      <a 
+        href="https://www.google.com/maps/place/Avinguda+l'Albir,+159,+Local+2,+03580+l'Alfàs+del+Pi,+Alicante/" 
+        target="_blank" 
+        rel="noopener noreferrer"
+        className="relative group overflow-hidden rounded-lg shadow-lg h-[400px]"
+      >
+        <Image
+          src="/images/albir-map.jpeg"
+          alt={t("albirLocationTitle")}
+          width={600}
+          height={400}
+          className="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105"
+        />
+        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 flex items-center justify-center">
+          <span className="bg-white px-4 py-2 rounded-full font-medium text-sm shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+            {t("viewOnGoogleMaps")}
           </span>
         </div>
       </a>
