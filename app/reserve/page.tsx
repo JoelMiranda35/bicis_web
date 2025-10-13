@@ -142,8 +142,8 @@ const getTimeOptions = (isSaturday: boolean) => {
   return ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
 };
 const locationOptions = [
-  { value: "sucursal_centro", label_es: "Calle la Tella 2, Altea 03590", label_en: "Calle la Tella 2, Altea 03590", label_nl: "Calle la Tella 2, Altea 03590" },
-  { value: "sucursal_norte", label_es: "Av del Albir 159, El Albir", label_en: "Av Del Albir 159, El Albir", label_nl: "Av del Albir 159, el Albir" }
+  { value: "sucursal_centro", label_es: "Altea Bike Shop - Calle la Tella 2, Altea", label_en: "Altea Bike Shop - Calle la Tella 2, Altea", label_nl: "Altea Bike Shop - Calle la Tella 2, Altea" },
+  { value: "sucursal_norte", label_es: "Albir Cycling - Av del Albir 159, El Albir", label_en: "Albir Cycling - Av del Albir 159, El Albir", label_nl: "Albir Cycling - Av del Albir 159, El Albir" }
 ];
 
 const calculateTotalDays = (

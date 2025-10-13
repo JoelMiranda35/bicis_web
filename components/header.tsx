@@ -15,7 +15,7 @@ export function Header() {
   return (
     <header className="bg-white shadow-sm sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-24"> {/* Aumenté a h-24 para logos de 200px */}
+        <div className="flex justify-between items-center h-24">
           <div className="flex items-center">
             {/* Altea Bike Shop con link */}
             <Link href="https://alteabikeshop.com" target="_blank" className="flex items-center">
@@ -32,8 +32,8 @@ export function Header() {
             {/* Separador */}
             <span className="mx-4 text-gray-300 text-xl">|</span>
             
-            {/* Albir Cycling con link */}
-            <Link href="https://albir-cycling.com" target="_blank" className="flex items-center">
+            {/* Albir Cycling con link - Texto al costado en desktop, debajo en móvil */}
+            <Link href="https://albir-cycling.com" target="_blank" className="flex flex-col items-center md:flex-row md:items-center">
               <Image 
                 src="/images/albir-cycling-logo.jpeg" 
                 alt="Albir Cycling" 
@@ -41,7 +41,7 @@ export function Header() {
                 height={200} 
                 className="rounded-full" 
               />
-              <span className="ml-3 text-xl font-bold text-gray-900">Albir Cycling</span>
+              <span className="mt-2 md:mt-0 md:ml-3 text-xl font-bold text-gray-900">Albir Cycling</span>
             </Link>
           </div>
 
@@ -59,9 +59,8 @@ export function Header() {
             <LanguageSelector />
           </nav>
 
-          {/* Mobile menu button */}
-          <div className="md:hidden flex items-center gap-2">
-            <LanguageSelector />
+          {/* Mobile menu button - Solo el botón del menú */}
+          <div className="md:hidden flex items-center">
             <Button variant="ghost" size="icon" onClick={() => setIsMenuOpen(!isMenuOpen)}>
               {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
             </Button>
@@ -93,6 +92,11 @@ export function Header() {
               >
                 {t("reserve")}
               </Link>
+              
+              {/* Language Selector en el menú móvil */}
+              <div className="px-3 py-2">
+                <LanguageSelector />
+              </div>
             </div>
           </div>
         )}

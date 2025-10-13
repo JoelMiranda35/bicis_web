@@ -64,51 +64,54 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Features Section */}
-      <section className="py-16 bg-white">
+      {/* Features Section - LOGOS ARREGLADOS PARA MÓVIL */}
+      <section className="py-12 md:py-16 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">{t("whyChoose")}</h2>
-            <p className="text-lg text-gray-600">{t("yearsExperience")}</p>
+          <div className="text-center mb-8 md:mb-12">
+            <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">{t("whyChoose")}</h2>
+            <p className="text-base md:text-lg text-gray-600">{t("yearsExperience")}</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
+            {/* Premium Bikes - Logo más pequeño en móvil */}
             <div className="text-center">
-              <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Bike className="h-8 w-8 text-green-600" />
+              <div className="bg-green-100 w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
+                <Bike className="h-5 w-5 md:h-8 md:w-8 text-green-600" />
               </div>
-              <h3 className="text-xl font-semibold mb-2">{t("premiumBikes")}</h3>
-              <p className="text-gray-600">{t("renewedFleet")}</p>
+              <h3 className="text-lg md:text-xl font-semibold mb-2">{t("premiumBikes")}</h3>
+              <p className="text-sm md:text-base text-gray-600 px-2">{t("renewedFleet")}</p>
             </div>
 
+            {/* Insurance Included - Logo más pequeño en móvil */}
             <div className="text-center">
-              <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Shield className="h-8 w-8 text-green-600" />
+              <div className="bg-green-100 w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
+                <Shield className="h-5 w-5 md:h-8 md:w-8 text-green-600" />
               </div>
-              <h3 className="text-xl font-semibold mb-2">{t("insuranceIncluded")}</h3>
-              
+              <h3 className="text-lg md:text-xl font-semibold mb-2">{t("insuranceIncluded")}</h3>
+              {/* Se eliminó la línea problemática con insuranceDescription */}
             </div>
 
+            {/* 24/7 Service - Logo más pequeño en móvil */}
             <div className="text-center">
-              <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Clock className="h-8 w-8 text-green-600" />
+              <div className="bg-green-100 w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
+                <Clock className="h-5 w-5 md:h-8 md:w-8 text-green-600" />
               </div>
-              <h3 className="text-xl font-semibold mb-2">{t("service24")}</h3>
-              <p className="text-gray-600">{t("technicalAssistance")}</p>
+              <h3 className="text-lg md:text-xl font-semibold mb-2">{t("service24")}</h3>
+              <p className="text-sm md:text-base text-gray-600 px-2">{t("technicalAssistance")}</p>
             </div>
           </div>
         </div>
       </section>
 
       {/* Recommended Bikes Section */}
-      <section className="py-16 bg-gray-50">
+      <section className="py-12 md:py-16 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">{t("recommendedBikes")}</h2>
-            <p className="text-lg text-gray-600">{t("popularBikes")}</p>
+          <div className="text-center mb-8 md:mb-12">
+            <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">{t("recommendedBikes")}</h2>
+            <p className="text-base md:text-lg text-gray-600">{t("popularBikes")}</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 mb-8">
             {recommendedBikes.map((bike) => (
               <BikeCard key={bike.id} bike={bike} language={language} />
             ))}
@@ -122,101 +125,99 @@ export default function HomePage() {
         </div>
       </section>
 
-     {/* Location Section - Altea Bike Shop */}
-<section className="py-16 bg-white">
-  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <div className="text-center mb-12">
-      <h2 className="text-3xl font-bold text-gray-900 mb-4">{t("alteaBikeShopTitle")}</h2>
-      <p className="text-lg text-gray-600">{t("alteaBikeShopSubtitle")}</p>
-    </div>
+      {/* Location Section - Altea Bike Shop */}
+      <section className="py-12 md:py-16 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-8 md:mb-12">
+            <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">{t("alteaBikeShopTitle")}</h2>
+            <p className="text-base md:text-lg text-gray-600">{t("alteaBikeShopSubtitle")}</p>
+          </div>
 
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-      <div>
-        <h3 className="text-xl font-semibold mb-4">{t("alteaHowToGetHere")}</h3>
-        <div className="space-y-4 text-gray-600">
-          <p>{t("alteaLocationDesc1")}</p>
-          <p>{t("alteaLocationDesc2")}</p>
-        </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12">
+            <div>
+              <h3 className="text-lg md:text-xl font-semibold mb-4">{t("alteaHowToGetHere")}</h3>
+              <div className="space-y-3 md:space-y-4 text-gray-600">
+                <p className="text-sm md:text-base">{t("alteaLocationDesc1")}</p>
+              </div>
 
-        <div className="mt-6 space-y-2">
-          <div className="flex items-center">
-            <MapPin className="h-5 w-5 text-green-600 mr-2" />
-            <span>{t("locationAlteaAddress")}</span>
+              <div className="mt-4 md:mt-6 space-y-2">
+                <div className="flex items-center">
+                  <MapPin className="h-4 w-4 md:h-5 md:w-5 text-green-600 mr-2" />
+                  <span className="text-sm md:text-base">{t("locationAlteaAddress")}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Mapa Altea Bike Shop */}
+            <a 
+              href="https://www.google.com/maps/place/Calle+la+Tella,+2,+03590+Altea,+Alicante/" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="relative group overflow-hidden rounded-lg shadow-lg h-[300px] md:h-[400px]"
+            >
+              <Image
+                src="/images/Alteamap.jpg"
+                alt={t("alteaLocationTitle")}
+                width={600}
+                height={400}
+                className="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105"
+              />
+              <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 flex items-center justify-center">
+                <span className="bg-white px-3 py-1 md:px-4 md:py-2 rounded-full font-medium text-xs md:text-sm shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  {t("viewOnGoogleMaps")}
+                </span>
+              </div>
+            </a>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Mapa Altea Bike Shop */}
-      <a 
-        href="https://www.google.com/maps/place/Calle+la+Tella,+2,+03590+Altea,+Alicante/" 
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="relative group overflow-hidden rounded-lg shadow-lg h-[400px]"
-      >
-        <Image
-          src="/images/Alteamap.jpg"
-          alt={t("alteaLocationTitle")}
-          width={600}
-          height={400}
-          className="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105"
-        />
-        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 flex items-center justify-center">
-          <span className="bg-white px-4 py-2 rounded-full font-medium text-sm shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-            {t("viewOnGoogleMaps")}
-          </span>
-        </div>
-      </a>
-    </div>
-  </div>
-</section>
+      {/* Location Section - Albir Cycling */}
+      <section className="py-12 md:py-16 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-8 md:mb-12">
+            <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">{t("albirCyclingTitle")}</h2>
+            <p className="text-base md:text-lg text-gray-600">{t("albirCyclingSubtitle")}</p>
+          </div>
 
-{/* Location Section - Albir Cycling */}
-<section className="py-16 bg-gray-50">
-  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <div className="text-center mb-12">
-      <h2 className="text-3xl font-bold text-gray-900 mb-4">{t("albirCyclingTitle")}</h2>
-      <p className="text-lg text-gray-600">{t("albirCyclingSubtitle")}</p>
-    </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12">
+            <div>
+              <h3 className="text-lg md:text-xl font-semibold mb-4">{t("albirHowToGetHere")}</h3>
+              <div className="space-y-3 md:space-y-4 text-gray-600">
+                <p className="text-sm md:text-base">{t("albirLocationDesc1")}</p>
+              </div>
 
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-      <div>
-        <h3 className="text-xl font-semibold mb-4">{t("albirHowToGetHere")}</h3>
-        <div className="space-y-4 text-gray-600">
-          <p>{t("albirLocationDesc1")}</p>
-          <p>{t("albirLocationDesc2")}</p>
-        </div>
+              <div className="mt-4 md:mt-6 space-y-2">
+                <div className="flex items-center">
+                  <MapPin className="h-4 w-4 md:h-5 md:w-5 text-green-600 mr-2" />
+                  <span className="text-sm md:text-base">{t("locationAlbirAddress")}</span>
+                </div>
+              </div>
+            </div>
 
-        <div className="mt-6 space-y-2">
-          <div className="flex items-center">
-            <MapPin className="h-5 w-5 text-green-600 mr-2" />
-            <span>{t("locationAlbirAddress")}</span>
+            {/* Mapa Albir Cycling */}
+            <a 
+              href="https://www.google.com/maps/place/Avinguda+l'Albir,+159,+Local+2,+03580+l'Alfàs+del+Pi,+Alicante/" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="relative group overflow-hidden rounded-lg shadow-lg h-[300px] md:h-[400px]"
+            >
+              <Image
+                src="/images/albir-map.jpeg"
+                alt={t("albirLocationTitle")}
+                width={600}
+                height={400}
+                className="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105"
+              />
+              <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 flex items-center justify-center">
+                <span className="bg-white px-3 py-1 md:px-4 md:py-2 rounded-full font-medium text-xs md:text-sm shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  {t("viewOnGoogleMaps")}
+                </span>
+              </div>
+            </a>
           </div>
         </div>
-      </div>
-
-      {/* Mapa Albir Cycling */}
-      <a 
-        href="https://www.google.com/maps/place/Avinguda+l'Albir,+159,+Local+2,+03580+l'Alfàs+del+Pi,+Alicante/" 
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="relative group overflow-hidden rounded-lg shadow-lg h-[400px]"
-      >
-        <Image
-          src="/images/albir-map.jpeg"
-          alt={t("albirLocationTitle")}
-          width={600}
-          height={400}
-          className="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105"
-        />
-        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 flex items-center justify-center">
-          <span className="bg-white px-4 py-2 rounded-full font-medium text-sm shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-            {t("viewOnGoogleMaps")}
-          </span>
-        </div>
-      </a>
-    </div>
-  </div>
-</section>
+      </section>
     </div>
   )
 }
