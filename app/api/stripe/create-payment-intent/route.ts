@@ -50,17 +50,20 @@ export async function POST(request: Request) {
       metadata: cleanedMetadata,
     };
 
-    if (cleanedMetadata.customer_phone) {
-      paymentIntentParams.shipping = {
-        name: cleanedMetadata.customer_name || '',
-        phone: cleanedMetadata.customer_phone,
-        address: {
-          line1: cleanedMetadata.customer_address || 'Not provided',
-          city: cleanedMetadata.customer_city || 'Not provided',
-          country: cleanedMetadata.customer_country || 'ES',
-        },
-      };
-    }
+    // COMENTA o ELIMINA esta sección completa:
+/*
+if (cleanedMetadata.customer_phone) {
+  paymentIntentParams.shipping = {
+    name: cleanedMetadata.customer_name || '',
+    phone: cleanedMetadata.customer_phone,
+    address: {
+      line1: cleanedMetadata.customer_address || 'Not provided',
+      city: cleanedMetadata.customer_city || 'Not provided',
+      country: cleanedMetadata.customer_country || 'ES',
+    },
+  };
+}
+*/
 
     const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
 
