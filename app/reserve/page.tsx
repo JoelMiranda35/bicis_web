@@ -141,9 +141,27 @@ const getTimeOptions = (isSaturday: boolean) => {
   }
   return ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
 };
-const locationOptions = [
-  { value: "sucursal_centro", label_es: "Altea Bike Shop - Calle la Tella 2, Altea", label_en: "Altea Bike Shop - Calle la Tella 2, Altea", label_nl: "Altea Bike Shop - Calle la Tella 2, Altea" },
-  { value: "sucursal_norte", label_es: "Albir Cycling - Av del Albir 159, El Albir", label_en: "Albir Cycling - Av del Albir 159, El Albir", label_nl: "Albir Cycling - Av del Albir 159, El Albir" }
+
+interface LocationOption {
+  value: string;
+  label_es: string;
+  label_en: string;
+  label_nl: string;
+}
+
+const locationOptions: LocationOption[] = [
+  { 
+    value: "sucursal_altea", 
+    label_es: "Altea Bike Shop - Calle la Tella 2, Altea", 
+    label_en: "Altea Bike Shop - Calle la Tella 2, Altea", 
+    label_nl: "Altea Bike Shop - Calle la Tella 2, Altea" 
+  },
+  { 
+    value: "sucursal_albir", 
+    label_es: "Albir Cycling - Av del Albir 159, El Albir", 
+    label_en: "Albir Cycling - Av del Albir 159, El Albir", 
+    label_nl: "Albir Cycling - Av del Albir 159, El Albir" 
+  }
 ];
 
 const calculateTotalDays = (
@@ -629,8 +647,8 @@ export default function ReservePage() {
     phone: "",
     dni: "",
   });
-  const [pickupLocation, setPickupLocation] = useState("sucursal_centro");
-  const [returnLocation, setReturnLocation] = useState("sucursal_centro");
+  const [pickupLocation, setPickupLocation] = useState("sucursal_altea");
+const [returnLocation, setReturnLocation] = useState("sucursal_altea");
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [reservationId, setReservationId] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);

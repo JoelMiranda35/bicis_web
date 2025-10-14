@@ -54,8 +54,8 @@ const convertToMadridTime = (date: Date): Date => {
 
 
 const locationOptions = [
-  { value: "Calle la Tella 2, Altea 03590", label: "Calle la Tella 2, Altea 03590" },
-  { value: "Av del Albir 159, El Albir", label: "Av del Albir 159, El Albir" }
+  { value: "sucursal_altea", label: "Altea Bike Shop - Calle la Tella 2, Altea" },
+  { value: "sucursal_albir", label: "Albir Cycling - Av del Albir 159, El Albir" }
 ];
 
 type BikeCategory = "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB";
@@ -123,8 +123,8 @@ export default function AdminPage() {
   end_date: createLocalDate(),
   pickup_time: "10:00",
   return_time: "18:00",
- pickup_location: "Calle la Tella 2, Altea 03590", // ← DIRECCIÓN DIRECTA
-  return_location: "Calle la Tella 2, Altea 03590",
+ pickup_location: "sucursal_altea", // ← Cambiado para coincidir con la BD
+  return_location: "sucursal_altea",
   bikes: [],
   accessories: [],
   insurance: false,
@@ -1269,8 +1269,12 @@ const calculateTotalPrice = () => {
     </span>
   </p>
   <p className="text-sm">
-    <strong>Ubicación:</strong> {locationOptions.find(loc => loc.value === reservation.pickup_location)?.label || "No especificada"}
-  </p>
+  <strong>Ubicación:</strong> {
+    locationOptions.find(loc => loc.value === reservation.pickup_location)?.label || 
+    reservation.pickup_location || 
+    "No especificada"
+  }
+</p>
   <p className="text-sm">
     <strong>Días:</strong> {reservation.total_days}
   </p>
