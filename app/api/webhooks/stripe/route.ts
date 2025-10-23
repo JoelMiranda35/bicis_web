@@ -100,6 +100,12 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
     
     console.log('📦 Creating reservation from metadata:', metadata);
 
+    // ✅ SOLUCIÓN: Validar pickup_location en el webhook también
+    const validatedPickupLocation = 
+      metadata.pickup_location && ['sucursal_altea', 'sucursal_albir'].includes(metadata.pickup_location)
+        ? metadata.pickup_location
+        : 'sucursal_altea';
+
     // Parsear datos de bicicletas
     let bikesData = [];
     try {
@@ -125,8 +131,8 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
       end_date: metadata.end_date || new Date().toISOString(),
       pickup_time: metadata.pickup_time || '10:00',
       return_time: metadata.return_time || '18:00',
-      pickup_location: metadata.pickup_location || 'Calle la Tella 2, Altea 03590',
-      return_location: metadata.return_location || 'Calle la Tella 2, Altea 03590',
+      pickup_location: validatedPickupLocation, // ✅ USAR VARIABLE VALIDADA
+      return_location: validatedPickupLocation, // ✅ USAR VARIABLE VALIDADA
       total_days: parseInt(metadata.total_days || '1'),
       bikes: bikesData,
       accessories: accessoriesData,

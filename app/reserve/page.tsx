@@ -398,33 +398,40 @@ const StripePaymentForm = ({
   const [cardError, setCardError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmedIntent, setConfirmedIntent] = useState<any>(null);
+  const [paymentCompleted, setPaymentCompleted] = useState(false);
   
   // Calculamos el monto total a pagar (sin restar el depósito)
   const totalAmount = calculateTotal();
 
-  const createReservation = async (metadata: any, paymentIntentId: string) => {
-    try {
-      const bikesData = (selectedBikes || []).map((bike: any) => ({
-        model: bike.title_es,
-        size: bike.size,
-        quantity: bike.quantity,
-        bike_ids: bike.bikes.map((b: any) => b.id),
-        pricePerDay: calculatePrice(bike.category, calculateTotalDays(startDate, endDate, pickupTime, returnTime))
-      }));
+ const createReservation = async (metadata: any, paymentIntentId: string) => {
+  try {
+    const bikesData = (selectedBikes || []).map((bike: any) => ({
+      model: bike.title_es,
+      size: bike.size,
+      quantity: bike.quantity,
+      bike_ids: bike.bikes.map((b: any) => b.id),
+      pricePerDay: calculatePrice(bike.category, calculateTotalDays(startDate, endDate, pickupTime, returnTime))
+    }));
 
-      const { data, error } = await supabase
-        .from("reservations")
-        .insert([{
-          customer_name: metadata.customer_name || customerData.name,
-          customer_email: metadata.customer_email || customerData.email,
-          customer_phone: metadata.customer_phone || customerData.phone,
-          customer_dni: metadata.customer_dni || customerData.dni,
-          start_date: metadata.start_date || startDate.toISOString(),
-          end_date: metadata.end_date || endDate.toISOString(),
-          pickup_time: metadata.pickup_time || pickupTime,
-          return_time: metadata.return_time || returnTime,
-          pickup_location: pickupLocation,
-          return_location: pickupLocation,
+    // ✅ SOLUCIÓN: Validar que pickup_location tenga un valor correcto
+    const validatedPickupLocation = 
+      pickupLocation && ['sucursal_altea', 'sucursal_albir'].includes(pickupLocation) 
+        ? pickupLocation 
+        : 'sucursal_altea';
+
+    const { data, error } = await supabase
+      .from("reservations")
+      .insert([{
+        customer_name: metadata.customer_name || customerData.name,
+        customer_email: metadata.customer_email || customerData.email,
+        customer_phone: metadata.customer_phone || customerData.phone,
+        customer_dni: metadata.customer_dni || customerData.dni,
+        start_date: metadata.start_date || startDate.toISOString(),
+        end_date: metadata.end_date || endDate.toISOString(),
+        pickup_time: metadata.pickup_time || pickupTime,
+        return_time: metadata.return_time || returnTime,
+        pickup_location: validatedPickupLocation, // ✅ USAR LA VARIABLE VALIDADA
+        return_location: validatedPickupLocation, // ✅ USAR LA VARIABLE VALIDADA
           total_days: parseInt(metadata.total_days || calculateTotalDays(startDate, endDate, pickupTime, returnTime).toString()),
           bikes: bikesData,
           accessories: selectedAccessories || [],
@@ -452,16 +459,34 @@ const StripePaymentForm = ({
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    
-    if (!stripe || !elements || !clientSecret) {
-      setCardError("Payment system not ready. Please reload the page.");
-      return;
-    }
+  event.preventDefault();
+  
+  // ✅ SOLUCIÓN: PREVENIR MÚLTIPLES PAGOS
+  if (isProcessing) {
+    setCardError("El pago ya está siendo procesado. Por favor, espere.");
+    return;
+  }
+  
+  if (paymentCompleted) {
+    setCardError("El pago ya fue completado. No puede pagar dos veces.");
+    return;
+  }
+  
+  if (!stripe || !elements) {
+    setCardError("Sistema de pago no disponible. Recargue la página.");
+    return;
+  }
+  
+  if (!clientSecret) {
+    setCardError("Sesión de pago expirada. Recargue la página.");
+    return;
+  }
 
-    setIsProcessing(true);
-    setCardError(null);
-    setPaymentError(null);
+  setIsProcessing(true);
+  setCardError(null);
+  setPaymentError(null);
+
+ 
 
     try {
       const { paymentIntent: currentIntent } = await stripe.retrievePaymentIntent(clientSecret);
@@ -490,6 +515,8 @@ const StripePaymentForm = ({
       setConfirmedIntent(confirmedPaymentIntent);
 
       if (confirmedPaymentIntent?.status === "succeeded") {
+        setPaymentCompleted(true);
+
         const reservationMetadata = {
           customer_name: customerData.name,
           customer_email: customerData.email,
@@ -526,20 +553,20 @@ const StripePaymentForm = ({
 
         setCurrentStep("confirmation");
       }
-    } catch (err: any) {
+       } catch (err: any) {
       //console.error("Payment Error:", {
         //error: err,
         //paymentIntentId: confirmedIntent?.id,
         //paymentStatus: confirmedIntent?.status
-     // });
+      //});
 
       const errorMessage = err.code === 'payment_intent_unexpected_state' 
         ? "Payment session expired. Please restart the checkout process."
         : err.message || "Payment processing failed. Please try again.";
-      
+
       setCardError(errorMessage);
       setPaymentError(errorMessage);
-      
+
       if (err.code === 'payment_intent_unexpected_state') {
         setClientSecret(null);
       }
@@ -548,6 +575,7 @@ const StripePaymentForm = ({
     }
   };
 
+  // ✅ MOVER estas validaciones FUERA del handleSubmit
   if (!clientSecret) {
     return (
       <div className="text-red-500 p-4 border border-red-200 bg-red-50 rounded-lg">
@@ -1270,28 +1298,27 @@ const handleSubmitReservation = async () => {
                     setEndDate(newDate);
                   }
                 }}
-                disabled={(date) => {
-                  if (!date) return true;
-                  const today = new Date();
-                  const selectedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-                  const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-                  const startDateOnly = startDate ? new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()) : null;
-                  
-                  // No permitir fechas anteriores a hoy
-                  if (selectedDate < todayDate) {
-                    return true;
-                  }
-                  
-                  // No permitir domingos
-                  if (isSunday(selectedDate)) return true;
-                  
-                  // No permitir fechas anteriores a la fecha de inicio
-                  if (startDateOnly && selectedDate < startDateOnly) {
-                    return true;
-                  }
-                  
-                  return false;
-                }}
+               disabled={(date) => {
+  if (!date) return true;
+  const today = new Date();
+  const selectedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  
+  // No permitir fechas anteriores a hoy
+  if (selectedDate < todayDate) {
+    return true;
+  }
+  
+  // ✅ SOLUCIÓN: BLOQUEAR DOMINGOS - FORMA MÁS SEGURA
+  if (date.getDay() === 0) { // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
+    return true;
+  }
+  
+  // No permitir domingos (backup)
+  if (isSunday(date)) return true;
+  
+  return false;
+}}
               />
             </div>
           </div>
