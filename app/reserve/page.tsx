@@ -1077,7 +1077,7 @@ const calculateTotal = (): number => {
       return { available: false, unavailableBikes: [] };
     }
   };
-const handleSubmitReservation = async () => {
+  const handleSubmitReservation = async () => {
   setIsSubmitting(true);
   setPaymentError(null);
 
@@ -1091,6 +1091,11 @@ const handleSubmitReservation = async () => {
       throw new Error("Algunas bicicletas ya no están disponibles");
     }
 
+    // 🔒 PREVENIR MÚLTIPLES ENVÍOS
+    if (clientSecret) {
+      throw new Error("El proceso de pago ya está en curso. No envíes múltiples veces.");
+    }
+
     // 🔒 Cálculo seguro de días de alquiler
     const days = calculateTotalDays(startDate, endDate, pickupTime, returnTime);
     if (!Number.isFinite(days) || days <= 0) {
@@ -1099,32 +1104,28 @@ const handleSubmitReservation = async () => {
 
     // Cálculo correcto del precio por días reales
     const bikeSubtotal = selectedBikes.reduce((total, bike) => {
-  const pricePerDay = Number(calculatePrice(bike.category, days));
-  const quantity = Number(bike.quantity);
-  const subtotal = Number.isFinite(pricePerDay) && Number.isFinite(quantity)
-    ? pricePerDay * days * quantity
-    : 0;
-  return total + subtotal;
-}, 0);
-
-
+      const pricePerDay = Number(calculatePrice(bike.category, days));
+      const quantity = Number(bike.quantity);
+      const subtotal = Number.isFinite(pricePerDay) && Number.isFinite(quantity)
+        ? pricePerDay * days * quantity
+        : 0;
+      return total + subtotal;
+    }, 0);
 
     const accessoriesSubtotal = selectedAccessories.reduce((total, acc) => {
-  const price = Number(acc.price);
-  return total + (Number.isFinite(price) ? price : 0);
-}, 0);
-
+      const price = Number(acc.price);
+      return total + (Number.isFinite(price) ? price : 0);
+    }, 0);
 
     const insuranceSubtotal = hasInsurance
-  ? Math.min(
-      INSURANCE_MAX_PRICE,
-      INSURANCE_PRICE_PER_DAY * days
-    ) * selectedBikes.reduce((total, bike) => {
-      const quantity = Number(bike.quantity);
-      return total + (Number.isFinite(quantity) ? quantity : 0);
-    }, 0)
-  : 0;
-
+      ? Math.min(
+          INSURANCE_MAX_PRICE,
+          INSURANCE_PRICE_PER_DAY * days
+        ) * selectedBikes.reduce((total, bike) => {
+          const quantity = Number(bike.quantity);
+          return total + (Number.isFinite(quantity) ? quantity : 0);
+        }, 0)
+      : 0;
 
     const totalAmount = bikeSubtotal + accessoriesSubtotal + insuranceSubtotal;
 
@@ -1139,12 +1140,12 @@ const handleSubmitReservation = async () => {
       throw new Error("El monto total no es válido");
     }
 
-    // Simplificar los datos de bicicletas para la metadata (CORREGIDO)
+    // Simplificar los datos de bicicletas para la metadata
     const simplifiedBikesData = selectedBikes.map(bike => ({
       model: bike.title_es.substring(0, 50),
       size: bike.size,
       quantity: bike.quantity,
-      pricePerDay: calculatePrice(bike.category, days), // Usar days en lugar de 1
+      pricePerDay: calculatePrice(bike.category, days),
       totalPrice: calculatePrice(bike.category, days) * days * bike.quantity
     }));
 
@@ -1177,11 +1178,9 @@ const handleSubmitReservation = async () => {
       accessories_data: JSON.stringify(simplifiedAccessories)
     };
 
-   // console.log("=== Stripe Checkout Debug ===");
-//console.log("Monto enviado a Stripe (centavos):", amountInCents);
-//console.log("Metadata enviada:", metadata);
-
-
+    console.log("=== Creando PaymentIntent ===");
+    console.log("Monto:", amountInCents);
+    console.log("Metadata:", metadata);
 
     const response = await fetch('/api/stripe/create-payment-intent', {
       method: 'POST',
@@ -1198,12 +1197,20 @@ const handleSubmitReservation = async () => {
       throw new Error(errorData.error || "Error al crear el pago");
     }
 
-    const { clientSecret } = await response.json();
-    setClientSecret(clientSecret);
+    const { clientSecret: newClientSecret } = await response.json();
+    
+    // 🔒 IMPORTANTE: Solo establecer el clientSecret después de crear exitosamente
+    setClientSecret(newClientSecret);
     setCurrentStep("payment");
 
   } catch (error: any) {
+    console.error("Error en handleSubmitReservation:", error);
     setPaymentError(error.message || "Error al procesar el pago. Por favor, inténtelo de nuevo.");
+    
+    // 🔒 Limpiar clientSecret en caso de error
+    if (error.message.includes("múltiples")) {
+      setClientSecret(null);
+    }
   } finally {
     setIsSubmitting(false);
   }

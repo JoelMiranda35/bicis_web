@@ -3,19 +3,45 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { supabase } from '@/lib/supabase';
 
-// Verifica que la clave de Stripe esté configurada
 if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error('STRIPE_SECRET_KEY is not defined in environment variables');
 }
 
-// Inicializar Stripe correctamente
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+
+// Tarjetas de prueba a BLOQUEAR
+const BLOCKED_TEST_CARDS = ['4242', '4000', '2222', '5556'];
 
 export async function POST(request: Request) {
   try {
-    const { amount, currency = 'eur', metadata } = await request.json();
+    const { amount, currency = 'eur', metadata, payment_method } = await request.json();
 
-    // Validación más robusta del amount
+    // ✅ BLOQUEO ACTIVADO: Validar si es tarjeta de prueba ANTES de crear el PaymentIntent
+    if (payment_method?.card?.last4 && BLOCKED_TEST_CARDS.includes(payment_method.card.last4)) {
+      console.log('🚫 BLOQUEO: Tarjeta de prueba detectada:', payment_method.card.last4);
+      
+      // Registrar intento bloqueado
+      await supabase.from('payment_errors').insert({
+        error_type: 'test_card_blocked',
+        error_data: JSON.stringify({
+          card_last4: payment_method.card.last4,
+          card_brand: payment_method.card.brand,
+          amount,
+          customer_email: metadata?.customer_email
+        }),
+        created_at: new Date().toISOString(),
+      });
+
+      return NextResponse.json(
+        { 
+          error: 'Tarjetas de prueba no permitidas en modo producción',
+          code: 'test_card_not_allowed'
+        },
+        { status: 400 }
+      );
+    }
+
+    // Validación del amount
     if (typeof amount !== 'number' || isNaN(amount)) {
       return NextResponse.json(
         { error: 'Invalid amount format' },
@@ -30,7 +56,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Validación y limpieza de metadata
+    // Limpieza de metadata
     const cleanedMetadata: Record<string, string> = {};
     if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
       for (const [key, value] of Object.entries(metadata)) {
@@ -44,30 +70,15 @@ export async function POST(request: Request) {
 
     // Crear PaymentIntent
     const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
-      amount, // ✅ usamos el valor que viene del frontend (ya en céntimos)
+      amount,
       currency: currency.toLowerCase(),
       payment_method_types: ['card'],
       metadata: cleanedMetadata,
     };
 
-    // COMENTA o ELIMINA esta sección completa:
-/*
-if (cleanedMetadata.customer_phone) {
-  paymentIntentParams.shipping = {
-    name: cleanedMetadata.customer_name || '',
-    phone: cleanedMetadata.customer_phone,
-    address: {
-      line1: cleanedMetadata.customer_address || 'Not provided',
-      city: cleanedMetadata.customer_city || 'Not provided',
-      country: cleanedMetadata.customer_country || 'ES',
-    },
-  };
-}
-*/
-
     const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
 
-    // Intentar guardar en Supabase (pero continuar si falla)
+    // Guardar en Supabase
     try {
       const { error } = await supabase.from('payment_intents').insert({
         intent_id: paymentIntent.id,
@@ -96,7 +107,6 @@ if (cleanedMetadata.customer_phone) {
       { 
         error: 'Error al procesar el pago',
         details: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
       },
       { status: 500 }
     );
