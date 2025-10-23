@@ -12,15 +12,21 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 export const dynamic = 'force-dynamic';
 
 interface BikeItem {
-  bike_ids: string[];
-  size: string;
+  bike_ids?: string[];
+  size?: string;
   model?: string;
   quantity: number;
+  title_es?: string;
+  title_en?: string;
+  title_nl?: string;
 }
 
 interface AccessoryItem {
   id: string;
   quantity?: number;
+  name_es?: string;
+  name_en?: string;
+  name_nl?: string;
 }
 
 interface ReservationData {
@@ -29,12 +35,13 @@ interface ReservationData {
   start_date: string;
   end_date: string;
   total_days: number;
-  bikes: BikeItem[];
-  accessories: AccessoryItem[];
+  bikes?: BikeItem[];
+  accessories?: AccessoryItem[];
   insurance: boolean;
   total_amount: number;
   deposit_amount: number;
   locale: string;
+  customer_email?: string;
 }
 
 const translations = {
@@ -121,7 +128,7 @@ const translations = {
 export async function POST(request: NextRequest) {
   // Verificación de configuración esencial
   if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
-    //console.error("Email service not configured");
+    console.error("Email service not configured");
     return NextResponse.json(
       { error: "Service temporarily unavailable" }, 
       { status: 503 }
@@ -131,57 +138,105 @@ export async function POST(request: NextRequest) {
   try {
     const { to, subject, reservationData, language = "es" } = await request.json();
 
-    // Función para obtener nombres de bicicletas
-const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
-  if (!supabase) {
-    return bikeItems.map(bike => ({
-      title: bike.model || 'Bicicleta',
-      size: bike.size || 'M',
-      quantity: bike.quantity
-    }));
-  }
+    // ✅ VALIDACIÓN ROBUSTA DE DATOS DE ENTRADA
+    if (!to || !reservationData) {
+      return NextResponse.json(
+        { error: "Missing required fields: 'to' or 'reservationData'" },
+        { status: 400 }
+      );
+    }
 
-  try {
-    // Extraemos el primer ID de cada bike_ids
-    const bikeIds = bikeItems.map(b => b.bike_ids?.[0]).filter(Boolean);
+    // Validar datos mínimos de reserva
+    if (!reservationData.customer_name || !reservationData.id) {
+      return NextResponse.json(
+        { error: "Invalid reservation data: missing customer_name or id" },
+        { status: 400 }
+      );
+    }
 
-    let { data, error } = await supabase
-      .from('bikes')
-      .select('id, title_es, title_en, title_nl, size')
-      .in('id', bikeIds);
+    // ✅ FUNCIÓN MEJORADA PARA OBTENER NOMBRES DE BICICLETAS
+    const getBikeNames = async (bikeItems: BikeItem[] = [], lang: string) => {
+      // Si no hay bicicletas, retornar array vacío
+      if (!bikeItems || bikeItems.length === 0) {
+        return [];
+      }
 
-    if (error) throw error;
+      // Si ya tenemos los títulos en los datos, usarlos directamente
+      if (bikeItems[0].title_es) {
+        return bikeItems.map(bike => ({
+          title: bike[`title_${lang}` as keyof BikeItem] as string || bike.title_es || 'Bicicleta',
+          size: bike.size || 'M',
+          quantity: bike.quantity || 1
+        }));
+      }
 
-    return bikeItems.map(bike => {
-      const mainId = bike.bike_ids?.[0];
-      const bikeData = data?.find((b: any) => b.id === mainId);
+      // Si no, buscar en Supabase
+      if (!supabase) {
+        return bikeItems.map(bike => ({
+          title: bike.model || 'Bicicleta',
+          size: bike.size || 'M',
+          quantity: bike.quantity || 1
+        }));
+      }
 
-      const title =
-        bikeData?.[`title_${lang}` as keyof typeof bikeData] ||
-        bike.model ||
-        bikeData?.title_es ||
-        'Bicicleta';
+      try {
+        // Extraemos el primer ID de cada bike_ids (si existe)
+        const bikeIds = bikeItems
+          .map(b => b.bike_ids?.[0])
+          .filter(Boolean) as string[];
 
-      return {
-        title,
-        size: bike.size || bikeData?.size || 'M',
-        quantity: bike.quantity
-      };
-    });
+        let bikeData: any[] = [];
+        if (bikeIds.length > 0) {
+          const { data, error } = await supabase
+            .from('bikes')
+            .select('id, title_es, title_en, title_nl, size')
+            .in('id', bikeIds);
 
-  } catch (error) {
-    //console.error("Error fetching bikes:", error);
-    return bikeItems.map(bike => ({
-      title: bike.model || 'Bicicleta',
-      size: bike.size || 'M',
-      quantity: bike.quantity
-    }));
-  }
-};
+          if (error) throw error;
+          bikeData = data || [];
+        }
 
+        return bikeItems.map(bike => {
+          const mainId = bike.bike_ids?.[0];
+          const foundBike = bikeData.find((b: any) => b.id === mainId);
 
-    // Función para obtener nombres de accesorios
-    const getAccessoryNames = async (accessoryItems: AccessoryItem[], lang: string) => {
+          const title = foundBike?.[`title_${lang}` as keyof typeof foundBike] || 
+                       bike.model || 
+                       foundBike?.title_es || 
+                       'Bicicleta';
+
+          return {
+            title,
+            size: bike.size || foundBike?.size || 'M',
+            quantity: bike.quantity || 1
+          };
+        });
+
+      } catch (error) {
+        console.error("Error fetching bikes:", error);
+        return bikeItems.map(bike => ({
+          title: bike.model || 'Bicicleta',
+          size: bike.size || 'M',
+          quantity: bike.quantity || 1
+        }));
+      }
+    };
+
+    // ✅ FUNCIÓN MEJORADA PARA OBTENER NOMBRES DE ACCESORIOS
+    const getAccessoryNames = async (accessoryItems: AccessoryItem[] = [], lang: string) => {
+      // Si no hay accesorios, retornar array vacío
+      if (!accessoryItems || accessoryItems.length === 0) {
+        return [];
+      }
+
+      // Si ya tenemos los nombres en los datos, usarlos directamente
+      if (accessoryItems[0].name_es) {
+        return accessoryItems.map(acc => ({
+          name: acc[`name_${lang}` as keyof AccessoryItem] as string || acc.name_es || 'Accesorio',
+          quantity: acc.quantity || 1
+        }));
+      }
+
       if (!supabase) {
         return accessoryItems.map(acc => ({
           name: 'Accesorio',
@@ -190,24 +245,32 @@ const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
       }
 
       try {
-        const accessoryIds = accessoryItems.map(a => a.id);
-        const { data, error } = await supabase
-          .from('accessories')
-          .select('id, name_es, name_en, name_nl')
-          .in('id', accessoryIds);
+        const accessoryIds = accessoryItems.map(a => a.id).filter(Boolean);
+        let accessoryData: any[] = [];
 
-        if (error) throw error;
+        if (accessoryIds.length > 0) {
+          const { data, error } = await supabase
+            .from('accessories')
+            .select('id, name_es, name_en, name_nl')
+            .in('id', accessoryIds);
+
+          if (error) throw error;
+          accessoryData = data || [];
+        }
 
         return accessoryItems.map(accessory => {
-          const accessoryData = data?.find((a: any) => a.id === accessory.id);
-          const name = accessoryData?.[`name_${lang}` as keyof typeof accessoryData] || accessoryData?.name_es || 'Accesorio';
+          const foundAccessory = accessoryData.find((a: any) => a.id === accessory.id);
+          const name = foundAccessory?.[`name_${lang}` as keyof typeof foundAccessory] || 
+                      foundAccessory?.name_es || 
+                      'Accesorio';
+
           return {
             name,
             quantity: accessory.quantity || 1
           };
         });
       } catch (error) {
-        //console.error("Error fetching accessories:", error);
+        console.error("Error fetching accessories:", error);
         return accessoryItems.map(acc => ({
           name: 'Accesorio',
           quantity: acc.quantity || 1
@@ -215,27 +278,44 @@ const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
       }
     };
 
-    // Función para formatear fecha en hora españolaa
+    // ✅ FUNCIÓN MEJORADA PARA FORMATEAR FECHAS
     const formatDate = (dateString: string, lang: string) => {
-      const date = new Date(dateString);
-      const adjustedDate = new Date(date.getTime() + (2 * 60 * 60 * 1000)); // Ajuste horario
-      return adjustedDate.toLocaleDateString(lang, {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      }) + 'h';
+      try {
+        if (!dateString) return 'Fecha no disponible';
+        
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) {
+          return 'Fecha inválida';
+        }
+
+        // Usar la zona horaria de España (Europe/Madrid)
+        return date.toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'nl' ? 'nl-NL' : 'en-US', {
+          timeZone: 'Europe/Madrid',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        }) + 'h';
+      } catch (error) {
+        console.error("Error formatting date:", error);
+        return 'Fecha no disponible';
+      }
     };
 
     const t = translations[language as keyof typeof translations] || translations.es;
 
+    // ✅ MANEJO SEGURO DE DATOS (con valores por defecto)
+    const safeBikes = Array.isArray(reservationData.bikes) ? reservationData.bikes : [];
+    const safeAccessories = Array.isArray(reservationData.accessories) ? reservationData.accessories : [];
+
     const [translatedBikes, translatedAccessories] = await Promise.all([
-      getBikeNames(reservationData.bikes, language),
-      getAccessoryNames(reservationData.accessories, language)
+      getBikeNames(safeBikes, language),
+      getAccessoryNames(safeAccessories, language)
     ]);
 
+    // ✅ PLANTILLA DE EMAIL CON VALIDACIONES
     const emailHtml = `
       <!DOCTYPE html>
       <html>
@@ -266,18 +346,20 @@ const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
               <h3>${t.details}</h3>
               <p><strong>${t.reservationNumber}</strong> ${reservationData.id}</p>
               <p><strong>${t.dates}</strong> ${formatDate(reservationData.start_date, language)} - ${formatDate(reservationData.end_date, language)}</p>
-              <p><strong>${t.duration}</strong> ${reservationData.total_days} ${t.days}</p>
+              <p><strong>${t.duration}</strong> ${reservationData.total_days || 1} ${t.days}</p>
             </div>
 
-            <div class="details">
-              <h3>${t.bikes}</h3>
-              ${translatedBikes.map(bike => `
-                <div class="bike-item">
-                  <strong>${bike.title}</strong><br>
-                  ${t.size}: ${bike.size} | ${t.quantity}: ${bike.quantity}
-                </div>
-              `).join("")}
-            </div>
+            ${translatedBikes.length > 0 ? `
+              <div class="details">
+                <h3>${t.bikes}</h3>
+                ${translatedBikes.map(bike => `
+                  <div class="bike-item">
+                    <strong>${bike.title}</strong><br>
+                    ${t.size}: ${bike.size} | ${t.quantity}: ${bike.quantity}
+                  </div>
+                `).join("")}
+              </div>
+            ` : ""}
 
             ${translatedAccessories.length > 0 ? `
               <div class="details">
@@ -290,8 +372,8 @@ const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
 
             <div class="details">
               <p><strong>${t.insurance}</strong> ${reservationData.insurance ? t.yes : t.no}</p>
-              <p class="total">${t.total} ${reservationData.total_amount}€</p>
-              <p><strong>${t.deposit}</strong> ${reservationData.deposit_amount}€</p>
+              <p class="total">${t.total} ${reservationData.total_amount || 0}€</p>
+              <p><strong>${t.deposit}</strong> ${reservationData.deposit_amount || 0}€</p>
             </div>
 
             <div class="details">
@@ -326,16 +408,18 @@ const getBikeNames = async (bikeItems: BikeItem[], lang: string) => {
     });
 
     if (emailError) {
-      //console.error("Error sending email:", emailError);
+      console.error("Error sending email:", emailError);
       return NextResponse.json(
         { error: "Failed to send email" }, 
         { status: 500 }
       );
     }
 
+    console.log("✅ Email sent successfully to:", to);
     return NextResponse.json({ success: true, data: emailData });
+    
   } catch (error) {
-    //console.error("Error in send-email API:", error);
+    console.error("Error in send-email API:", error);
     return NextResponse.json(
       { error: "Internal server error" }, 
       { status: 500 }
