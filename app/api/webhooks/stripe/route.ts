@@ -51,6 +51,34 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   try {
     console.log('💰 Payment succeeded:', paymentIntent.id);
     console.log('📝 Payment metadata:', paymentIntent.metadata);
+    // 🚫 BLOQUEAR TARJETAS DE PRUEBA
+    const charge = paymentIntent.latest_charge
+      ? await stripe.charges.retrieve(paymentIntent.latest_charge as string)
+      : null;
+
+    const cardLast4 = charge?.payment_method_details?.card?.last4;
+    const cardBrand = charge?.payment_method_details?.card?.brand;
+
+    if (['4242', '4000', '2222', '5556'].includes(cardLast4 || '')) {
+      console.warn('🚫 PaymentIntent bloqueado: tarjeta de prueba detectada', {
+        id: paymentIntent.id,
+        cardBrand,
+        cardLast4,
+      });
+
+      // Cancelar el PaymentIntent (opcional)
+      await stripe.paymentIntents.cancel(paymentIntent.id);
+
+      // Registrar en Supabase como fraude o prueba
+      await supabase.from('payment_errors').insert({
+        payment_intent_id: paymentIntent.id,
+        error_type: 'test_card_in_live_mode',
+        error_data: JSON.stringify({ cardBrand, cardLast4 }),
+        created_at: new Date().toISOString(),
+      });
+
+      return; // ⚠️ Salir sin crear reserva
+    }
     
     // Buscar reserva existente por payment_intent_id
     const { data: existingReservation, error: findError } = await supabase
