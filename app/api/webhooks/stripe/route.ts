@@ -15,7 +15,7 @@ const BLOCKED_TEST_CARDS = ['4242', '4000', '2222', '5556'];
 export async function POST(request: Request) {
   try {
     const { amount, currency = 'eur', metadata, payment_method } = await request.json();
-
+/*
     // ✅ BLOQUEO ACTIVADO: Validar si es tarjeta de prueba ANTES de crear el PaymentIntent
     if (payment_method?.card?.last4 && BLOCKED_TEST_CARDS.includes(payment_method.card.last4)) {
       console.log('🚫 BLOQUEO: Tarjeta de prueba detectada:', payment_method.card.last4);
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
         },
         { status: 400 }
       );
-    }
+    }*/
 
     // Validación del amount
     if (typeof amount !== 'number' || isNaN(amount)) {

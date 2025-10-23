@@ -16,30 +16,32 @@ export async function POST(request: Request) {
   try {
     const { amount, currency = 'eur', metadata, payment_method } = await request.json();
 
-    // ✅ BLOQUEO ACTIVADO: Validar si es tarjeta de prueba ANTES de crear el PaymentIntent
-    if (payment_method?.card?.last4 && BLOCKED_TEST_CARDS.includes(payment_method.card.last4)) {
-      console.log('🚫 BLOQUEO: Tarjeta de prueba detectada:', payment_method.card.last4);
-      
-      // Registrar intento bloqueado
-      await supabase.from('payment_errors').insert({
-        error_type: 'test_card_blocked',
-        error_data: JSON.stringify({
-          card_last4: payment_method.card.last4,
-          card_brand: payment_method.card.brand,
-          amount,
-          customer_email: metadata?.customer_email
-        }),
-        created_at: new Date().toISOString(),
-      });
+    
 
-      return NextResponse.json(
-        { 
-          error: 'Tarjetas de prueba no permitidas en modo producción',
-          code: 'test_card_not_allowed'
-        },
-        { status: 400 }
-      );
-    }
+// ✅ TEMPORALMENTE DESACTIVADO PARA PRUEBAS - COMENTAR ESTE BLOQUE
+// if (payment_method?.card?.last4 && BLOCKED_TEST_CARDS.includes(payment_method.card.last4)) {
+//   console.log('🚫 BLOQUEO: Tarjeta de prueba detectada:', payment_method.card.last4);
+//   
+//   // Registrar intento bloqueado
+//   await supabase.from('payment_errors').insert({
+//     error_type: 'test_card_blocked',
+//     error_data: JSON.stringify({
+//       card_last4: payment_method.card.last4,
+//       card_brand: payment_method.card.brand,
+//       amount,
+//       customer_email: metadata?.customer_email
+//     }),
+//     created_at: new Date().toISOString(),
+//   });
+//
+//   return NextResponse.json(
+//     { 
+//       error: 'Tarjetas de prueba no permitidas en modo producción',
+//       code: 'test_card_not_allowed'
+//     },
+//     { status: 400 }
+//   );
+// }
 
     // Validación del amount
     if (typeof amount !== 'number' || isNaN(amount)) {
