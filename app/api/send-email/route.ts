@@ -153,7 +153,13 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
+// ✅ VALIDAR EMAIL DEL CLIENTE
+if (!reservationData.customer_email) {
+  return NextResponse.json(
+    { error: "Invalid reservation data: missing customer_email" },
+    { status: 400 }
+  );
+}
     // ✅ FUNCIÓN MEJORADA PARA OBTENER NOMBRES DE BICICLETAS
     const getBikeNames = async (bikeItems: BikeItem[] = [], lang: string) => {
       // Si no hay bicicletas, retornar array vacío
