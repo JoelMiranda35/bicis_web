@@ -200,7 +200,7 @@ const calculateTotalDays = (
   return diffDays;
 };
 
-
+//
 
 const calculateTotalDeposit = (bikes: SelectedBike[]): number => {
   return bikes.reduce((total: number, bike: SelectedBike) => {
