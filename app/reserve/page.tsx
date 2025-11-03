@@ -1270,22 +1270,21 @@ const calculateTotal = (): number => {
                     }
                   }
                 }}
-                disabled={(date) => {
-                  if (!date) return true;
-                  const today = new Date();
-                  const selectedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-                  const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-                  
-                  // No permitir fechas anteriores a hoy
-                  if (selectedDate < todayDate) {
-                    return true;
-                  }
-                  
-                  // No permitir domingos
-                  if (isSunday(selectedDate)) return true;
-                  
-                  return false;
-                }}
+               disabled={(date) => {
+  if (!date) return true;
+  const today = createLocalDate();
+  const selectedDate = createLocalDate(date);
+  
+  // No permitir fechas anteriores a hoy
+  if (selectedDate < today && !isSameDay(selectedDate, today)) {
+    return true;
+  }
+  
+  // No permitir domingos
+  if (isSunday(selectedDate)) return true;
+  
+  return false;
+}}
               />
             </div>
           </div>
@@ -1305,24 +1304,18 @@ const calculateTotal = (): number => {
                     setEndDate(newDate);
                   }
                 }}
-               disabled={(date) => {
+              disabled={(date) => {
   if (!date) return true;
-  const today = new Date();
-  const selectedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const today = createLocalDate();
+  const selectedDate = createLocalDate(date);
   
   // No permitir fechas anteriores a hoy
-  if (selectedDate < todayDate) {
+  if (selectedDate < today && !isSameDay(selectedDate, today)) {
     return true;
   }
   
-  // ✅ SOLUCIÓN: BLOQUEAR DOMINGOS - FORMA MÁS SEGURA
-  if (date.getDay() === 0) { // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
-    return true;
-  }
-  
-  // No permitir domingos (backup)
-  if (isSunday(date)) return true;
+  // No permitir domingos
+  if (isSunday(selectedDate)) return true;
   
   return false;
 }}
