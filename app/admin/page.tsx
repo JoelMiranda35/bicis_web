@@ -1333,19 +1333,35 @@ const calculateTotalPrice = () => {
               <div className="mt-4 pt-4 border-t">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <h4 className="font-medium mb-2">Bicicletas:</h4>
-                    {reservation.bikes?.map((bike: any, index: number) => {
-                      const pricePerDay = bike.price_per_day || 
-                        (isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0);
-                      const totalPrice = bike.total_price || pricePerDay * reservation.total_days;
-                      const bikeName = bike.title_es || bike.title || bike.model;
-                      return (
-                        <p key={index} className="text-sm text-gray-600">
-                          {bikeName} - Talla {bike.size} 
-                        </p>
-                      );
-                    })}
-                  </div>
+  <h4 className="font-medium mb-2">Bicicletas:</h4>
+  {(() => {
+    // Agrupar bicicletas duplicadas por modelo y talla
+    const groupedBikes = reservation.bikes?.reduce((acc: any[], bike: any) => {
+      const bikeName = bike.title_es || bike.title || bike.model;
+      const key = `${bikeName}-${bike.size}`;
+      
+      const existing = acc.find((b: any) => b.key === key);
+      if (existing) {
+        existing.quantity += bike.quantity || 1;
+      } else {
+        acc.push({
+          key,
+          name: bikeName,
+          size: bike.size,
+          quantity: bike.quantity || 1
+        });
+      }
+      return acc;
+    }, []) || [];
+
+    return groupedBikes.map((bike: any, index: number) => (
+      <p key={index} className="text-sm text-gray-600">
+        {bike.name} - Talla {bike.size} {bike.quantity > 1 && `(x${bike.quantity})`}
+      </p>
+    ));
+  })()}
+</div>
+                   
 
                   {reservation.accessories && reservation.accessories.length > 0 && (
   <div>
@@ -1755,45 +1771,119 @@ const calculateTotalPrice = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
-          {availableBikes.map((bike) => {
-            const days = calculateTotalDays(
-              new Date(newReservation.start_date),
-              new Date(newReservation.end_date),
-              newReservation.pickup_time,
-              newReservation.return_time
-            );
-            const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0;
-            const totalPrice = pricePerDay * days;
-            
-            return (
-              <div
-                key={bike.id}
-                className="border rounded-lg p-4 flex items-center justify-between"
-              >
-                <div>
-                  <h4 className="font-medium">{bike.title_es || bike.title}</h4>
-                  <p className="text-sm text-gray-600">Talla: {bike.size}</p>
-                  <p className="text-sm text-gray-600">
-                    Precio: {totalPrice}€ ({pricePerDay}€/día × {days} días)
-                  </p>
-                  <p className="text-xs text-gray-500">Depósito: {calculateDeposit(bike.category)}€</p>
-                </div>
-                <Button
-                  size="sm"
-                  variant={
-                    newReservation.bikes.some((b: any) => b.id === bike.id)
-                      ? "default"
-                      : "outline"
+          {(() => {
+  const groupedBikes = availableBikes.reduce((acc: any[], bike) => {
+    const existing = acc.find(b => 
+      b.title_es === bike.title_es && 
+      b.size === bike.size && 
+      b.category === bike.category
+    );
+    
+    if (existing) {
+      existing.quantity++;
+      existing.bikes.push(bike);
+    } else {
+      acc.push({
+        ...bike,
+        quantity: 1,
+        bikes: [bike]
+      });
+    }
+    return acc;
+  }, []);
+
+  return groupedBikes.map((bikeGroup) => {
+    const days = calculateTotalDays(
+      new Date(newReservation.start_date),
+      new Date(newReservation.end_date),
+      newReservation.pickup_time,
+      newReservation.return_time
+    );
+    const pricePerDay = isValidCategory(bikeGroup.category) ? calculatePrice(bikeGroup.category, 1) : 0;
+    const totalPrice = pricePerDay * days;
+    
+    const selectedCount = newReservation.bikes.filter((b: any) => 
+      b.title === bikeGroup.title_es && b.size === bikeGroup.size
+    ).reduce((sum: number, b: any) => sum + (b.quantity || 1), 0);
+
+    return (
+      <div
+        key={`${bikeGroup.title_es}-${bikeGroup.size}-${bikeGroup.category}`}
+        className="border rounded-lg p-4 flex items-center justify-between"
+      >
+        <div>
+          <h4 className="font-medium">{bikeGroup.title_es || bikeGroup.title}</h4>
+          <p className="text-sm text-gray-600">Talla: {bikeGroup.size}</p>
+          <p className="text-sm text-gray-600">
+            Disponibles: {bikeGroup.quantity}
+          </p>
+          <p className="text-sm text-gray-600">
+            Precio: {totalPrice}€ ({pricePerDay}€/día × {days} días)
+          </p>
+          <p className="text-xs text-gray-500">Depósito: {calculateDeposit(bikeGroup.category)}€</p>
+          {selectedCount > 0 && (
+            <p className="text-xs text-green-600">Seleccionadas: {selectedCount}</p>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (selectedCount > 0) {
+                const newBikes = [...newReservation.bikes];
+                const bikeIndex = newBikes.findIndex((b: any) => 
+                  b.title === bikeGroup.title_es && b.size === bikeGroup.size
+                );
+                
+                if (bikeIndex >= 0) {
+                  if (newBikes[bikeIndex].quantity > 1) {
+                    newBikes[bikeIndex].quantity--;
+                  } else {
+                    newBikes.splice(bikeIndex, 1);
                   }
-                  onClick={() => toggleBikeSelection(bike)}
-                >
-                  {newReservation.bikes.some((b: any) => b.id === bike.id)
-                    ? "Seleccionada"
-                    : "Seleccionar"}
-                </Button>
-              </div>
-            );
-          })}
+                  setNewReservation({ ...newReservation, bikes: newBikes });
+                }
+              }
+            }}
+            disabled={selectedCount === 0}
+          >
+            -
+          </Button>
+          <Button
+            size="sm"
+            variant={selectedCount > 0 ? "default" : "outline"}
+            onClick={() => {
+              if (selectedCount < bikeGroup.quantity) {
+                const newBikes = [...newReservation.bikes];
+                const existingIndex = newBikes.findIndex((b: any) => 
+                  b.title === bikeGroup.title_es && b.size === bikeGroup.size
+                );
+                
+                if (existingIndex >= 0) {
+                  newBikes[existingIndex].quantity++;
+                } else {
+                  newBikes.push({
+                    id: bikeGroup.bikes[0].id,
+                    title: bikeGroup.title_es || bikeGroup.title,
+                    size: bikeGroup.size,
+                    category: bikeGroup.category,
+                    quantity: 1,
+                    bikes: [bikeGroup.bikes[0]]
+                  });
+                }
+                setNewReservation({ ...newReservation, bikes: newBikes });
+              }
+            }}
+            disabled={selectedCount >= bikeGroup.quantity}
+          >
+            +
+          </Button>
+        </div>
+      </div>
+    );
+  });
+})()}
         </div>
       )}
     </div>
