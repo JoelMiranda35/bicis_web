@@ -1077,6 +1077,15 @@ const calculateTotal = (): number => {
       return { available: false, unavailableBikes: [] };
     }
   };
+
+  // ✅ AGREGAR esta función helper
+function getLocalDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
   const handleSubmitReservation = async () => {
   setIsSubmitting(true);
   setPaymentError(null);
@@ -1161,8 +1170,8 @@ const calculateTotal = (): number => {
       customer_email: customerData.email.substring(0, 100),
       customer_phone: customerData.phone.substring(0, 20),
       customer_dni: customerData.dni.substring(0, 20),
-      start_date: startDate.toISOString().substring(0, 10),
-      end_date: endDate.toISOString().substring(0, 10),
+      start_date: getLocalDateString(startDate),
+      end_date: getLocalDateString(endDate),
       pickup_time: pickupTime,
       return_time: returnTime,
       pickup_location: pickupLocation,
