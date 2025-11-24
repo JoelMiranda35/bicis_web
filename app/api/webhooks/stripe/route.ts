@@ -127,12 +127,12 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
     const metadata = paymentIntent.metadata;
     
     console.log('📦 Creating reservation from metadata:', metadata);
+    console.log('📍 pickup_location from metadata:', metadata.pickup_location);
 
-    // ✅ SOLUCIÓN: Validar pickup_location en el webhook también
-    const validatedPickupLocation = 
-      metadata.pickup_location && ['sucursal_altea', 'sucursal_albir'].includes(metadata.pickup_location)
-        ? metadata.pickup_location
-        : 'sucursal_altea';
+    // ✅ SOLUCIÓN CORREGIDA - Usar directamente el metadata
+    const validatedPickupLocation = metadata.pickup_location || 'sucursal_altea';
+    
+    console.log('📍 Ubicación que se guardará en BD:', validatedPickupLocation);
 
     // Parsear datos de bicicletas
     let bikesData = [];
