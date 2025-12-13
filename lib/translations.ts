@@ -52,6 +52,7 @@ export type TranslationKey =
   | 'alteaBikeShopTitle' | 'alteaBikeShopSubtitle' | 'alteaHowToGetHere'
   | 'alteaLocationDesc1' | 'viewOnGoogleMaps'
   | 'albirCyclingTitle' | 'albirCyclingSubtitle' | 'albirHowToGetHere'
+  | 'reservation24hInfo'
   | 'albirLocationDesc1' ;
 
 interface AmountParams {
@@ -251,7 +252,8 @@ const translations = {
     albirCyclingSubtitle: "Our location in L'Alfàs del Pi",
     albirHowToGetHere: "How to get to Albir Cycling",
     albirLocationDesc1: "Our location is on Avenida l'Albir opposite the Lidl supermarket, close to the beautiful Albir beach and promenade.",
-    
+    reservation24hInfo:"For reservations made less than 24 hours in advance, the earliest pickup time is 11:00.",
+
   },
   es: {
     home: "Inicio",
@@ -432,6 +434,7 @@ const translations = {
     albirCyclingSubtitle: "Nuestra ubicación en L'Alfàs del Pi",
     albirHowToGetHere: "Cómo llegar a Albir Cycling",
     albirLocationDesc1: "Nuestra ubicacion es sobre la avenida del albir frente al supermercado lidl, cerca de la bonita playa de Albir y el paseo marítimo.",
+     reservation24hInfo:"Para las reservas realizadas con menos de 24 hrs de anticipación, el horario mínimo de recogida es 11:00.",
 
   },
   nl: {
@@ -613,7 +616,8 @@ const translations = {
     albirCyclingSubtitle: "Onze locatie in L'Alfàs del Pi",
     albirHowToGetHere: "Hoe kom ik bij Albir Cycling",
     albirLocationDesc1: "Onze locatie bevindt zich aan de Avenida L'Albir tegenover de Lidl supermarkt, dicht bij het prachtige Albir strand en de promenade.",
-    
+    reservation24hInfo:"Voor reserveringen die minder dan 24 uur van tevoren worden gemaakt, is de vroegste ophaaltijd 11:00.",
+
   }
 } as const;
 

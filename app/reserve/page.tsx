@@ -1411,33 +1411,44 @@ function getLocalDateString(date: Date): string {
 
         {startDate && endDate && (
           <div className="mt-4 p-4 bg-green-50 rounded-lg">
-            <p className="text-sm text-green-800">
-              <strong>{t("duration")}:</strong>{" "}
-              {calculateTotalDays(
-                new Date(startDate),
-                new Date(endDate),
-                pickupTime,
-                returnTime
-              )}{" "}
-              {t("days")}
-            </p>
-            <p className="text-sm text-green-800">
-              <strong>{t("from")}:</strong>{" "}
-              {formatDateForDisplay(startDate, language)} {pickupTime} <strong>{t("to")}:</strong>{" "}
-              {formatDateForDisplay(endDate, language)} {returnTime}
-            </p>
-            <p className="text-sm text-green-800">
-  <strong>{t("locationLabel")}:</strong>{" "}
-  {translateBikeContent(
-    { 
-      es: locationOptions.find(loc => loc.value === pickupLocation)?.label_es || "",
-      en: locationOptions.find(loc => loc.value === pickupLocation)?.label_en || "",
-      nl: locationOptions.find(loc => loc.value === pickupLocation)?.label_nl || ""
-    }, 
-    language
-  )}
+  <p className="text-sm text-green-800">
+    <strong>{t("duration")}:</strong>{" "}
+    {calculateTotalDays(
+      new Date(startDate),
+      new Date(endDate),
+      pickupTime,
+      returnTime
+    )}{" "}
+    {t("days")}
+  </p>
+
+  <p className="text-sm text-green-800">
+    <strong>{t("from")}:</strong>{" "}
+    {formatDateForDisplay(startDate, language)} {pickupTime}{" "}
+    <strong>{t("to")}:</strong>{" "}
+    {formatDateForDisplay(endDate, language)} {returnTime}
+  </p>
+
+  <p className="text-sm text-green-800">
+    <strong>{t("locationLabel")}:</strong>{" "}
+    {translateBikeContent(
+      { 
+        es: locationOptions.find(loc => loc.value === pickupLocation)?.label_es || "",
+        en: locationOptions.find(loc => loc.value === pickupLocation)?.label_en || "",
+        nl: locationOptions.find(loc => loc.value === pickupLocation)?.label_nl || ""
+      }, 
+      language
+    )}
+  </p>
+
+  {/* TEXTO INFORMATIVO 24 HS */}
+  <p className="mt-2 pt-2 text-base font-medium text-green-700 border-t border-green-200">
+
+  {t("reservation24hInfo")}
 </p>
-          </div>
+
+</div>
+
         )}
 
         <div className="mt-6">

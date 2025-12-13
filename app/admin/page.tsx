@@ -145,6 +145,8 @@ export default function AdminPage() {
   const [isLoadingBikes, setIsLoadingBikes] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [searchTerm, setSearchTerm] = useState("")
+  const [locationFilter, setLocationFilter] = useState<string>("all")
+
 
   useEffect(() => {
     const savedAuth = localStorage.getItem('adminAuthenticated')
@@ -168,6 +170,14 @@ export default function AdminPage() {
       filtered = filtered.filter(res => res.status === statusFilter)
     }
 
+    // Filtro por ubicación
+if (locationFilter !== "all") {
+  filtered = filtered.filter(
+    res => res.pickup_location === locationFilter
+  )
+}
+
+
     // Filtro por búsqueda
     if (searchTerm.trim() !== "") {
       const term = searchTerm.toLowerCase().trim()
@@ -182,7 +192,8 @@ export default function AdminPage() {
     setFilteredReservations(filtered)
     calculateStats(filtered)
   }
-}, [reservations, selectedMonth, statusFilter, searchTerm])
+}, [reservations, selectedMonth, statusFilter, searchTerm, locationFilter])
+
 
   useEffect(() => {
     if (newReservation.start_date && newReservation.end_date) {
@@ -1199,6 +1210,25 @@ const calculateTotalPrice = () => {
         </SelectContent>
       </Select>
 
+      {/* Filtro por ubicación */}
+<Select value={locationFilter} onValueChange={setLocationFilter}>
+  <SelectTrigger className="w-full md:w-64">
+    <SelectValue placeholder="Ubicación" />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="all">Todas las ubicaciones</SelectItem>
+
+    <SelectItem value="sucursal_altea">
+      Altea Bike Shop - Calle la Tella 2, Altea
+    </SelectItem>
+
+    <SelectItem value="sucursal_albir">
+      Albir Cycling - Av del Albir 159, El Albir
+    </SelectItem>
+  </SelectContent>
+</Select>
+
+
       {/* Selector de mes (corregido para incluir meses futuros) */}
 {/* Selector de mes (automático desde primer mes con reservas) */}
 <Select 
@@ -1379,16 +1409,16 @@ const calculateTotalPrice = () => {
           ))
         )}
       </div>
-      {/* Indicador de resultados filtrados */}
-{(statusFilter !== "all" || searchTerm.trim() !== "") && (
+     {/* Indicador de resultados filtrados */}
+{(statusFilter !== "all" || searchTerm.trim() !== "" || locationFilter !== "all") && (
   <div className="mt-4 p-3 bg-blue-50 rounded-lg">
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="font-medium">Filtros aplicados:</span>
-      
+
       {statusFilter !== "all" && (
         <Badge variant="secondary" className="flex items-center gap-1">
           Estado: {statusFilter}
-          <button 
+          <button
             onClick={() => setStatusFilter("all")}
             className="ml-1 text-xs hover:text-red-500"
           >
@@ -1396,11 +1426,11 @@ const calculateTotalPrice = () => {
           </button>
         </Badge>
       )}
-      
+
       {searchTerm.trim() !== "" && (
         <Badge variant="secondary" className="flex items-center gap-1">
           Búsqueda: "{searchTerm}"
-          <button 
+          <button
             onClick={() => setSearchTerm("")}
             className="ml-1 text-xs hover:text-red-500"
           >
@@ -1408,11 +1438,24 @@ const calculateTotalPrice = () => {
           </button>
         </Badge>
       )}
-      
-      <button 
+
+      {locationFilter !== "all" && (
+        <Badge variant="secondary" className="flex items-center gap-1">
+          Ubicación: {locationFilter === "sucursal_altea" ? "Altea" : "Albir"}
+          <button
+            onClick={() => setLocationFilter("all")}
+            className="ml-1 text-xs hover:text-red-500"
+          >
+            ×
+          </button>
+        </Badge>
+      )}
+
+      <button
         onClick={() => {
           setStatusFilter("all");
           setSearchTerm("");
+          setLocationFilter("all");
         }}
         className="text-blue-600 hover:text-blue-800 text-sm"
       >
@@ -1421,6 +1464,7 @@ const calculateTotalPrice = () => {
     </div>
   </div>
 )}
+
 
       {filteredReservations.length > 0 && (
         <div className="flex items-center justify-between mt-6">
