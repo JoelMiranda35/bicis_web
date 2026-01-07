@@ -405,6 +405,18 @@ const StripePaymentForm = ({
 
  const createReservation = async (metadata: any, paymentIntentId: string) => {
   try {
+
+    // 🔒 PREVENIR RESERVAS DUPLICADAS (IDEMPOTENCIA STRIPE)
+const { data: existingReservation } = await supabase
+  .from("reservations")
+  .select("id")
+  .eq("stripe_payment_intent_id", paymentIntentId)
+  .maybeSingle();
+
+if (existingReservation) {
+  return existingReservation;
+}
+
     const bikesData = (selectedBikes || []).map((bike: any) => ({
       model: bike.title_es,
       size: bike.size,
@@ -413,11 +425,12 @@ const StripePaymentForm = ({
       pricePerDay: calculatePrice(bike.category, calculateTotalDays(startDate, endDate, pickupTime, returnTime))
     }));
 
-    // ✅ SOLUCIÓN: Validar que pickup_location tenga un valor correcto
-    const validatedPickupLocation = 
-      pickupLocation && ['sucursal_altea', 'sucursal_albir'].includes(pickupLocation) 
-        ? pickupLocation 
-        : 'sucursal_altea';
+    // 📍 USAR STRIPE METADATA COMO FUENTE DE VERDAD
+const finalPickupLocation =
+  metadata.pickup_location ??
+  pickupLocation ??
+  'sucursal_altea';
+
 
     const { data, error } = await supabase
       .from("reservations")
@@ -430,8 +443,8 @@ const StripePaymentForm = ({
         end_date: metadata.end_date || endDate.toISOString(),
         pickup_time: metadata.pickup_time || pickupTime,
         return_time: metadata.return_time || returnTime,
-        pickup_location: validatedPickupLocation, // ✅ USAR LA VARIABLE VALIDADA
-        return_location: validatedPickupLocation, // ✅ USAR LA VARIABLE VALIDADA
+       pickup_location: finalPickupLocation,
+       return_location: finalPickupLocation,
           total_days: parseInt(metadata.total_days || calculateTotalDays(startDate, endDate, pickupTime, returnTime).toString()),
           bikes: bikesData,
           accessories: selectedAccessories || [],
@@ -517,29 +530,47 @@ const StripePaymentForm = ({
       if (confirmedPaymentIntent?.status === "succeeded") {
         setPaymentCompleted(true);
 
-        const reservationMetadata = {
-          customer_name: customerData.name,
-          customer_email: customerData.email,
-          customer_phone: customerData.phone,
-          customer_dni: customerData.dni,
-          start_date: startDate.toISOString(),
-          end_date: endDate.toISOString(),
-          pickup_time: pickupTime,
-          return_time: returnTime,
-          total_days: calculateTotalDays(startDate, endDate, pickupTime, returnTime).toString(),
-          bikes: JSON.stringify((selectedBikes || []).map(bike => ({
-            model: bike.title_es,
-            size: bike.size,
-            quantity: bike.quantity,
-            bike_ids: bike.bikes.map((b: any) => b.id),
-            pricePerDay: calculatePrice(bike.category, calculateTotalDays(startDate, endDate, pickupTime, returnTime))
-          }))),
-          accessories: JSON.stringify(selectedAccessories || []),
-          insurance: hasInsurance.toString(),
-          total_amount: totalAmount.toString(),
-          deposit_amount: calculateTotalDeposit(selectedBikes).toString(),
-          locale: language
-        };
+       const reservationMetadata = {
+  customer_name: customerData.name,
+  customer_email: customerData.email,
+  customer_phone: customerData.phone,
+  customer_dni: customerData.dni,
+
+  start_date: startDate.toISOString(),
+  end_date: endDate.toISOString(),
+
+  pickup_time: pickupTime,
+  return_time: returnTime,
+
+ 
+  pickup_location: pickupLocation,
+  return_location: pickupLocation,
+
+  total_days: calculateTotalDays(
+    startDate,
+    endDate,
+    pickupTime,
+    returnTime
+  ).toString(),
+
+  bikes: JSON.stringify((selectedBikes || []).map(bike => ({
+    model: bike.title_es,
+    size: bike.size,
+    quantity: bike.quantity,
+    bike_ids: bike.bikes.map((b: any) => b.id),
+    pricePerDay: calculatePrice(
+      bike.category,
+      calculateTotalDays(startDate, endDate, pickupTime, returnTime)
+    )
+  }))),
+
+  accessories: JSON.stringify(selectedAccessories || []),
+  insurance: hasInsurance.toString(),
+  total_amount: totalAmount.toString(),
+  deposit_amount: calculateTotalDeposit(selectedBikes).toString(),
+  locale: language
+};
+
 
         const reservationData = await createReservation(
           { ...reservationMetadata, ...(confirmedPaymentIntent.metadata || {}) },

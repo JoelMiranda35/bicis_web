@@ -252,23 +252,32 @@ if (locationFilter !== "all") {
 
 const fetchAvailableBikes = async () => {
   if (!newReservation.start_date || !newReservation.end_date) return;
+  
   try {
+    // Obtener todas las bicis disponibles
     const { data: allBikes } = await supabase
       .from("bikes")
       .select("*")
       .eq("available", true);
 
+    // Formatear fechas para la consulta
+    const startDateStr = format(newReservation.start_date, 'yyyy-MM-dd');
+    const endDateStr = format(newReservation.end_date, 'yyyy-MM-dd');
+
+    // Obtener reservas que se superponen con las fechas seleccionadas
     const { data: reservations } = await supabase
       .from("reservations")
       .select("bikes, start_date, end_date, pickup_time, return_time, status")
-      .or(
-        `and(start_date.lte.${format(newReservation.end_date, 'yyyy-MM-dd')},end_date.gte.${format(newReservation.start_date, 'yyyy-MM-dd')})`
-      )
-      .in("status", ["confirmed", "in_process"]);
+      .or(`status.eq.confirmed,status.eq.in_process`)
+      // Reservas que empiezan antes de que termine nuestra reserva
+      .lte('start_date', endDateStr)
+      // Y terminan después de que empiece nuestra reserva
+      .gte('end_date', startDateStr);
 
     if (allBikes) {
       const reservedBikeIds = new Set<string>();
 
+      // Convertir a fechas Madrid para comparar horas
       const selStart = convertToMadridTime(new Date(newReservation.start_date));
       selStart.setHours(
         Number(newReservation.pickup_time.split(":")[0]),
@@ -281,6 +290,7 @@ const fetchAvailableBikes = async () => {
         Number(newReservation.return_time.split(":")[1])
       );
 
+      // Verificar superposición por cada reserva existente
       reservations?.forEach((res) => {
         const resStart = convertToMadridTime(new Date(res.start_date));
         resStart.setHours(
@@ -294,15 +304,31 @@ const fetchAvailableBikes = async () => {
           Number(res.return_time.split(":")[1])
         );
 
+        // Verificar superposición real incluyendo horas
         const overlap = selStart < resEnd && selEnd > resStart;
+        
         if (overlap) {
-          const bikes =
-            typeof res.bikes === "string" ? JSON.parse(res.bikes) : res.bikes;
-          if (Array.isArray(bikes)) {
-            bikes.forEach((bike: any) => {
+          // Extraer IDs de bicis de esta reserva
+          let bikesInReservation = res.bikes;
+          
+          // Si bikes es un string (JSON), parsearlo
+          if (typeof bikesInReservation === 'string') {
+            try {
+              bikesInReservation = JSON.parse(bikesInReservation);
+            } catch {
+              bikesInReservation = [];
+            }
+          }
+          
+          // Si es un array, procesar
+          if (Array.isArray(bikesInReservation)) {
+            bikesInReservation.forEach((bike: any) => {
+              // Si hay bike_ids (reservas con múltiples bicis del mismo modelo)
               if (Array.isArray(bike.bike_ids)) {
                 bike.bike_ids.forEach((id: string) => reservedBikeIds.add(id));
-              } else if (bike.id) {
+              } 
+              // Si hay id directo
+              else if (bike.id) {
                 reservedBikeIds.add(bike.id);
               }
             });
@@ -310,6 +336,7 @@ const fetchAvailableBikes = async () => {
         }
       });
 
+      // Filtrar bicis disponibles
       const available = allBikes.filter((bike) => !reservedBikeIds.has(bike.id));
       setAvailableBikes(available);
     }
@@ -318,8 +345,6 @@ const fetchAvailableBikes = async () => {
     setError("Error al obtener bicicletas disponibles");
   }
 };
-
-
 
   const calculateStats = (reservations: any[]) => {
     const totalBikes = bikes.length
