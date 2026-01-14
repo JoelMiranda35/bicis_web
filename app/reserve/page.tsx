@@ -425,11 +425,11 @@ if (existingReservation) {
       pricePerDay: calculatePrice(bike.category, calculateTotalDays(startDate, endDate, pickupTime, returnTime))
     }));
 
-    // 📍 USAR STRIPE METADATA COMO FUENTE DE VERDAD
-const finalPickupLocation = metadata.pickup_location ?? pickupLocation;
+    // 📍 STRIPE METADATA = FUENTE DE VERDAD
+const finalPickupLocation = metadata.pickup_location;
 
 if (!finalPickupLocation) {
-  throw new Error("Missing pickup location");
+  throw new Error("Missing pickup_location in Stripe metadata");
 }
 
 
@@ -575,10 +575,10 @@ if (!finalPickupLocation) {
 
 
         const reservationData = await createReservation(
-          { ...(confirmedPaymentIntent.metadata || {}), ...reservationMetadata },
+  { ...reservationMetadata, ...(confirmedPaymentIntent.metadata || {}) },
+  confirmedPaymentIntent.id
+);
 
-          confirmedPaymentIntent.id
-        );
 
         await sendConfirmationEmail({
           ...reservationData,
