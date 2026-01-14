@@ -721,20 +721,23 @@ const createReservation = async () => {
     });
 
     setNewReservation({
-      customer_name: "",
-      customer_email: "",
-      customer_phone: "",
-      customer_dni: "",
-      start_date: createLocalDate(),
-      end_date: createLocalDate(new Date()),
-      pickup_time: "10:00",
-      return_time: "18:00",
-      bikes: [],
-      accessories: [],
-      insurance: false,
-      status: "confirmed",
-      locale: "es", // ✅ reset a Español por defecto
-    });
+  customer_name: "",
+  customer_email: "",
+  customer_phone: "",
+  customer_dni: "",
+  start_date: createLocalDate(),
+  end_date: createLocalDate(new Date()),
+  pickup_time: "10:00",
+  return_time: "18:00",
+  pickup_location: "sucursal_altea",
+  return_location: "sucursal_altea",
+  bikes: [],
+  accessories: [],
+  insurance: false,
+  status: "confirmed",
+  locale: "es",
+});
+
   } catch (err: any) {
     console.error("Error creando reserva:", err);
     setError(err.message || "Error creando reserva");

@@ -426,10 +426,12 @@ if (existingReservation) {
     }));
 
     // 📍 USAR STRIPE METADATA COMO FUENTE DE VERDAD
-const finalPickupLocation =
-  metadata.pickup_location ??
-  pickupLocation ??
-  'sucursal_altea';
+const finalPickupLocation = metadata.pickup_location ?? pickupLocation;
+
+if (!finalPickupLocation) {
+  throw new Error("Missing pickup location");
+}
+
 
 
     const { data, error } = await supabase
@@ -573,7 +575,8 @@ const finalPickupLocation =
 
 
         const reservationData = await createReservation(
-          { ...reservationMetadata, ...(confirmedPaymentIntent.metadata || {}) },
+          { ...(confirmedPaymentIntent.metadata || {}), ...reservationMetadata },
+
           confirmedPaymentIntent.id
         );
 
