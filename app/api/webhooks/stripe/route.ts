@@ -257,7 +257,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
       bikes: bikesData,
       accessories: accessoriesData,
       insurance: metadata.insurance === 'true',
-      // 👇 convertir correctamente los valores numéricos
       total_amount: parseFloat(metadata.total_amount?.toString().replace(',', '.') || '0'),
       deposit_amount: parseFloat(metadata.deposit_amount?.toString().replace(',', '.') || '0'),
       paid_amount: paymentIntent.amount / 100,
@@ -270,29 +269,60 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
       updated_at: new Date().toISOString(),
     };
 
+    // 🔥 CAMBIO CRÍTICO: Usar UPSERT para aprovechar índice único
     const { data, error } = await supabase
       .from('reservations')
-      .insert([reservationData])
+      .upsert([reservationData], {
+        onConflict: 'stripe_payment_intent_id',
+        ignoreDuplicates: false
+      })
       .select()
       .single();
 
     if (error) {
-      console.error('Error creating reservation:', error);
+      // Si es error de duplicado, es NORMAL - ya existe la reserva
+      if (error.code === '23505') { // Código de violación de unicidad
+        console.log('🔄 Reserva duplicada detectada por BD (índice único):', paymentIntent.id);
+        
+        // Recuperar la reserva existente
+        const { data: existingReservation } = await supabase
+          .from('reservations')
+          .select('*')
+          .eq('stripe_payment_intent_id', paymentIntent.id)
+          .single();
+          
+        console.log('📋 Reserva existente recuperada:', existingReservation?.id);
+        return existingReservation; // Devolver la existente
+      }
+      
+      // Si es otro error, lanzarlo
+      console.error('Error upserting reservation:', error);
       throw error;
     }
 
-    console.log('✅ Reservation created from metadata:', data.id);
+    console.log('✅ Reservation created/updated from metadata:', data.id);
     
-    // 🔍 REGISTRAR RESERVA CREADA
+    // 🔍 REGISTRAR RESERVA CREADA/ACTUALIZADA
     await supabase.from('payment_logs').insert({
       payment_intent_id: paymentIntent.id,
-      event_type: 'reservation_created',
-      metadata: { reservation_id: data.id },
+      event_type: 'reservation_created_or_updated',
+      metadata: { 
+        reservation_id: data.id,
+        action: data.created_at === data.updated_at ? 'created' : 'updated'
+      },
       created_at: new Date().toISOString(),
     });
     
-    // Enviar email de confirmación
-    await sendConfirmationEmail(data);
+    // Enviar email de confirmación SOLO si es nueva
+    const isNewReservation = data.created_at === data.updated_at;
+    if (isNewReservation) {
+      console.log('📧 Enviando email de confirmación para nueva reserva:', data.id);
+      await sendConfirmationEmail(data);
+    } else {
+      console.log('🔄 Reserva actualizada, no se envía email:', data.id);
+    }
+    
+    return data;
     
   } catch (error) {
     console.error('Error creating reservation from metadata:', error);
@@ -305,10 +335,13 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
         error_type: 'reservation_creation_failed',
         error_data: JSON.stringify({
           metadata: paymentIntent.metadata,
-          error: error instanceof Error ? error.message : String(error)
+          error: error instanceof Error ? error.message : String(error),
+          code: error instanceof Error ? (error as any).code : undefined
         }),
         created_at: new Date().toISOString()
       });
+      
+    throw error; // Re-lanzar para manejo superior
   }
 }
 
