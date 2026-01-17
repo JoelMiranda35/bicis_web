@@ -354,6 +354,8 @@ const InsuranceContractCheckbox = ({
   );
 };
 
+// En page.tsx, reemplaza la función StripePaymentForm desde la línea ~730:
+
 const StripePaymentForm = ({ 
   clientSecret,
   customerData,
@@ -399,109 +401,89 @@ const StripePaymentForm = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmedIntent, setConfirmedIntent] = useState<any>(null);
   const [paymentCompleted, setPaymentCompleted] = useState(false);
+  // 🚨 AGREGAR ESTADO LOCAL para paymentError
+  const [localPaymentError, setLocalPaymentError] = useState<string | null>(null);
   
+  // 🔒 Nuevo estado para prevenir múltiples confirmaciones
+  const [paymentLock, setPaymentLock] = useState<string | null>(null);
+  
+  // 🔍 Verificar si ya hay una reserva reciente al montar
+  useEffect(() => {
+    const checkRecentReservation = async () => {
+      if (!customerData.email) return;
+      
+      try {
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60000).toISOString();
+        
+        const { data: recentReservation } = await supabase
+          .from('reservations')
+          .select('id, stripe_payment_intent_id, status')
+          .eq('customer_email', customerData.email)
+          .eq('status', 'confirmed')
+          .gte('created_at', fiveMinutesAgo)
+          .order('created_at', { ascending: false })
+          .maybeSingle();
+        
+        if (recentReservation) {
+          console.log('🚨 Reserva confirmada reciente detectada, bloqueando nuevo pago');
+          setLocalPaymentError(`Ya tienes una reserva confirmada hace menos de 5 minutos (ID: ${recentReservation.id}). Espera unos minutos o contacta soporte.`);
+          setPaymentCompleted(true); // Bloquear botón de pago
+        }
+      } catch (error) {
+        console.error('Error checking recent reservation:', error);
+      }
+    };
+    
+    checkRecentReservation();
+  }, [customerData.email]);
+
   // Calculamos el monto total a pagar (sin restar el depósito)
   const totalAmount = calculateTotal();
 
- const createReservation = async (metadata: any, paymentIntentId: string) => {
-  try {
-
-    // 🔒 PREVENIR RESERVAS DUPLICADAS (IDEMPOTENCIA STRIPE)
-const { data: existingReservation } = await supabase
-  .from("reservations")
-  .select("id")
-  .eq("stripe_payment_intent_id", paymentIntentId)
-  .maybeSingle();
-
-if (existingReservation) {
-  return existingReservation;
-}
-
-    const bikesData = (selectedBikes || []).map((bike: any) => ({
-      model: bike.title_es,
-      size: bike.size,
-      quantity: bike.quantity,
-      bike_ids: bike.bikes.map((b: any) => b.id),
-      pricePerDay: calculatePrice(bike.category, calculateTotalDays(startDate, endDate, pickupTime, returnTime))
-    }));
-
-    // 📍 STRIPE METADATA = FUENTE DE VERDAD
-const finalPickupLocation = metadata.pickup_location;
-
-if (!finalPickupLocation) {
-  throw new Error("Missing pickup_location in Stripe metadata");
-}
-
-
-
-    const { data, error } = await supabase
-      .from("reservations")
-      .insert([{
-        customer_name: metadata.customer_name || customerData.name,
-        customer_email: metadata.customer_email || customerData.email,
-        customer_phone: metadata.customer_phone || customerData.phone,
-        customer_dni: metadata.customer_dni || customerData.dni,
-        start_date: metadata.start_date || startDate.toISOString(),
-        end_date: metadata.end_date || endDate.toISOString(),
-        pickup_time: metadata.pickup_time || pickupTime,
-        return_time: metadata.return_time || returnTime,
-       pickup_location: finalPickupLocation,
-       return_location: finalPickupLocation,
-          total_days: parseInt(metadata.total_days || calculateTotalDays(startDate, endDate, pickupTime, returnTime).toString()),
-          bikes: bikesData,
-          accessories: selectedAccessories || [],
-          insurance: metadata.insurance ? metadata.insurance === "true" : hasInsurance,
-          total_amount: parseFloat(metadata.total_amount || totalAmount.toString()),
-          deposit_amount: parseFloat(metadata.deposit_amount || calculateTotalDeposit(selectedBikes).toString()),
-          paid_amount: parseFloat(metadata.total_amount || totalAmount.toString()),
-          status: "confirmed",
-          payment_gateway: "stripe",
-          payment_status: "paid",
-          payment_reference: paymentIntentId,
-          stripe_payment_intent_id: paymentIntentId,
-          locale: metadata.locale || language
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-
-    } catch (error) {
-      //console.error("Error creating reservation:", error);
-      throw error;
-    }
-  };
-
   const handleSubmit = async (event: React.FormEvent) => {
-  event.preventDefault();
-  
-  // ✅ SOLUCIÓN: PREVENIR MÚLTIPLES PAGOS
-  if (isProcessing) {
-    setCardError("El pago ya está siendo procesado. Por favor, espere.");
-    return;
-  }
-  
-  if (paymentCompleted) {
-    setCardError("El pago ya fue completado. No puede pagar dos veces.");
-    return;
-  }
-  
-  if (!stripe || !elements) {
-    setCardError("Sistema de pago no disponible. Recargue la página.");
-    return;
-  }
-  
-  if (!clientSecret) {
-    setCardError("Sesión de pago expirada. Recargue la página.");
-    return;
-  }
+    event.preventDefault();
+    
+    // ✅ BLOQUEO COMPLETO - PREVENIR MÚLTIPLES PAGOS
+    if (isProcessing || paymentCompleted) {
+      setCardError("El pago ya está siendo procesado o fue completado.");
+      return;
+    }
+    
+    // 🔒 BLOQUEO POR INTENTO ANTERIOR
+    if (localStorage.getItem('stripe_payment_in_progress') === 'true') {
+      setCardError("Ya hay un pago en proceso. Por favor espera unos segundos.");
+      return;
+    }
+    
+    // 🔒 BLOQUEO POR RESERVA RECIENTE
+    const recentPaymentKey = `last_successful_payment_${customerData.email}`;
+    const lastPaymentTime = localStorage.getItem(recentPaymentKey);
+    if (lastPaymentTime) {
+      const timeSince = Date.now() - parseInt(lastPaymentTime);
+      if (timeSince < 30000) { // 30 segundos de bloqueo
+        setCardError("Por seguridad, espera al menos 30 segundos entre pagos.");
+        return;
+      }
+    }
+    
+    if (!stripe || !elements) {
+      setCardError("Sistema de pago no disponible. Recargue la página.");
+      return;
+    }
+    
+    if (!clientSecret) {
+      setCardError("Sesión de pago expirada. Recargue la página.");
+      return;
+    }
 
-  setIsProcessing(true);
-  setCardError(null);
-  setPaymentError(null);
-
- 
+    setIsProcessing(true);
+    setCardError(null);
+    setPaymentError(null);
+    setLocalPaymentError(null);
+    
+    // 🔒 ESTABLECER BLOQUEO GLOBAL
+    localStorage.setItem('stripe_payment_in_progress', 'true');
+    setPaymentLock(clientSecret);
 
     try {
       const { paymentIntent: currentIntent } = await stripe.retrievePaymentIntent(clientSecret);
@@ -522,7 +504,8 @@ if (!finalPickupLocation) {
             phone: customerData.phone
           },
         },
-        receipt_email: customerData.email
+        receipt_email: customerData.email,
+        return_url: `${window.location.origin}/reserve?payment_completed=true` // URL de retorno
       });
 
       if (stripeError) throw stripeError;
@@ -531,79 +514,45 @@ if (!finalPickupLocation) {
 
       if (confirmedPaymentIntent?.status === "succeeded") {
         setPaymentCompleted(true);
-
-       const reservationMetadata = {
-  customer_name: customerData.name,
-  customer_email: customerData.email,
-  customer_phone: customerData.phone,
-  customer_dni: customerData.dni,
-
-  start_date: startDate.toISOString(),
-  end_date: endDate.toISOString(),
-
-  pickup_time: pickupTime,
-  return_time: returnTime,
-
- 
-  pickup_location: pickupLocation,
-  return_location: pickupLocation,
-
-  total_days: calculateTotalDays(
-    startDate,
-    endDate,
-    pickupTime,
-    returnTime
-  ).toString(),
-
-  bikes: JSON.stringify((selectedBikes || []).map(bike => ({
-    model: bike.title_es,
-    size: bike.size,
-    quantity: bike.quantity,
-    bike_ids: bike.bikes.map((b: any) => b.id),
-    pricePerDay: calculatePrice(
-      bike.category,
-      calculateTotalDays(startDate, endDate, pickupTime, returnTime)
-    )
-  }))),
-
-  accessories: JSON.stringify(selectedAccessories || []),
-  insurance: hasInsurance.toString(),
-  total_amount: totalAmount.toString(),
-  deposit_amount: calculateTotalDeposit(selectedBikes).toString(),
-  locale: language
-};
-
-
-        const reservationData = await createReservation(
-  { ...reservationMetadata, ...(confirmedPaymentIntent.metadata || {}) },
-  confirmedPaymentIntent.id
-);
-
-
-        await sendConfirmationEmail({
-          ...reservationData,
-          payment_reference: confirmedPaymentIntent.id
-        });
-
-        setCurrentStep("confirmation");
+        
+        // 🔒 REGISTRAR PAGO EXITOSO
+        localStorage.setItem(recentPaymentKey, Date.now().toString());
+        
+        // 🔒 LIMPIAR BLOQUEOS
+        localStorage.removeItem('stripe_payment_in_progress');
+        localStorage.removeItem(`last_submit_${customerData.email}`);
+        
+        // Mensaje de éxito
+        setCardError("✅ Pago procesado exitosamente. Tu reserva se está creando...");
+        
+        // 🔴 **IMPORTANTE:** NO CREAR RESERVA AQUÍ - EL WEBHOOK LO HARÁ
+        
+        // Esperar 3 segundos para que el webhook procese
+        setTimeout(() => {
+          // Redirigir a confirmación con parámetros
+          setCurrentStep("confirmation");
+          // También podemos forzar una recarga de la página para limpiar estado
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
+        }, 3000);
       }
-       } catch (err: any) {
-      //console.error("Payment Error:", {
-        //error: err,
-        //paymentIntentId: confirmedIntent?.id,
-        //paymentStatus: confirmedIntent?.status
-      //});
-
+    } catch (err: any) {
+      console.error("Payment Error:", err);
+      
       const errorMessage = err.code === 'payment_intent_unexpected_state' 
         ? "Payment session expired. Please restart the checkout process."
         : err.message || "Payment processing failed. Please try again.";
 
       setCardError(errorMessage);
-      setPaymentError(errorMessage);
+      setLocalPaymentError(errorMessage);
 
       if (err.code === 'payment_intent_unexpected_state') {
         setClientSecret(null);
       }
+      
+      // 🔒 LIMPIAR BLOQUEOS EN CASO DE ERROR
+      localStorage.removeItem('stripe_payment_in_progress');
     } finally {
       setIsProcessing(false);
     }
@@ -655,27 +604,118 @@ if (!finalPickupLocation) {
         </div>
       )}
 
-     
-
       <Button
         type="submit"
-        disabled={isProcessing || !stripe}
+        disabled={isProcessing || !stripe || paymentCompleted || !!localPaymentError}
         className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+        data-button="stripe-payment-button"
       >
         {isProcessing ? (
           <>
             <Loader2 className="animate-spin h-4 w-4 mr-2" />
-            {t("processingPayment")}
+            Procesando pago...
+          </>
+        ) : paymentCompleted ? (
+          <>
+            <CheckCircle className="h-4 w-4 mr-2" />
+            ✅ Pago Completado
+          </>
+        ) : localPaymentError ? (
+          <>
+            <Loader2 className="h-4 w-4 mr-2" />
+            Pago Bloqueado
           </>
         ) : (
-          `${t("payOnline")} ${totalAmount.toFixed(2)}€`
+          <>
+            <CreditCard className="h-4 w-4 mr-2" />
+            {t("payOnline")} {totalAmount.toFixed(2)}€
+          </>
         )}
       </Button>
+
+      {/* 🚨 BLOQUE 4: Mensajes preventivos importantes */}
+      {isProcessing && !paymentCompleted && (
+        <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <div className="flex items-start gap-2">
+            <div className="text-yellow-600 mt-0.5">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-yellow-800">
+                ⚠️ Importante: No cierres ni recargues esta página
+              </p>
+              <p className="text-xs text-yellow-700 mt-1">
+                • El proceso puede tomar unos segundos<br/>
+                • Tu reserva se creará automáticamente<br/>
+                • Recibirás confirmación por email<br/>
+                • Si hay problemas, contacta: info@alteabikeshop.com
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {paymentCompleted && (
+        <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div className="flex items-start gap-2">
+            <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-green-800">
+                ✅ Pago procesado exitosamente
+              </p>
+              <p className="text-xs text-green-700 mt-1">
+                • Redirigiendo a confirmación...<br/>
+                • Tu reserva está siendo creada automáticamente<br/>
+                • Revisa tu email en los próximos minutos<br/>
+                • Nº de transacción: {clientSecret?.substring(3, 15)}...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {localPaymentError && (
+        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-start gap-2">
+            <div className="text-red-600 mt-0.5">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-red-800">
+                ❌ Error en el pago
+              </p>
+              <p className="text-xs text-red-700 mt-1">
+                {localPaymentError}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setLocalPaymentError(null);
+                  setIsProcessing(false);
+                  setPaymentCompleted(false);
+                  localStorage.removeItem('stripe_payment_in_progress');
+                }}
+                className="mt-2 text-red-700 border-red-300 hover:bg-red-50"
+              >
+                Intentar de nuevo
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-4">
         <Button
           variant="outline"
-          onClick={() => setCurrentStep("customer")}
+          onClick={() => {
+            setCurrentStep("customer");
+            localStorage.removeItem('stripe_payment_in_progress');
+          }}
           className="w-full"
           type="button"
         >
@@ -746,6 +786,81 @@ const [returnLocation, setReturnLocation] = useState("sucursal_altea");
   };
   fetchAccessories();
 }, []);
+
+// 🚨 BLOQUE 3: Verificar reservas recientes al cargar
+useEffect(() => {
+  const checkRecentPayment = async () => {
+    // Solo verificar si tenemos email del cliente
+    if (!customerData.email || customerData.email.trim() === "") return;
+    
+    console.log("🔍 Verificando reservas recientes para:", customerData.email);
+    
+    try {
+      // Buscar reservas del mismo cliente en los últimos 10 minutos
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60000).toISOString();
+      
+      const { data: recentReservations, error } = await supabase
+        .from('reservations')
+        .select('id, created_at, status, stripe_payment_intent_id, customer_name')
+        .eq('customer_email', customerData.email)
+        .gte('created_at', tenMinutesAgo)
+        .in('status', ['confirmed', 'pending'])
+        .order('created_at', { ascending: false })
+        .limit(3);
+      
+      if (error) {
+        console.error("Error checking recent reservations:", error);
+        return;
+      }
+      
+      if (recentReservations && recentReservations.length > 0) {
+        console.log('📊 Reservas recientes encontradas:', recentReservations.length);
+        
+        const mostRecent = recentReservations[0];
+        const timeSince = Date.now() - new Date(mostRecent.created_at).getTime();
+        const minutesAgo = Math.floor(timeSince / 60000);
+        
+        // Si hay reserva confirmada en los últimos 5 minutos
+        if (mostRecent.status === 'confirmed' && timeSince < 5 * 60000) {
+          console.log('🚨 Reserva confirmada reciente detectada:', mostRecent.id);
+          
+          // Mostrar advertencia si estamos en pasos de pago
+          if (currentStep === "payment" || currentStep === "customer") {
+            setPaymentError(`⚠️ Ya tienes una reserva confirmada hace ${minutesAgo} minuto(s). 
+              ID: ${mostRecent.id}
+              Si no la recibiste, revisa tu correo o contacta soporte.`);
+            
+            // Bloquear nuevos intentos por 10 minutos
+            localStorage.setItem(`last_submit_${customerData.email}`, 
+              (Date.now() + 10 * 60000).toString());
+          }
+        }
+        
+        // Si hay múltiples reservas pendientes/confirmadas
+        if (recentReservations.length >= 2) {
+          console.warn('🚨 MÚLTIPLES reservas recientes:', recentReservations.length);
+          
+          // Enviar alerta a administrador (opcional)
+          await supabase.from('payment_alerts').insert({
+            alert_type: 'multiple_reservations',
+            customer_email: customerData.email,
+            reservation_count: recentReservations.length,
+            reservation_ids: recentReservations.map(r => r.id),
+            created_at: new Date().toISOString()
+          });
+        }
+      }
+      
+    } catch (err) {
+      console.error("Error en checkRecentPayment:", err);
+    }
+  };
+  
+  // Ejecutar cuando cambie el email o el paso actual
+  if (customerData.email) {
+    checkRecentPayment();
+  }
+}, [customerData.email, currentStep]);
 
   useEffect(() => {
   if (startDate && endDate) {
@@ -1120,9 +1235,42 @@ function getLocalDateString(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-  const handleSubmitReservation = async () => {
+const handleSubmitReservation = async () => {
+  // 🚨 BLOQUEO DURO CON MÚLTIPLES CAPAS
+  if (isSubmitting) {
+    console.warn("⚠️ Bloqueado: Ya hay un pago en proceso");
+    setPaymentError("Ya hay un pago en proceso. Por favor espera.");
+    return;
+  }
+  
+  // 🚨 BLOQUEO POR TIEMPO (30 segundos entre intentos)
+  const lastSubmitKey = `last_submit_${customerData.email}`;
+  const lastSubmitTime = localStorage.getItem(lastSubmitKey);
+  const globalBlockKey = 'global_payment_block';
+  const globalBlockTime = localStorage.getItem(globalBlockKey);
+  
+  if (lastSubmitTime) {
+    const timeSinceLastSubmit = Date.now() - parseInt(lastSubmitTime);
+    if (timeSinceLastSubmit < 30000) { // 30 segundos
+      const secondsLeft = Math.ceil((30000 - timeSinceLastSubmit) / 1000);
+      setPaymentError(`⏳ Por seguridad, espera ${secondsLeft} segundos antes de reintentar`);
+      return;
+    }
+  }
+  
+  if (globalBlockTime) {
+    const timeSinceGlobalBlock = Date.now() - parseInt(globalBlockTime);
+    if (timeSinceGlobalBlock < 5000) { // 5 segundos de bloqueo global
+      setPaymentError(`⏳ Sistema ocupado. Intenta en unos segundos.`);
+      return;
+    }
+  }
+  
+  // 🚨 MARCAR COMO EN PROCESO CON BLOQUEOS
   setIsSubmitting(true);
   setPaymentError(null);
+  localStorage.setItem(lastSubmitKey, Date.now().toString());
+  localStorage.setItem(globalBlockKey, Date.now().toString());
 
   try {
     if (!validateCustomerData()) {
@@ -1134,9 +1282,23 @@ function getLocalDateString(date: Date): string {
       throw new Error("Algunas bicicletas ya no están disponibles");
     }
 
-    // 🔒 PREVENIR MÚLTIPLES ENVÍOS
+    // 🔒 PREVENIR MÚLTIPLES ENVÍOS - VERIFICAR SI YA HAY CLIENT SECRET
     if (clientSecret) {
       throw new Error("El proceso de pago ya está en curso. No envíes múltiples veces.");
+    }
+
+    // 🔒 Verificar si el cliente ya tiene reserva reciente
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60000).toISOString();
+    const { data: recentReservation } = await supabase
+      .from('reservations')
+      .select('id, status')
+      .eq('customer_email', customerData.email)
+      .eq('status', 'confirmed')
+      .gte('created_at', fiveMinutesAgo)
+      .maybeSingle();
+    
+    if (recentReservation) {
+      throw new Error(`Ya tienes una reserva confirmada recientemente (ID: ${recentReservation.id}). Espera unos minutos o contacta soporte.`);
     }
 
     // 🔒 Cálculo seguro de días de alquiler
@@ -1218,7 +1380,9 @@ function getLocalDateString(date: Date): string {
       deposit_amount: calculateTotalDeposit().toFixed(2),
       locale: language,
       bikes_data: JSON.stringify(simplifiedBikesData),
-      accessories_data: JSON.stringify(simplifiedAccessories)
+      accessories_data: JSON.stringify(simplifiedAccessories),
+      // 🚨 IDEMPOTENCY KEY
+      idempotency_key: `res_${Date.now()}_${customerData.email}`
     };
 
     console.log("=== Creando PaymentIntent ===");
@@ -1242,7 +1406,9 @@ function getLocalDateString(date: Date): string {
 
     const { clientSecret: newClientSecret } = await response.json();
     
-    // 🔒 IMPORTANTE: Solo establecer el clientSecret después de crear exitosamente
+    // 🚨 BLOQUEAR NUEVOS INTENTOS POR 2 MINUTOS
+    localStorage.setItem(lastSubmitKey, (Date.now() + 120000).toString());
+    
     setClientSecret(newClientSecret);
     setCurrentStep("payment");
 
@@ -1254,10 +1420,22 @@ function getLocalDateString(date: Date): string {
     if (error.message.includes("múltiples")) {
       setClientSecret(null);
     }
+    
+    // 🚨 LIMPIAR BLOQUEOS EN CASO DE ERROR
+    setTimeout(() => {
+      localStorage.removeItem(`last_submit_${customerData.email}`);
+      localStorage.removeItem(globalBlockKey);
+    }, 5000);
+    
   } finally {
     setIsSubmitting(false);
+    // Limpiar bloqueo global después de 5 segundos
+    setTimeout(() => {
+      localStorage.removeItem(globalBlockKey);
+    }, 5000);
   }
-};
+}; 
+
   const getCategoryName = (category: BikeCategory): string => {
     switch (category) {
       case "ROAD":
@@ -2025,25 +2203,43 @@ function getLocalDateString(date: Date): string {
               />
 
               <div className="mt-6 flex flex-col gap-4 sm:flex-row">
-                <Button
-                  variant="outline"
-                  onClick={() => setCurrentStep("accessories")}
-                  className="w-full sm:w-auto"
-                >
-                  {t("back")}
-                </Button>
-                <Button
-                  onClick={handleSubmitReservation}
-                  className="w-full sm:w-auto"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting
-                    ? t("processing")
-                    : isAdminMode
-                      ? t("continue")
-                      : t("continuePayment")}
-                </Button>
-              </div>
+  <Button
+    variant="outline"
+    onClick={() => setCurrentStep("accessories")}
+    className="w-full sm:w-auto"
+  >
+    {t("back")}
+  </Button>
+  <Button
+    onClick={handleSubmitReservation}
+    className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+    disabled={isSubmitting}
+    data-button="submit-reservation"
+  >
+    {isSubmitting ? (
+      <>
+        <Loader2 className="animate-spin h-4 w-4 mr-2" />
+        Creando pago seguro...
+      </>
+    ) : isAdminMode ? (
+      t("continue")
+    ) : (
+      <>
+        <CreditCard className="h-4 w-4 mr-2" />
+        Pagar ahora 
+      </>
+    )}
+  </Button>
+</div>
+
+{isSubmitting && (
+  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+    <p className="text-sm text-blue-700 flex items-center">
+      <Loader2 className="animate-spin h-3 w-3 mr-2" />
+      <strong>Procesando tu pago...</strong> Por favor no cierres esta ventana ni hagas clic nuevamente.
+    </p>
+  </div>
+)}
             </CardContent>
           </Card>
         );

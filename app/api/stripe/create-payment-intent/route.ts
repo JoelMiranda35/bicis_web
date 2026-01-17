@@ -16,32 +16,57 @@ export async function POST(request: Request) {
   try {
     const { amount, currency = 'eur', metadata, payment_method } = await request.json();
 
-    
+    // 🚨 BLOQUEAR MÚLTIPLES PAYMENTINTENTS PARA EL MISMO CLIENTE
+    if (metadata && metadata.customer_email) {
+      const { data: recentIntents } = await supabase
+        .from('payment_intents')
+        .select('intent_id, created_at')
+        .eq('customer_email', metadata.customer_email)
+        .gte('created_at', new Date(Date.now() - 60000).toISOString()) // Último minuto
+        .order('created_at', { ascending: false })
+        .limit(3);
+      
+      if (recentIntents && recentIntents.length >= 2) {
+        console.error('🚨 DEMASIADOS INTENTOS:', {
+          email: metadata.customer_email,
+          intentos: recentIntents.length,
+          ultimos: recentIntents.map(i => i.intent_id)
+        });
+        
+        return NextResponse.json(
+          { 
+            error: 'Demasiados intentos de pago. Espera 1 minuto antes de reintentar.',
+            code: 'too_many_requests'
+          },
+          { status: 429 }
+        );
+      }
+    }
 
-// ✅ TEMPORALMENTE DESACTIVADO PARA PRUEBAS - COMENTAR ESTE BLOQUE
-if (payment_method?.card?.last4 && BLOCKED_TEST_CARDS.includes(payment_method.card.last4)) {
- console.log('🚫 BLOQUEO: Tarjeta de prueba detectada:', payment_method.card.last4);
- 
-    //Registrar intento bloqueado
-   await supabase.from('payment_errors').insert({
-     error_type: 'test_card_blocked',
-     error_data: JSON.stringify({
-       card_last4: payment_method.card.last4,
-       card_brand: payment_method.card.brand,
-       amount,
-       customer_email: metadata?.customer_email
-     }),
-     created_at: new Date().toISOString(),
-   });
+    // ✅ TEMPORALMENTE DESACTIVADO PARA PRUEBAS - COMENTAR ESTE BLOQUE
+    if (payment_method?.card?.last4 && BLOCKED_TEST_CARDS.includes(payment_method.card.last4)) {
+      console.log('🚫 BLOQUEO: Tarjeta de prueba detectada:', payment_method.card.last4);
+      
+      // Registrar intento bloqueado
+      await supabase.from('payment_errors').insert({
+        error_type: 'test_card_blocked',
+        error_data: JSON.stringify({
+          card_last4: payment_method.card.last4,
+          card_brand: payment_method.card.brand,
+          amount,
+          customer_email: metadata?.customer_email
+        }),
+        created_at: new Date().toISOString(),
+      });
 
-   return NextResponse.json(
-     { 
-       error: 'Tarjetas de prueba no permitidas en modo producción',
-       code: 'test_card_not_allowed'
-     },
-     { status: 400 }
-   );
- }
+      return NextResponse.json(
+        { 
+          error: 'Tarjetas de prueba no permitidas en modo producción',
+          code: 'test_card_not_allowed'
+        },
+        { status: 400 }
+      );
+    }
 
     // Validación del amount
     if (typeof amount !== 'number' || isNaN(amount)) {
@@ -78,7 +103,13 @@ if (payment_method?.card?.last4 && BLOCKED_TEST_CARDS.includes(payment_method.ca
       metadata: cleanedMetadata,
     };
 
-    const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
+    // Crear PaymentIntent con idempotency key
+    const options: Stripe.RequestOptions = {};
+    if (cleanedMetadata.idempotency_key) {
+      options.idempotencyKey = cleanedMetadata.idempotency_key;
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams, options);
 
     // Guardar en Supabase
     try {
