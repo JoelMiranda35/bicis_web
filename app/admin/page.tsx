@@ -252,97 +252,140 @@ if (locationFilter !== "all") {
 
 const fetchAvailableBikes = async () => {
   if (!newReservation.start_date || !newReservation.end_date) return;
-  
+
   try {
-    // Obtener todas las bicis disponibles
-    const { data: allBikes } = await supabase
+    setIsLoadingBikes(true);
+
+    // 1️⃣ Traer TODAS las bicis físicas DISPONIBLES
+    const { data: allBikes, error: bikesError } = await supabase
       .from("bikes")
       .select("*")
       .eq("available", true);
 
-    // Formatear fechas para la consulta
-    const startDateStr = format(newReservation.start_date, 'yyyy-MM-dd');
-    const endDateStr = format(newReservation.end_date, 'yyyy-MM-dd');
+    if (bikesError) throw bikesError;
+    if (!allBikes) {
+      setAvailableBikes([]);
+      return;
+    }
 
-    // Obtener reservas que se superponen con las fechas seleccionadas
-    const { data: reservations } = await supabase
+    // 2️⃣ Fechas seleccionadas (Madrid + horas)
+    const selStart = convertToMadridTime(new Date(newReservation.start_date));
+    selStart.setHours(
+      Number(newReservation.pickup_time.split(":")[0]),
+      Number(newReservation.pickup_time.split(":")[1])
+    );
+
+    const selEnd = convertToMadridTime(new Date(newReservation.end_date));
+    selEnd.setHours(
+      Number(newReservation.return_time.split(":")[0]),
+      Number(newReservation.return_time.split(":")[1])
+    );
+
+    // 3️⃣ Traer reservas que se solapan
+    const { data: reservations, error: resError } = await supabase
       .from("reservations")
       .select("bikes, start_date, end_date, pickup_time, return_time, status")
-      .or(`status.eq.confirmed,status.eq.in_process`)
-      // Reservas que empiezan antes de que termine nuestra reserva
-      .lte('start_date', endDateStr)
-      // Y terminan después de que empiece nuestra reserva
-      .gte('end_date', startDateStr);
+      .in("status", ["confirmed", "pending", "in_process"])
+      .lte("start_date", selEnd.toISOString())
+      .gte("end_date", selStart.toISOString());
 
-    if (allBikes) {
-      const reservedBikeIds = new Set<string>();
+    if (resError) throw resError;
 
-      // Convertir a fechas Madrid para comparar horas
-      const selStart = convertToMadridTime(new Date(newReservation.start_date));
-      selStart.setHours(
-        Number(newReservation.pickup_time.split(":")[0]),
-        Number(newReservation.pickup_time.split(":")[1])
+    const reservedBikeIds = new Set<string>();
+    const bikeQuantityMap = new Map<string, number>(); // Para contar cantidad por modelo
+
+    // 4️⃣ Detectar solapamiento REAL y contar CANTIDADES
+    reservations?.forEach((res) => {
+      const resStart = convertToMadridTime(new Date(res.start_date));
+      resStart.setHours(
+        Number(res.pickup_time.split(":")[0]),
+        Number(res.pickup_time.split(":")[1])
       );
 
-      const selEnd = convertToMadridTime(new Date(newReservation.end_date));
-      selEnd.setHours(
-        Number(newReservation.return_time.split(":")[0]),
-        Number(newReservation.return_time.split(":")[1])
+      const resEnd = convertToMadridTime(new Date(res.end_date));
+      resEnd.setHours(
+        Number(res.return_time.split(":")[0]),
+        Number(res.return_time.split(":")[1])
       );
 
-      // Verificar superposición por cada reserva existente
-      reservations?.forEach((res) => {
-        const resStart = convertToMadridTime(new Date(res.start_date));
-        resStart.setHours(
-          Number(res.pickup_time.split(":")[0]),
-          Number(res.pickup_time.split(":")[1])
-        );
+      const overlap = selStart < resEnd && selEnd > resStart;
+      if (!overlap) return;
 
-        const resEnd = convertToMadridTime(new Date(res.end_date));
-        resEnd.setHours(
-          Number(res.return_time.split(":")[0]),
-          Number(res.return_time.split(":")[1])
-        );
+      let bikesInReservation = res.bikes;
 
-        // Verificar superposición real incluyendo horas
-        const overlap = selStart < resEnd && selEnd > resStart;
-        
-        if (overlap) {
-          // Extraer IDs de bicis de esta reserva
-          let bikesInReservation = res.bikes;
-          
-          // Si bikes es un string (JSON), parsearlo
-          if (typeof bikesInReservation === 'string') {
-            try {
-              bikesInReservation = JSON.parse(bikesInReservation);
-            } catch {
-              bikesInReservation = [];
-            }
-          }
-          
-          // Si es un array, procesar
-          if (Array.isArray(bikesInReservation)) {
-            bikesInReservation.forEach((bike: any) => {
-              // Si hay bike_ids (reservas con múltiples bicis del mismo modelo)
-              if (Array.isArray(bike.bike_ids)) {
-                bike.bike_ids.forEach((id: string) => reservedBikeIds.add(id));
-              } 
-              // Si hay id directo
-              else if (bike.id) {
-                reservedBikeIds.add(bike.id);
-              }
-            });
-          }
+      if (typeof bikesInReservation === "string") {
+        try {
+          bikesInReservation = JSON.parse(bikesInReservation);
+        } catch {
+          bikesInReservation = [];
         }
-      });
+      }
 
-      // Filtrar bicis disponibles
-      const available = allBikes.filter((bike) => !reservedBikeIds.has(bike.id));
-      setAvailableBikes(available);
-    }
-  } catch (err) {
-    console.error("Error al obtener bicicletas disponibles:", err);
-    setError("Error al obtener bicicletas disponibles");
+      if (Array.isArray(bikesInReservation)) {
+        bikesInReservation.forEach((bike: any) => {
+          // Contar cantidad TOTAL reservada por modelo
+          const bikeKey = `${bike.title_es || bike.title}-${bike.size}`;
+          const currentCount = bikeQuantityMap.get(bikeKey) || 0;
+          bikeQuantityMap.set(bikeKey, currentCount + (bike.quantity || 1));
+
+          // Agregar IDs de bicis específicas
+          if (Array.isArray(bike.bike_ids)) {
+            bike.bike_ids.forEach((id: string) =>
+              reservedBikeIds.add(id.trim())
+            );
+          } else if (bike.id) {
+            reservedBikeIds.add(bike.id.toString().trim());
+          }
+        });
+      }
+    });
+
+    // 5️⃣ Agrupar bicis por modelo y talla, considerando CANTIDADES
+    const groupedBikes = allBikes.reduce((acc: any[], bike) => {
+      const bikeKey = `${bike.title_es}-${bike.size}`;
+      const existingGroup = acc.find(b => b.key === bikeKey);
+      
+      if (existingGroup) {
+        existingGroup.quantity++;
+        existingGroup.bikes.push(bike);
+      } else {
+        // Calcular cuántas están realmente disponibles
+        const reservedCount = bikeQuantityMap.get(bikeKey) || 0;
+        const totalInGroup = allBikes.filter(
+          b => b.title_es === bike.title_es && b.size === bike.size
+        ).length;
+        
+        const availableInGroup = Math.max(0, totalInGroup - reservedCount);
+        
+        acc.push({
+          key: bikeKey,
+          title_es: bike.title_es,
+          title_en: bike.title_en,
+          title_nl: bike.title_nl,
+          subtitle_es: bike.subtitle_es,
+          subtitle_en: bike.subtitle_en,
+          subtitle_nl: bike.subtitle_nl,
+          category: bike.category,
+          size: bike.size,
+          quantity: availableInGroup, // Mostrar SOLO las disponibles
+          bikes: [bike],
+          totalInStock: totalInGroup, // Total en inventario
+          reservedCount: reservedCount // Cuántas están reservadas
+        });
+      }
+      return acc;
+    }, []);
+
+    // Filtrar grupos que tengan al menos 1 disponible
+    const available = groupedBikes.filter(group => group.quantity > 0);
+    
+    setAvailableBikes(available);
+
+  } catch (error) {
+    console.error("Error calculando disponibilidad admin:", error);
+    setAvailableBikes([]);
+  } finally {
+    setIsLoadingBikes(false);
   }
 };
 
@@ -2013,21 +2056,22 @@ const calculateTotalPrice = () => {
                             </p>
                           </div>
                           <div>
-                            <h4 className="font-medium mb-2">Bicicletas seleccionadas:</h4>
-                            {newReservation.bikes.map((bike: any, index: number) => {
-                              const days = Math.ceil(
-                                (newReservation.end_date.getTime() - 
-                                newReservation.start_date.getTime()) / 
-                                (1000 * 60 * 60 * 24)
-                              );
-                              const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, days) : 0;
-                              return (
-                                <p key={index} className="text-sm">
-                                  {bike.title} - {pricePerDay}€/día × {days} días = {pricePerDay * days}€
-                                </p>
-                              );
-                            })}
-                          </div>
+  <h4 className="font-medium mb-2">Bicicletas seleccionadas:</h4>
+  {newReservation.bikes.map((bike: any, index: number) => {
+    const days = calculateTotalDays(
+      new Date(newReservation.start_date),
+      new Date(newReservation.end_date),
+      newReservation.pickup_time,
+      newReservation.return_time
+    );
+    const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0;
+    return (
+      <p key={index} className="text-sm">
+        {bike.title} - {pricePerDay}€/día × {days} días = {pricePerDay * days}€
+      </p>
+    );
+  })}
+</div>
                           <div>
                             <h4 className="font-medium mb-2">Total parcial:</h4>
                             <p className="text-lg font-bold">
