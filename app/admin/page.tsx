@@ -114,6 +114,7 @@ export default function AdminPage() {
   const [filteredReservations, setFilteredReservations] = useState<any[]>([])
   const [editingBike, setEditingBike] = useState<any>(null)
   const [editingAccessory, setEditingAccessory] = useState<any>(null)
+  const [isCreatingReservation, setIsCreatingReservation] = useState(false); // <-- NUEVO
   const [newReservation, setNewReservation] = useState<any>({
   customer_name: "",
   customer_email: "",
@@ -256,7 +257,7 @@ const fetchAvailableBikes = async () => {
   try {
     setIsLoadingBikes(true);
 
-    // 1️⃣ Traer TODAS las bicis físicas DISPONIBLES
+    // 1️⃣ Traer TODAS las bicis DISPONIBLES (igual que el cliente)
     const { data: allBikes, error: bikesError } = await supabase
       .from("bikes")
       .select("*")
@@ -268,7 +269,7 @@ const fetchAvailableBikes = async () => {
       return;
     }
 
-    // 2️⃣ Fechas seleccionadas (Madrid + horas)
+    // 2️⃣ Fechas seleccionadas (igual que el cliente)
     const selStart = convertToMadridTime(new Date(newReservation.start_date));
     selStart.setHours(
       Number(newReservation.pickup_time.split(":")[0]),
@@ -281,21 +282,19 @@ const fetchAvailableBikes = async () => {
       Number(newReservation.return_time.split(":")[1])
     );
 
-    // 3️⃣ Traer reservas que se solapan
+    // 3️⃣ Traer reservas (usando la misma consulta que el cliente)
     const { data: reservations, error: resError } = await supabase
       .from("reservations")
       .select("bikes, start_date, end_date, pickup_time, return_time, status")
-      .in("status", ["confirmed", "pending", "in_process"])
-      .lte("start_date", selEnd.toISOString())
-      .gte("end_date", selStart.toISOString());
+      .or(`and(start_date.lte.${selEnd.toISOString()},end_date.gte.${selStart.toISOString()})`)
+      .in("status", ["confirmed", "in_process", "pending"]); // Añadí pending
 
     if (resError) throw resError;
 
+    // 4️⃣ IDENTICA AL CLIENTE: Marcar bicis reservadas
     const reservedBikeIds = new Set<string>();
-    const bikeQuantityMap = new Map<string, number>(); // Para contar cantidad por modelo
 
-    // 4️⃣ Detectar solapamiento REAL y contar CANTIDADES
-    reservations?.forEach((res) => {
+    (reservations || []).forEach(res => {
       const resStart = convertToMadridTime(new Date(res.start_date));
       resStart.setHours(
         Number(res.pickup_time.split(":")[0]),
@@ -309,80 +308,80 @@ const fetchAvailableBikes = async () => {
       );
 
       const overlap = selStart < resEnd && selEnd > resStart;
-      if (!overlap) return;
 
-      let bikesInReservation = res.bikes;
-
-      if (typeof bikesInReservation === "string") {
-        try {
-          bikesInReservation = JSON.parse(bikesInReservation);
-        } catch {
-          bikesInReservation = [];
-        }
-      }
-
-      if (Array.isArray(bikesInReservation)) {
-        bikesInReservation.forEach((bike: any) => {
-          // Contar cantidad TOTAL reservada por modelo
-          const bikeKey = `${bike.title_es || bike.title}-${bike.size}`;
-          const currentCount = bikeQuantityMap.get(bikeKey) || 0;
-          bikeQuantityMap.set(bikeKey, currentCount + (bike.quantity || 1));
-
-          // Agregar IDs de bicis específicas
-          if (Array.isArray(bike.bike_ids)) {
-            bike.bike_ids.forEach((id: string) =>
-              reservedBikeIds.add(id.trim())
-            );
-          } else if (bike.id) {
-            reservedBikeIds.add(bike.id.toString().trim());
+      if (overlap) {
+        // Función IDÉNTICA a la del cliente
+        const markBikesAsReserved = (bikesData: any, reservedSet: Set<string>) => {
+          let bikesArray = bikesData;
+          if (typeof bikesArray === "string") {
+            try {
+              bikesArray = JSON.parse(bikesArray);
+            } catch {
+              bikesArray = [];
+            }
           }
-        });
+
+          if (Array.isArray(bikesArray)) {
+            bikesArray.forEach((bike: any) => {
+              if (Array.isArray(bike.bike_ids)) {
+                bike.bike_ids.forEach((id: string) => reservedSet.add(id.trim()));
+              } else if (bike.id) {
+                reservedSet.add(bike.id.toString().trim());
+              }
+            });
+          }
+        };
+
+        markBikesAsReserved(res.bikes, reservedBikeIds);
       }
     });
 
-    // 5️⃣ Agrupar bicis por modelo y talla, considerando CANTIDADES
-    const groupedBikes = allBikes.reduce((acc: any[], bike) => {
-      const bikeKey = `${bike.title_es}-${bike.size}`;
-      const existingGroup = acc.find(b => b.key === bikeKey);
+    // 5️⃣ Filtrar bicis NO reservadas (igual que el cliente)
+    const availableIndividualBikes = allBikes.filter(b => !reservedBikeIds.has(b.id.trim()));
+
+    // 6️⃣ AQUÍ ESTÁ EL CAMBIO: Agrupar CORRECTAMENTE después de filtrar
+    const groupedBikes: Record<string, any> = {};
+    
+    availableIndividualBikes.forEach(bike => {
+      const key = `${bike.title_es}-${bike.size}`;
       
-      if (existingGroup) {
-        existingGroup.quantity++;
-        existingGroup.bikes.push(bike);
-      } else {
-        // Calcular cuántas están realmente disponibles
-        const reservedCount = bikeQuantityMap.get(bikeKey) || 0;
-        const totalInGroup = allBikes.filter(
-          b => b.title_es === bike.title_es && b.size === bike.size
-        ).length;
-        
-        const availableInGroup = Math.max(0, totalInGroup - reservedCount);
-        
-        acc.push({
-          key: bikeKey,
+      if (!groupedBikes[key]) {
+        // Primera bici de este modelo
+        groupedBikes[key] = {
+          key,
           title_es: bike.title_es,
-          title_en: bike.title_en,
-          title_nl: bike.title_nl,
-          subtitle_es: bike.subtitle_es,
-          subtitle_en: bike.subtitle_en,
-          subtitle_nl: bike.subtitle_nl,
+          title_en: bike.title_en || '',
+          title_nl: bike.title_nl || '',
+          subtitle_es: bike.subtitle_es || '',
+          subtitle_en: bike.subtitle_en || '',
+          subtitle_nl: bike.subtitle_nl || '',
           category: bike.category,
           size: bike.size,
-          quantity: availableInGroup, // Mostrar SOLO las disponibles
-          bikes: [bike],
-          totalInStock: totalInGroup, // Total en inventario
-          reservedCount: reservedCount // Cuántas están reservadas
-        });
+          quantity: 1, // Empezar con 1
+          bikes: [bike]
+        };
+      } else {
+        // Ya existe, sumar 1
+        groupedBikes[key].quantity += 1;
+        groupedBikes[key].bikes.push(bike);
       }
-      return acc;
-    }, []);
+    });
 
-    // Filtrar grupos que tengan al menos 1 disponible
-    const available = groupedBikes.filter(group => group.quantity > 0);
-    
-    setAvailableBikes(available);
+    // 7️⃣ Convertir a array
+    const availableGroups = Object.values(groupedBikes);
+
+    // DEBUG
+    console.log("=== ADMIN vs CLIENTE ===");
+    console.log("Bicis individuales disponibles:", availableIndividualBikes.length);
+    console.log("Grupos formados:", availableGroups.length);
+    availableGroups.forEach((group: any) => {
+      console.log(`${group.title_es} (${group.size}): ${group.quantity} disponibles`);
+    });
+
+    setAvailableBikes(availableGroups);
 
   } catch (error) {
-    console.error("Error calculando disponibilidad admin:", error);
+    console.error("Error calculando disponibilidad:", error);
     setAvailableBikes([]);
   } finally {
     setIsLoadingBikes(false);
@@ -685,7 +684,13 @@ const fetchAvailableBikes = async () => {
 </div>
 
 const createReservation = async () => {
+  // 1. Prevenir ejecución si ya está procesando
+  if (isCreatingReservation) return;
+  
   try {
+    // 2. Marcar como procesando inmediatamente
+    setIsCreatingReservation(true);
+    
     const days = calculateTotalDays(
       new Date(newReservation.start_date),
       new Date(newReservation.end_date),
@@ -740,11 +745,11 @@ const createReservation = async () => {
       deposit_amount: depositAmount,
       paid_amount: totalAmount,
       bikes: bikesForDB,
-      locale: newReservation.locale || "es", // ✅ idioma dinámico
+      locale: newReservation.locale || "es",
       payment_gateway: "admin",
       payment_status: "paid",
-       pickup_location: newReservation.pickup_location, // ← NUEVO
-  return_location: newReservation.return_location, // ← NUEVO
+      pickup_location: newReservation.pickup_location,
+      return_location: newReservation.return_location,
     };
 
     const { data, error } = await supabase
@@ -755,35 +760,43 @@ const createReservation = async () => {
 
     if (error) throw error;
 
-   
-
     toast({
       title: "Reserva creada",
       description: "La reserva se ha creado correctamente",
       variant: "default",
     });
 
+    // 3. Resetear formulario y volver al paso 1
     setNewReservation({
-  customer_name: "",
-  customer_email: "",
-  customer_phone: "",
-  customer_dni: "",
-  start_date: createLocalDate(),
-  end_date: createLocalDate(new Date()),
-  pickup_time: "10:00",
-  return_time: "18:00",
-  pickup_location: "sucursal_altea",
-  return_location: "sucursal_altea",
-  bikes: [],
-  accessories: [],
-  insurance: false,
-  status: "confirmed",
-  locale: "es",
-});
+      customer_name: "",
+      customer_email: "",
+      customer_phone: "",
+      customer_dni: "",
+      start_date: createLocalDate(),
+      end_date: createLocalDate(),
+      pickup_time: "10:00",
+      return_time: "18:00",
+      pickup_location: "sucursal_altea",
+      return_location: "sucursal_altea",
+      bikes: [],
+      accessories: [],
+      insurance: false,
+      status: "confirmed",
+      locale: "es",
+    });
+
+    // 4. Volver al primer paso
+    setReservationStep("dates");
+
+    // 5. Recargar las reservas para que aparezca la nueva
+    await fetchData();
 
   } catch (err: any) {
     console.error("Error creando reserva:", err);
     setError(err.message || "Error creando reserva");
+  } finally {
+    // 6. Siempre habilitar el botón al final (incluso si hay error)
+    setIsCreatingReservation(false);
   }
 };
 
@@ -924,11 +937,13 @@ const calculateTotalDays = (
 };
 
 
-  const calculateTotalDeposit = () => {
-    return newReservation.bikes.reduce((sum: number, bike: any) => {
-      return sum + (isValidCategory(bike.category) ? calculateDeposit(bike.category) : 0);
-    }, 0);
-  };
+ const calculateTotalDeposit = () => {
+  return newReservation.bikes.reduce((sum: number, bike: any) => {
+    const qty = bike.quantity || 1;
+    return sum + (isValidCategory(bike.category) ? calculateDeposit(bike.category) * qty : 0);
+  }, 0);
+};
+
 
 const calculateTotalPrice = () => {
   if (!newReservation.start_date || !newReservation.end_date) return 0;
@@ -1857,25 +1872,70 @@ const calculateTotalPrice = () => {
   </>
 )}
 
-                  {reservationStep === "bikes" && (
+{reservationStep === "bikes" && (
   <>
-    <div className="p-4 bg-gray-50 rounded-lg mb-4">
-      <div className="flex justify-between">
-        <span className="font-medium">Fechas seleccionadas:</span>
-        <span>
-          {format(newReservation.start_date, 'PPP', { locale: es })} - {format(newReservation.end_date, 'PPP', { locale: es })}
-        </span>
-      </div>
-      <div className="flex justify-between">
-        <span className="font-medium">Horario:</span>
-        <span>
-          Recogida: {newReservation.pickup_time} - Devolución: {newReservation.return_time}
-        </span>
-      </div>
-    </div>
+  {/* RESUMEN CORRECTO (ÚNICO) */}
+    {newReservation.start_date && newReservation.end_date && (
+      <div className="p-4 bg-gray-50 rounded-lg mt-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <p className="text-sm text-gray-500">Fechas seleccionadas</p>
+            <p className="font-semibold">
+              {format(newReservation.start_date, "PPP", { locale: es })} -{" "}
+              {format(newReservation.end_date, "PPP", { locale: es })}
+            </p>
 
+            <p className="text-sm text-gray-500 mt-2">Horario</p>
+            <p className="font-semibold">
+              Recogida: {newReservation.pickup_time} - Devolución:{" "}
+              {newReservation.return_time}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-sm text-gray-500">Bicicletas seleccionadas</p>
+            {newReservation.bikes.length === 0 ? (
+              <p className="text-sm text-gray-400">
+                Todavía no seleccionaste bicicletas
+              </p>
+            ) : (
+              newReservation.bikes.map((bike: any, index: number) => {
+                const days = calculateTotalDays(
+                  new Date(newReservation.start_date),
+                  new Date(newReservation.end_date),
+                  newReservation.pickup_time,
+                  newReservation.return_time
+                );
+                const pricePerDay = isValidCategory(bike.category)
+                  ? calculatePrice(bike.category, 1)
+                  : 0;
+                const qty = bike.quantity || 1;
+
+                return (
+                  <p key={index} className="text-sm">
+                    {bike.title} - Talla {bike.size}{" "}
+                    {qty > 1 ? `(x${qty})` : ""} ({pricePerDay}€/día × {days} días)
+                  </p>
+                );
+              })
+            )}
+          </div>
+
+          <div>
+            <p className="text-sm text-gray-500">Total parcial</p>
+            <p className="text-lg font-bold">
+              {calculateTotalPrice()}€
+            </p>
+            <p className="text-sm">
+              Depósito: {calculateTotalDeposit()}€
+            </p>
+          </div>
+        </div>
+      </div>
+    )}
     <div>
       <Label>Bicicletas*</Label>
+
       {isLoadingBikes ? (
         <div className="text-center py-4">
           <p>Cargando bicicletas disponibles...</p>
@@ -1886,153 +1946,130 @@ const calculateTotalPrice = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
-          {(() => {
-  const groupedBikes = availableBikes.reduce((acc: any[], bike) => {
-    const existing = acc.find(b => 
-      b.title_es === bike.title_es && 
-      b.size === bike.size && 
-      b.category === bike.category
-    );
-    
-    if (existing) {
-      existing.quantity++;
-      existing.bikes.push(bike);
-    } else {
-      acc.push({
-        ...bike,
-        quantity: 1,
-        bikes: [bike]
-      });
-    }
-    return acc;
-  }, []);
+          {availableBikes.map((bikeGroup: any) => {
+            const days = calculateTotalDays(
+              new Date(newReservation.start_date),
+              new Date(newReservation.end_date),
+              newReservation.pickup_time,
+              newReservation.return_time
+            );
 
-  return groupedBikes.map((bikeGroup) => {
-    const days = calculateTotalDays(
-      new Date(newReservation.start_date),
-      new Date(newReservation.end_date),
-      newReservation.pickup_time,
-      newReservation.return_time
-    );
-    const pricePerDay = isValidCategory(bikeGroup.category) ? calculatePrice(bikeGroup.category, 1) : 0;
-    const totalPrice = pricePerDay * days;
-    
-    const selectedCount = newReservation.bikes.filter((b: any) => 
-      b.title === bikeGroup.title_es && b.size === bikeGroup.size
-    ).reduce((sum: number, b: any) => sum + (b.quantity || 1), 0);
+            const pricePerDay = isValidCategory(bikeGroup.category)
+              ? calculatePrice(bikeGroup.category, 1)
+              : 0;
 
-    return (
-      <div
-        key={`${bikeGroup.title_es}-${bikeGroup.size}-${bikeGroup.category}`}
-        className="border rounded-lg p-4 flex items-center justify-between"
-      >
-        <div>
-          <h4 className="font-medium">{bikeGroup.title_es || bikeGroup.title}</h4>
-          <p className="text-sm text-gray-600">Talla: {bikeGroup.size}</p>
-          <p className="text-sm text-gray-600">
-            Disponibles: {bikeGroup.quantity}
-          </p>
-          <p className="text-sm text-gray-600">
-            Precio: {totalPrice}€ ({pricePerDay}€/día × {days} días)
-          </p>
-          <p className="text-xs text-gray-500">Depósito: {calculateDeposit(bikeGroup.category)}€</p>
-          {selectedCount > 0 && (
-            <p className="text-xs text-green-600">Seleccionadas: {selectedCount}</p>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              if (selectedCount > 0) {
-                const newBikes = [...newReservation.bikes];
-                const bikeIndex = newBikes.findIndex((b: any) => 
-                  b.title === bikeGroup.title_es && b.size === bikeGroup.size
-                );
-                
-                if (bikeIndex >= 0) {
-                  if (newBikes[bikeIndex].quantity > 1) {
-                    newBikes[bikeIndex].quantity--;
-                  } else {
-                    newBikes.splice(bikeIndex, 1);
-                  }
-                  setNewReservation({ ...newReservation, bikes: newBikes });
-                }
-              }
-            }}
-            disabled={selectedCount === 0}
-          >
-            -
-          </Button>
-          <Button
-            size="sm"
-            variant={selectedCount > 0 ? "default" : "outline"}
-            onClick={() => {
-              if (selectedCount < bikeGroup.quantity) {
-                const newBikes = [...newReservation.bikes];
-                const existingIndex = newBikes.findIndex((b: any) => 
-                  b.title === bikeGroup.title_es && b.size === bikeGroup.size
-                );
-                
-                if (existingIndex >= 0) {
-                  newBikes[existingIndex].quantity++;
-                } else {
-                  newBikes.push({
-                    id: bikeGroup.bikes[0].id,
-                    title: bikeGroup.title_es || bikeGroup.title,
-                    size: bikeGroup.size,
-                    category: bikeGroup.category,
-                    quantity: 1,
-                    bikes: [bikeGroup.bikes[0]]
-                  });
-                }
-                setNewReservation({ ...newReservation, bikes: newBikes });
-              }
-            }}
-            disabled={selectedCount >= bikeGroup.quantity}
-          >
-            +
-          </Button>
-        </div>
-      </div>
-    );
-  });
-})()}
+            const totalPrice = pricePerDay * days;
+
+            const selectedCount = newReservation.bikes
+              .filter(
+                (b: any) =>
+                  b.title === bikeGroup.title_es &&
+                  b.size === bikeGroup.size
+              )
+              .reduce((sum: number, b: any) => sum + (b.quantity || 1), 0);
+
+            return (
+              <div
+                key={`${bikeGroup.title_es}-${bikeGroup.size}-${bikeGroup.category}`}
+                className="border rounded-lg p-4 flex items-center justify-between"
+              >
+                <div>
+                  <h4 className="font-medium">{bikeGroup.title_es}</h4>
+                  <p className="text-sm text-gray-600">Talla: {bikeGroup.size}</p>
+                  <p className="text-sm text-gray-600">
+                    Disponibles: {bikeGroup.quantity}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    Precio: {totalPrice}€ ({pricePerDay}€/día × {days} días)
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Depósito: {calculateDeposit(bikeGroup.category)}€
+                  </p>
+
+                  {selectedCount > 0 && (
+                    <p className="text-xs text-green-600">
+                      Seleccionadas: {selectedCount}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={selectedCount === 0}
+                    onClick={() => {
+                      const newBikes = [...newReservation.bikes];
+                      const idx = newBikes.findIndex(
+                        (b: any) =>
+                          b.title === bikeGroup.title_es &&
+                          b.size === bikeGroup.size
+                      );
+
+                      if (idx >= 0) {
+                        if (newBikes[idx].quantity > 1) {
+                          newBikes[idx].quantity--;
+                        } else {
+                          newBikes.splice(idx, 1);
+                        }
+                        setNewReservation({
+                          ...newReservation,
+                          bikes: newBikes,
+                        });
+                      }
+                    }}
+                  >
+                    -
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    disabled={selectedCount >= bikeGroup.quantity}
+                    onClick={() => {
+                      if (selectedCount < bikeGroup.quantity) {
+                        const newBikes = [...newReservation.bikes];
+                        const idx = newBikes.findIndex(
+                          (b: any) =>
+                            b.title === bikeGroup.title_es &&
+                            b.size === bikeGroup.size
+                        );
+
+                        if (idx >= 0) {
+                          newBikes[idx].quantity++;
+                        } else {
+                          newBikes.push({
+                            id: bikeGroup.bikes[0].id,
+                            title: bikeGroup.title_es,
+                            size: bikeGroup.size,
+                            category: bikeGroup.category,
+                            quantity: 1,
+                          });
+                        }
+
+                        setNewReservation({
+                          ...newReservation,
+                          bikes: newBikes,
+                        });
+                      }
+                    }}
+                  >
+                    +
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
 
-    {newReservation.bikes.length > 0 && (
-      <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-        <h4 className="font-medium mb-2">Bicicletas seleccionadas:</h4>
-        {newReservation.bikes.map((bike: any, index: number) => {
-          const days = calculateTotalDays(
-            new Date(newReservation.start_date),
-            new Date(newReservation.end_date),
-            newReservation.pickup_time,
-            newReservation.return_time
-          );
-          const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0;
-          const totalPrice = pricePerDay * days;
-          
-          return (
-            <p key={index} className="text-sm">
-              {bike.title} - Talla {bike.size} ({pricePerDay}€/día × {days} días = {totalPrice}€)
-            </p>
-          );
-        })}
-      </div>
-    )}
+    
 
     <div className="flex justify-between gap-4 pt-4">
-      <Button 
-        variant="outline" 
-        onClick={() => setReservationStep("dates")}
-      >
+      <Button variant="outline" onClick={() => setReservationStep("dates")}>
         Volver a Fechas
       </Button>
-      <Button 
+      <Button
         onClick={() => setReservationStep("accessories")}
         disabled={newReservation.bikes.length === 0}
       >
@@ -2042,130 +2079,131 @@ const calculateTotalPrice = () => {
   </>
 )}
 
-                  {reservationStep === "accessories" && (
-                    <>
-                      <div className="p-4 bg-gray-50 rounded-lg mb-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <h4 className="font-medium mb-2">Fechas:</h4>
-                            <p>
-                              {format(newReservation.start_date, 'PPP', { locale: es })} - {format(newReservation.end_date, 'PPP', { locale: es })}
-                            </p>
-                            <p>
-                              Recogida: {newReservation.pickup_time} - Devolución: {newReservation.return_time}
-                            </p>
-                          </div>
-                          <div>
-  <h4 className="font-medium mb-2">Bicicletas seleccionadas:</h4>
-  {newReservation.bikes.map((bike: any, index: number) => {
-    const days = calculateTotalDays(
-      new Date(newReservation.start_date),
-      new Date(newReservation.end_date),
-      newReservation.pickup_time,
-      newReservation.return_time
-    );
-    const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0;
-    return (
-      <p key={index} className="text-sm">
-        {bike.title} - {pricePerDay}€/día × {days} días = {pricePerDay * days}€
-      </p>
-    );
-  })}
-</div>
-                          <div>
-                            <h4 className="font-medium mb-2">Total parcial:</h4>
-                            <p className="text-lg font-bold">
-                              {calculateTotalPrice()}€
-                            </p>
-                            <p className="text-sm">
-                              Depósito: {calculateTotalDeposit()}€
-                            </p>
-                          </div>
-                        </div>
-                      </div>
+ 
+{reservationStep === "accessories" && (
+  <>
+    <div className="p-4 bg-gray-50 rounded-lg mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <h4 className="font-medium mb-2">Fechas:</h4>
+          <p>
+            {format(newReservation.start_date, 'PPP', { locale: es })} - {format(newReservation.end_date, 'PPP', { locale: es })}
+          </p>
+          <p>
+            Recogida: {newReservation.pickup_time} - Devolución: {newReservation.return_time}
+          </p>
+        </div>
+        <div>
+          <h4 className="font-medium mb-2">Bicicletas seleccionadas:</h4>
+          {newReservation.bikes.map((bike: any, index: number) => {
+            const days = calculateTotalDays(
+              new Date(newReservation.start_date),
+              new Date(newReservation.end_date),
+              newReservation.pickup_time,
+              newReservation.return_time
+            );
+            const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0;
+            return (
+              <p key={index} className="text-sm">
+                {bike.title} - {pricePerDay}€/día × {days} días = {pricePerDay * days}€
+              </p>
+            );
+          })}
+        </div>
+        <div>
+          <h4 className="font-medium mb-2">Total parcial:</h4>
+          <p className="text-lg font-bold">
+            {calculateTotalPrice()}€
+          </p>
+          <p className="text-sm">
+            Depósito: {calculateTotalDeposit()}€
+          </p>
+        </div>
+      </div>
+    </div>
 
-                      <div>
-                        <Label>Accesorios</Label>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
-                          {accessories
-                            .filter((accessory) => accessory.available)
-                            .map((accessory) => (
-                              <div
-                                key={accessory.id}
-                                className="border rounded-lg p-4 flex items-center justify-between"
-                              >
-                                <div>
-                                  <h4 className="font-medium">
-                                    {accessory.name_es || accessory.name}
-                                  </h4>
-                                  <p className="text-sm text-gray-600">
-                                    {accessory.price}€/día
-                                  </p>
-                                </div>
-                                <Button
-                                  size="sm"
-                                  variant={
-                                    newReservation.accessories.some(
-                                      (a: any) => a.id === accessory.id
-                                    )
-                                      ? "default"
-                                      : "outline"
-                                  }
-                                  onClick={() => toggleAccessorySelection(accessory)}
-                                >
-                                  {newReservation.accessories.some(
-                                    (a: any) => a.id === accessory.id
-                                  )
-                                    ? "Seleccionado"
-                                    : "Seleccionar"}
-                                </Button>
-                              </div>
-                            ))}
-                        </div>
-                      </div>
+    <div>
+      <Label>Accesorios</Label>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
+        {accessories
+          .filter((accessory) => accessory.available)
+          .map((accessory) => (
+            <div
+              key={accessory.id}
+              className="border rounded-lg p-4 flex items-center justify-between"
+            >
+              <div>
+                <h4 className="font-medium">
+                  {accessory.name_es || accessory.name}
+                </h4>
+                <p className="text-sm text-gray-600">
+                  {accessory.price}€/día
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant={
+                  newReservation.accessories.some(
+                    (a: any) => a.id === accessory.id
+                  )
+                    ? "default"
+                    : "outline"
+                }
+                onClick={() => toggleAccessorySelection(accessory)}
+              >
+                {newReservation.accessories.some(
+                  (a: any) => a.id === accessory.id
+                )
+                  ? "Seleccionado"
+                  : "Seleccionar"}
+              </Button>
+            </div>
+          ))}
+      </div>
+    </div>
 
-                      <div className="mt-4">
-                        <Label>Seguro</Label>
-                        <div className="border rounded-lg p-4 flex items-center justify-between">
-                          <div>
-                            <h4 className="font-medium">Seguro de daños</h4>
-                            <p className="text-sm text-gray-600">
-                              5€ por día (máximo 25€ para 5+ días)
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              Cubre daños menores y accidentes
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant={newReservation.insurance ? "default" : "outline"}
-                            onClick={() => setNewReservation({
-                              ...newReservation,
-                              insurance: !newReservation.insurance
-                            })}
-                          >
-                            {newReservation.insurance ? "Seleccionado" : "Añadir seguro"}
-                          </Button>
-                        </div>
-                      </div>
+    <div className="mt-4">
+      <Label>Seguro</Label>
+      <div className="border rounded-lg p-4 flex items-center justify-between">
+        <div>
+          <h4 className="font-medium">Seguro de daños</h4>
+          <p className="text-sm text-gray-600">
+            5€ por día (máximo 25€ para 5+ días)
+          </p>
+          <p className="text-xs text-gray-500">
+            Cubre daños menores y accidentes
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant={newReservation.insurance ? "default" : "outline"}
+          onClick={() => setNewReservation({
+            ...newReservation,
+            insurance: !newReservation.insurance
+          })}
+        >
+          {newReservation.insurance ? "Seleccionado" : "Añadir seguro"}
+        </Button>
+      </div>
+    </div>
 
-                      <div className="flex justify-between gap-4 pt-4">
-                        <Button 
-                          variant="outline" 
-                          onClick={() => setReservationStep("bikes")}
-                        >
-                          Volver a Bicicletas
-                        </Button>
-                        <Button 
-                          onClick={() => setReservationStep("customer")}
-                        >
-                          Siguiente: Datos del Cliente
-                        </Button>
-                      </div>
-                    </>
-                  )}
+    <div className="flex justify-between gap-4 pt-4">
+      <Button 
+        variant="outline" 
+        onClick={() => setReservationStep("bikes")}
+      >
+        Volver a Bicicletas
+      </Button>
+      <Button 
+        onClick={() => setReservationStep("customer")}
+      >
+        Siguiente: Datos del Cliente
+      </Button>
+    </div>
+  </>
+)}
 
-                  {reservationStep === "customer" && (
+{reservationStep === "customer" && (
   <>
     <div className="p-4 bg-gray-50 rounded-lg mb-4">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2201,109 +2239,139 @@ const calculateTotalPrice = () => {
         </div>
       </div>
 
-                        <div className="mt-4 pt-4 border-t">
-                          <div className="flex justify-between">
-                            <span className="font-medium">Total estimado:</span>
-                            <span className="font-bold">
-                              {calculateTotalPrice()}€
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="font-medium">Depósito:</span>
-                            <span className="font-bold">
-                              {calculateTotalDeposit()}€
-                            </span>
-                          </div>
-                          <div className="flex justify-between pt-2 border-t">
-                            <span className="font-medium">Total + Depósito:</span>
-                            <span className="font-bold">
-                              {calculateTotalPrice() + calculateTotalDeposit()}€
-                            </span>
-                          </div>
-                        </div>
-                      </div>
+      <div className="mt-4 pt-4 border-t">
+        <div className="flex justify-between">
+          <span className="font-medium">Total estimado:</span>
+          <span className="font-bold">
+            {calculateTotalPrice()}€
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="font-medium">Depósito:</span>
+          <span className="font-bold">
+            {calculateTotalDeposit()}€
+          </span>
+        </div>
+        <div className="flex justify-between pt-2 border-t">
+          <span className="font-medium">Total + Depósito:</span>
+          <span className="font-bold">
+            {calculateTotalPrice() + calculateTotalDeposit()}€
+          </span>
+        </div>
+      </div>
+    </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="customer_name">Nombre del cliente*</Label>
-                          <Input
-                            id="customer_name"
-                            value={newReservation.customer_name}
-                            onChange={(e) =>
-                              setNewReservation({
-                                ...newReservation,
-                                customer_name: e.target.value,
-                              })
-                            }
-                            required
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="customer_email">Email*</Label>
-                          <Input
-                            id="customer_email"
-                            type="email"
-                            value={newReservation.customer_email}
-                            onChange={(e) =>
-                              setNewReservation({
-                                ...newReservation,
-                                customer_email: e.target.value,
-                              })
-                            }
-                            required
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="customer_phone">Teléfono*</Label>
-                          <Input
-                            id="customer_phone"
-                            value={newReservation.customer_phone}
-                            onChange={(e) =>
-                              setNewReservation({
-                                ...newReservation,
-                                customer_phone: e.target.value,
-                              })
-                            }
-                            required
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="customer_dni">DNI/NIE*</Label>
-                          <Input
-                            id="customer_dni"
-                            value={newReservation.customer_dni}
-                            onChange={(e) =>
-                              setNewReservation({
-                                ...newReservation,
-                                customer_dni: e.target.value,
-                              })
-                            }
-                            required
-                          />
-                        </div>
-                      </div>
+    <div className="flex items-center gap-2 mb-4">
+      <Label className="mr-2">Idioma:</Label>
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={newReservation.locale === "es" ? "default" : "outline"}
+          onClick={() => setNewReservation({ ...newReservation, locale: "es" })}
+        >
+          ES
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={newReservation.locale === "en" ? "default" : "outline"}
+          onClick={() => setNewReservation({ ...newReservation, locale: "en" })}
+        >
+          EN
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={newReservation.locale === "nl" ? "default" : "outline"}
+          onClick={() => setNewReservation({ ...newReservation, locale: "nl" })}
+        >
+          NL
+        </Button>
+      </div>
+    </div>
 
-                      <div className="flex justify-between gap-4 pt-4">
-                        <Button 
-                          variant="outline" 
-                          onClick={() => setReservationStep("accessories")}
-                        >
-                          Volver a Accesorios
-                        </Button>
-                        <Button 
-                          onClick={createReservation}
-                          disabled={
-                            !newReservation.customer_name || 
-                            !newReservation.customer_email || 
-                            !newReservation.customer_phone || 
-                            !newReservation.customer_dni
-                          }
-                        >
-                          Confirmar Reserva
-                        </Button>
-                      </div>
-                    </>
-                  )}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <Label htmlFor="customer_name">Nombre del cliente*</Label>
+        <Input
+          id="customer_name"
+          value={newReservation.customer_name}
+          onChange={(e) =>
+            setNewReservation({
+              ...newReservation,
+              customer_name: e.target.value,
+            })
+          }
+          required
+        />
+      </div>
+      <div>
+        <Label htmlFor="customer_email">Email*</Label>
+        <Input
+          id="customer_email"
+          type="email"
+          value={newReservation.customer_email}
+          onChange={(e) =>
+            setNewReservation({
+              ...newReservation,
+              customer_email: e.target.value,
+            })
+          }
+          required
+        />
+      </div>
+      <div>
+        <Label htmlFor="customer_phone">Teléfono*</Label>
+        <Input
+          id="customer_phone"
+          value={newReservation.customer_phone}
+          onChange={(e) =>
+            setNewReservation({
+              ...newReservation,
+              customer_phone: e.target.value,
+            })
+          }
+          required
+        />
+      </div>
+      <div>
+        <Label htmlFor="customer_dni">DNI/NIE*</Label>
+        <Input
+          id="customer_dni"
+          value={newReservation.customer_dni}
+          onChange={(e) =>
+            setNewReservation({
+              ...newReservation,
+              customer_dni: e.target.value,
+            })
+          }
+          required
+        />
+      </div>
+    </div>
+
+    <div className="flex justify-between gap-4 pt-4">
+      <Button 
+        variant="outline" 
+        onClick={() => setReservationStep("accessories")}
+      >
+        Volver a Accesorios
+      </Button>
+      <Button 
+        onClick={createReservation}
+        disabled={
+          !newReservation.customer_name || 
+          !newReservation.customer_email || 
+          !newReservation.customer_phone || 
+          !newReservation.customer_dni
+        }
+      >
+        Confirmar Reserva
+      </Button>
+    </div>
+  </>
+)}
                 </div>
               </CardContent>
             </Card>
