@@ -8,7 +8,8 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { LanguageProvider } from "@/lib/language-context"
 import { usePathname } from "next/navigation"
-import Head from "next/head" // Importa Head para manejar el favicon
+import Head from "next/head"
+import { Analytics } from "@vercel/analytics/next" // ✅ Vercel Analytics
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -27,11 +28,12 @@ export default function RootLayout({
   }, [])
 
   useEffect(() => {
-    if (!isClient || typeof window === 'undefined') return
+    if (!isClient || typeof window === "undefined") return
 
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-      navigator.userAgent
-    )
+    const isMobile =
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      )
 
     const link = isMobile
       ? `https://wa.me/34604535972?text=${encodeURIComponent(
@@ -46,11 +48,12 @@ export default function RootLayout({
 
   return (
     <html lang="es">
-      <Head> {/* Agrega el favicon aquí */}
+      <Head>
         <link rel="icon" href="/favicon.ico" />
         <title>BIKE SHOP</title>
         <meta name="description" content="SHOP - SERVICE - RENTAL" />
       </Head>
+
       <body className={inter.className}>
         <LanguageProvider>
           <Header />
@@ -90,6 +93,9 @@ export default function RootLayout({
             </a>
           )}
         </LanguageProvider>
+
+        {/* ✅ Vercel Analytics */}
+        <Analytics />
       </body>
     </html>
   )
