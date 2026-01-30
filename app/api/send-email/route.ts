@@ -1,433 +1,229 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { Resend } from "resend";
-import { createClient } from '@supabase/supabase-js';
-
-// Configuración de Supabase usando tus variables NEXT_PUBLIC_
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-export const dynamic = 'force-dynamic';
-
-interface BikeItem {
-  bike_ids?: string[];
-  size?: string;
-  model?: string;
-  quantity: number;
-  title_es?: string;
-  title_en?: string;
-  title_nl?: string;
-}
-
-interface AccessoryItem {
-  id: string;
-  quantity?: number;
-  name_es?: string;
-  name_en?: string;
-  name_nl?: string;
-}
-
-interface ReservationData {
-  customer_name: string;
-  id: string;
-  start_date: string;
-  end_date: string;
-  total_days: number;
-  bikes?: BikeItem[];
-  accessories?: AccessoryItem[];
-  insurance: boolean;
-  total_amount: number;
-  deposit_amount: number;
-  locale: string;
-  customer_email?: string;
-}
-
-const translations = {
-  es: {
-    subject: "Confirmación de Reserva - Altea Bike Shop",
-    greeting: "¡Hola",
-    confirmed: "Tu reserva ha sido confirmada con éxito!",
-    details: "Detalles de la reserva:",
-    reservationNumber: "Número de reserva:",
-    dates: "Fechas:",
-    duration: "Duración:",
-    days: "días",
-    bikes: "Bicicletas:",
-    size: "Talla",
-    quantity: "Cantidad",
-    accessories: "Accesorios:",
-    insurance: "Seguro:",
-    yes: "Sí",
-    no: "No",
-    total: "Total pagado:",
-    deposit: "Depósito (a pagar en efectivo):",
-    nextSteps: "Próximos pasos:",
-    step1: "• Ven a nuestro local el día de inicio del alquiler",
-    step2: "• Trae tu DNI/Pasaporte/licencia de conducir y el depósito en efectivo",
-    step3: "• Revisaremos las bicicletas contigo antes de la entrega",
-    contact: "Contacto:",
-    thanks: "¡Gracias por elegir Altea Bike Shop!",
-    team: "El equipo de Altea Bike Shop",
+// Mapeo fijo (empresa): id -> nombre+dirección
+const LOCATION_MAP: Record<string, { name: string; address: string }> = {
+  sucursal_altea: {
+    name: "Altea Bike Shop",
+    address: "Calle la Tella 2, Altea 03590",
   },
-  en: {
-    subject: "Booking Confirmation - Altea Bike Shop",
-    greeting: "Hello",
-    confirmed: "Your reservation has been confirmed successfully!",
-    details: "Reservation details:",
-    reservationNumber: "Reservation number:",
-    dates: "Dates:",
-    duration: "Duration:",
-    days: "days",
-    bikes: "Bikes:",
-    size: "Size",
-    quantity: "Quantity",
-    accessories: "Accessories:",
-    insurance: "Insurance:",
-    yes: "Yes",
-    no: "No",
-    total: "Total paid:",
-    deposit: "Deposit (to pay in cash):",
-    nextSteps: "Next steps:",
-    step1: "• Come to our store on the rental start date",
-    step2: "• Bring your ID/Passport/driver's license and the cash deposit.",
-    step3: "• We will review the bikes with you before delivery",
-    contact: "Contact:",
-    thanks: "Thank you for choosing Altea Bike Shop!",
-    team: "The Altea Bike Shop team",
+  sucursal_albir: {
+    name: "Albir Cycling",
+    address: "Av del Albir 159, El Albir",
   },
-  nl: {
-    subject: "Reserveringsbevestiging - Altea Bike Shop",
-    greeting: "Hallo",
-    confirmed: "Uw reservering is succesvol bevestigd!",
-    details: "Reserveringsdetails:",
-    reservationNumber: "Reserveringsnummer:",
-    dates: "Datums:",
-    duration: "Duur:",
-    days: "dagen",
-    bikes: "Fietsen:",
-    size: "Maat",
-    quantity: "Aantal",
-    accessories: "Accessoires:",
-    insurance: "Verzekering:",
-    yes: "Ja",
-    no: "Nee",
-    total: "Totaal betaald:",
-    deposit: "Borg (contant te betalen):",
-    nextSteps: "Volgende stappen:",
-    step1: "• Kom naar onze winkel op de startdatum van de verhuur",
-    step2: "• Neem je identiteitskaart/paspoort/rijbewijs en de contante borg mee.",
-    step3: "• We controleren de fietsen samen met u voor de levering",
-    contact: "Contact:",
-    thanks: "Bedankt voor het kiezen van Altea Bike Shop!",
-    team: "Het Altea Bike Shop team",
-  }
 };
 
-export async function POST(request: NextRequest) {
-  // Verificación de configuración esencial
-  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
-    console.error("Email service not configured");
-    return NextResponse.json(
-      { error: "Service temporarily unavailable" }, 
-      { status: 503 }
-    );
+function safeJsonParse<T>(value: any, fallback: T): T {
+  try {
+    if (typeof value !== "string") return fallback;
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeBikes(reservationData: any) {
+  // 1) bikes array directo
+  if (Array.isArray(reservationData?.bikes)) {
+    return reservationData.bikes.map((b: any) => ({
+      model: b.model ?? b.title_es ?? b.title ?? "Bicicleta",
+      category: b.category ?? b.type ?? "-",
+      size: b.size ?? "-",
+      quantity: Number(b.quantity ?? 1),
+    }));
   }
 
-  try {
-    const { to, subject, reservationData, language = "es" } = await request.json();
+  // 2) bikes_data como string JSON (por ejemplo desde metadata)
+  const bikesData = safeJsonParse<any[]>(reservationData?.bikes_data, []);
+  if (Array.isArray(bikesData) && bikesData.length > 0) {
+    return bikesData.map((b: any) => ({
+      model: b.model ?? b.title_es ?? "Bicicleta",
+      category: b.category ?? "-",
+      size: b.size ?? "-",
+      quantity: Number(b.quantity ?? 1),
+    }));
+  }
 
-    // ✅ VALIDACIÓN ROBUSTA DE DATOS DE ENTRADA
+  return [];
+}
+
+function resolveLocation(reservationData: any) {
+  // Puede venir como pickup_location string
+  const pickupLocation = reservationData?.pickup_location;
+
+  if (typeof pickupLocation === "string" && LOCATION_MAP[pickupLocation]) {
+    return LOCATION_MAP[pickupLocation];
+  }
+
+  // Puede venir como objeto location
+  const loc = reservationData?.location;
+  if (loc && typeof loc === "object") {
+    const name = loc.name ?? "Altea Bike Shop";
+    const address = loc.address ?? "";
+    return { name, address };
+  }
+
+  // Fallback
+  return LOCATION_MAP.sucursal_altea;
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const { to, reservationData } = body;
+
     if (!to || !reservationData) {
       return NextResponse.json(
-        { error: "Missing required fields: 'to' or 'reservationData'" },
+        { ok: false, error: "Falta 'to' o 'reservationData'." },
         { status: 400 }
       );
     }
 
-    // Validar datos mínimos de reserva
-    if (!reservationData.customer_name || !reservationData.id) {
-      return NextResponse.json(
-        { error: "Invalid reservation data: missing customer_name or id" },
-        { status: 400 }
-      );
-    }
-// ✅ VALIDAR EMAIL DEL CLIENTE
-if (!reservationData.customer_email) {
-  return NextResponse.json(
-    { error: "Invalid reservation data: missing customer_email" },
-    { status: 400 }
-  );
-}
-    // ✅ FUNCIÓN MEJORADA PARA OBTENER NOMBRES DE BICICLETAS
-    const getBikeNames = async (bikeItems: BikeItem[] = [], lang: string) => {
-      // Si no hay bicicletas, retornar array vacío
-      if (!bikeItems || bikeItems.length === 0) {
-        return [];
-      }
+    // ====== Datos 1:1 (solo mostramos lo que viene) ======
+    const customerName =
+      reservationData?.customer?.name ??
+      reservationData?.customer_name ??
+      "Cliente";
 
-      // Si ya tenemos los títulos en los datos, usarlos directamente
-      if (bikeItems[0].title_es) {
-        return bikeItems.map(bike => ({
-          title: bike[`title_${lang}` as keyof BikeItem] as string || bike.title_es || 'Bicicleta',
-          size: bike.size || 'M',
-          quantity: bike.quantity || 1
-        }));
-      }
+    const startDate =
+      reservationData?.start_date ?? reservationData?.startDate ?? "-";
+    const endDate =
+      reservationData?.end_date ?? reservationData?.endDate ?? "-";
 
-      // Si no, buscar en Supabase
-      if (!supabase) {
-        return bikeItems.map(bike => ({
-          title: bike.model || 'Bicicleta',
-          size: bike.size || 'M',
-          quantity: bike.quantity || 1
-        }));
-      }
+    const pickupTime =
+      reservationData?.pickup_time ?? reservationData?.pickupTime ?? "-";
+    const returnTime =
+      reservationData?.return_time ?? reservationData?.returnTime ?? "-";
 
-      try {
-        // Extraemos el primer ID de cada bike_ids (si existe)
-        const bikeIds = bikeItems
-          .map(b => b.bike_ids?.[0])
-          .filter(Boolean) as string[];
+    const insurance =
+      reservationData?.insurance === true ||
+      reservationData?.insurance === "1" ||
+      reservationData?.hasInsurance === true
+        ? "Incluido"
+        : "No incluido";
 
-        let bikeData: any[] = [];
-        if (bikeIds.length > 0) {
-          const { data, error } = await supabase
-            .from('bikes')
-            .select('id, title_es, title_en, title_nl, size')
-            .in('id', bikeIds);
+    // OJO: total puede venir en euros (ej 61.00) o en centimos (6100)
+    // NO recalculamos: solo mostramos. Si viene en centimos, convertimos.
+    const rawTotal = reservationData?.total_price ?? reservationData?.total_amount ?? null;
+    const rawDeposit = reservationData?.deposit ?? reservationData?.deposit_amount ?? null;
 
-          if (error) throw error;
-          bikeData = data || [];
-        }
+    const formatMoney = (v: any) => {
+      if (v === null || v === undefined || v === "-") return "-";
+      const n = Number(v);
+      if (!Number.isFinite(n)) return String(v);
 
-        return bikeItems.map(bike => {
-          const mainId = bike.bike_ids?.[0];
-          const foundBike = bikeData.find((b: any) => b.id === mainId);
-
-          const title = foundBike?.[`title_${lang}` as keyof typeof foundBike] || 
-                       bike.model || 
-                       foundBike?.title_es || 
-                       'Bicicleta';
-
-          return {
-            title,
-            size: bike.size || foundBike?.size || 'M',
-            quantity: bike.quantity || 1
-          };
-        });
-
-      } catch (error) {
-        console.error("Error fetching bikes:", error);
-        return bikeItems.map(bike => ({
-          title: bike.model || 'Bicicleta',
-          size: bike.size || 'M',
-          quantity: bike.quantity || 1
-        }));
-      }
+      // Heurística: si es muy grande, probablemente centimos
+      const euros = n > 999 ? n / 100 : n;
+      return euros.toFixed(2);
     };
 
-    // ✅ FUNCIÓN MEJORADA PARA OBTENER NOMBRES DE ACCESORIOS
-    const getAccessoryNames = async (accessoryItems: AccessoryItem[] = [], lang: string) => {
-      // Si no hay accesorios, retornar array vacío
-      if (!accessoryItems || accessoryItems.length === 0) {
-        return [];
-      }
+    const total = formatMoney(rawTotal);
+    const deposit = formatMoney(rawDeposit);
 
-      // Si ya tenemos los nombres en los datos, usarlos directamente
-      if (accessoryItems[0].name_es) {
-        return accessoryItems.map(acc => ({
-          name: acc[`name_${lang}` as keyof AccessoryItem] as string || acc.name_es || 'Accesorio',
-          quantity: acc.quantity || 1
-        }));
-      }
+    const loc = resolveLocation(reservationData);
+    const locationFull = loc.address ? `${loc.name} – ${loc.address}` : loc.name;
 
-      if (!supabase) {
-        return accessoryItems.map(acc => ({
-          name: 'Accesorio',
-          quantity: acc.quantity || 1
-        }));
-      }
+    const bikes = normalizeBikes(reservationData);
 
-      try {
-        const accessoryIds = accessoryItems.map(a => a.id).filter(Boolean);
-        let accessoryData: any[] = [];
+    const bikesHtml =
+      bikes.length > 0
+        ? bikes
+            .map(
+              (b: any) => `
+              <tr>
+                <td style="padding:8px;border:1px solid #ddd;">${b.model}</td>
+                <td style="padding:8px;border:1px solid #ddd;">${b.category}</td>
+                <td style="padding:8px;border:1px solid #ddd;">${b.size}</td>
+                <td style="padding:8px;border:1px solid #ddd;text-align:center;">${b.quantity}</td>
+              </tr>
+            `
+            )
+            .join("")
+        : `
+          <tr>
+            <td colspan="4" style="padding:10px;border:1px solid #ddd;color:#666;">
+              No se pudieron leer las bicicletas de la reserva (revisar estructura de reservationData).
+            </td>
+          </tr>
+        `;
 
-        if (accessoryIds.length > 0) {
-          const { data, error } = await supabase
-            .from('accessories')
-            .select('id, name_es, name_en, name_nl')
-            .in('id', accessoryIds);
+    const subject = "Reserva confirmada – Altea Bike Shop";
 
-          if (error) throw error;
-          accessoryData = data || [];
-        }
+    const html = `
+      <div style="font-family:Arial, sans-serif; max-width:650px; margin:auto; color:#111;">
+        <h2 style="border-bottom:2px solid #000;padding-bottom:10px;">
+          ${subject}
+        </h2>
 
-        return accessoryItems.map(accessory => {
-          const foundAccessory = accessoryData.find((a: any) => a.id === accessory.id);
-          const name = foundAccessory?.[`name_${lang}` as keyof typeof foundAccessory] || 
-                      foundAccessory?.name_es || 
-                      'Accesorio';
+        <p>Hola <b>${customerName}</b>,</p>
+        <p>Tu reserva fue confirmada correctamente.</p>
 
-          return {
-            name,
-            quantity: accessory.quantity || 1
-          };
-        });
-      } catch (error) {
-        console.error("Error fetching accessories:", error);
-        return accessoryItems.map(acc => ({
-          name: 'Accesorio',
-          quantity: acc.quantity || 1
-        }));
-      }
-    };
+        <p><b>Fecha inicio:</b> ${startDate}</p>
+        <p><b>Fecha fin:</b> ${endDate}</p>
+        <p><b>Horario de retiro:</b> ${pickupTime}</p>
+        <p><b>Horario de devolución:</b> ${returnTime}</p>
+        <p><b>Ubicación:</b> ${locationFull}</p>
 
-    // ✅ FUNCIÓN MEJORADA PARA FORMATEAR FECHAS
-    const formatDate = (dateString: string, lang: string) => {
-      try {
-        if (!dateString) return 'Fecha no disponible';
-        
-        const date = new Date(dateString);
-        if (isNaN(date.getTime())) {
-          return 'Fecha inválida';
-        }
+        <h3 style="margin-top:25px;">Bicicletas reservadas</h3>
 
-        // Usar la zona horaria de España (Europe/Madrid)
-        return date.toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'nl' ? 'nl-NL' : 'en-US', {
-          timeZone: 'Europe/Madrid',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false
-        }) + 'h';
-      } catch (error) {
-        console.error("Error formatting date:", error);
-        return 'Fecha no disponible';
-      }
-    };
+        <table style="border-collapse:collapse;width:100%; margin-top:10px;">
+          <thead>
+            <tr>
+              <th style="padding:8px;border:1px solid #ddd;background:#f2f2f2;">Modelo</th>
+              <th style="padding:8px;border:1px solid #ddd;background:#f2f2f2;">Categoría</th>
+              <th style="padding:8px;border:1px solid #ddd;background:#f2f2f2;">Talle</th>
+              <th style="padding:8px;border:1px solid #ddd;background:#f2f2f2;">Cantidad</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${bikesHtml}
+          </tbody>
+        </table>
 
-    const t = translations[language as keyof typeof translations] || translations.es;
+        <p style="margin-top:15px;"><b>Seguro:</b> ${insurance}</p>
+        <p><b>Depósito:</b> €${deposit}</p>
+        <h3 style="margin-top:10px;">Total pagado: €${total}</h3>
 
-    // ✅ MANEJO SEGURO DE DATOS (con valores por defecto)
-    const safeBikes = Array.isArray(reservationData.bikes) ? reservationData.bikes : [];
-    const safeAccessories = Array.isArray(reservationData.accessories) ? reservationData.accessories : [];
+        <hr style="margin-top:30px;border:none;border-top:1px solid #ddd;"/>
 
-    const [translatedBikes, translatedAccessories] = await Promise.all([
-      getBikeNames(safeBikes, language),
-      getAccessoryNames(safeAccessories, language)
-    ]);
+        <div style="font-size:13px;color:#444;line-height:1.6;margin-top:15px;">
+          <p style="font-weight:bold;margin-bottom:5px;">Altea Bike Shop</p>
+          <p>📍 Calle la Tella 2, Altea 03590</p>
+          <p>📞 +34 604 535 972</p>
+          <p>✉️ alteabikeshop@gmail.com</p>
+          <p>🕒 Lunes a Viernes: 10:00 - 18:00</p>
+          <p>🕒 Sábados: 10:00 - 14:00</p>
 
-    // ✅ PLANTILLA DE EMAIL CON VALIDACIONES
-    const emailHtml = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background: #16a34a; color: white; padding: 20px; text-align: center; }
-          .content { padding: 20px; background: #f9f9f9; }
-          .details { background: white; padding: 15px; margin: 10px 0; border-radius: 5px; }
-          .bike-item { margin: 10px 0; padding: 10px; background: #f0f0f0; border-radius: 3px; }
-          .total { font-weight: bold; font-size: 18px; color: #16a34a; }
-          .footer { text-align: center; padding: 20px; color: #666; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>Altea Bike Shop</h1>
-            <p>${t.confirmed}</p>
-          </div>
-          
-          <div class="content">
-            <p>${t.greeting} ${reservationData.customer_name},</p>
-            
-            <div class="details">
-              <h3>${t.details}</h3>
-              <p><strong>${t.reservationNumber}</strong> ${reservationData.id}</p>
-              <p><strong>${t.dates}</strong> ${formatDate(reservationData.start_date, language)} - ${formatDate(reservationData.end_date, language)}</p>
-              <p><strong>${t.duration}</strong> ${reservationData.total_days || 1} ${t.days}</p>
-            </div>
+          <br/>
 
-            ${translatedBikes.length > 0 ? `
-              <div class="details">
-                <h3>${t.bikes}</h3>
-                ${translatedBikes.map(bike => `
-                  <div class="bike-item">
-                    <strong>${bike.title}</strong><br>
-                    ${t.size}: ${bike.size} | ${t.quantity}: ${bike.quantity}
-                  </div>
-                `).join("")}
-              </div>
-            ` : ""}
-
-            ${translatedAccessories.length > 0 ? `
-              <div class="details">
-                <h3>${t.accessories}</h3>
-                ${translatedAccessories.map(acc => `
-                  <p>• ${acc.name}${acc.quantity && acc.quantity > 1 ? ` (x${acc.quantity})` : ''}</p>
-                `).join("")}
-              </div>
-            ` : ""}
-
-            <div class="details">
-              <p><strong>${t.insurance}</strong> ${reservationData.insurance ? t.yes : t.no}</p>
-              <p class="total">${t.total} ${reservationData.total_amount || 0}€</p>
-              <p><strong>${t.deposit}</strong> ${reservationData.deposit_amount || 0}€</p>
-            </div>
-
-            <div class="details">
-              <h3>${t.nextSteps}</h3>
-              <p>${t.step1}</p>
-              <p>${t.step2}</p>
-              <p>${t.step3}</p>
-            </div>
-
-            <div class="details">
-              <h3>${t.contact}</h3>
-              <p>📍 Calle la Tella 2, Altea 03590</p>
-              <p>📞 +34 604 535 972</p>
-              <p>✉️ Alteabikeshop@gmail.com</p>
-            </div>
-          </div>
-
-          <div class="footer">
-            <p>${t.thanks}</p>
-            <p>${t.team}</p>
-          </div>
+          <p style="font-weight:bold;margin-bottom:5px;">Albir Cycling</p>
+          <p>📍 Av del Albir 159, El Albir</p>
+          <p>✉️ info@albir-cycling.com</p>
+          <p>🕒 Lunes a Viernes: 10:00 - 18:00</p>
+          <p>🕒 Sábados: 10:00 - 14:00</p>
         </div>
-      </body>
-      </html>
+      </div>
     `;
 
-    const { data: emailData, error: emailError } = await resend.emails.send({
-      from: process.env.EMAIL_FROM,
-      to: [to],
-      subject: subject || t.subject,
-      html: emailHtml,
+    const result = await resend.emails.send({
+      from: "Altea Bike Shop <reservas@alteabikeshop.com>",
+      to,
+      subject,
+      html,
     });
 
-    if (emailError) {
-      console.error("Error sending email:", emailError);
-      return NextResponse.json(
-        { error: "Failed to send email" }, 
-        { status: 500 }
-      );
+    if (result.error) {
+      console.error("RESEND ERROR:", result.error);
+      throw result.error;
     }
 
-    console.log("✅ Email sent successfully to:", to);
-    return NextResponse.json({ success: true, data: emailData });
-    
-  } catch (error) {
-    console.error("Error in send-email API:", error);
+    return NextResponse.json({ ok: true, id: result.data?.id });
+  } catch (error: any) {
+    console.error("EMAIL ERROR:", error);
     return NextResponse.json(
-      { error: "Internal server error" }, 
+      { ok: false, error: error?.message || "Error enviando email" },
       { status: 500 }
     );
   }
