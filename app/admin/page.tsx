@@ -682,15 +682,17 @@ const fetchAvailableBikes = async () => {
     </Button>
   </div>
 </div>
-
 const createReservation = async () => {
   // 1. Prevenir ejecución si ya está procesando
   if (isCreatingReservation) return;
-  
+
   try {
     // 2. Marcar como procesando inmediatamente
     setIsCreatingReservation(true);
-    
+
+    // ===============================
+    // CÁLCULO DE DÍAS
+    // ===============================
     const days = calculateTotalDays(
       new Date(newReservation.start_date),
       new Date(newReservation.end_date),
@@ -698,6 +700,9 @@ const createReservation = async () => {
       newReservation.return_time
     );
 
+    // ===============================
+    // ARMAR BICIS PARA DB
+    // ===============================
     const bikesForDB = newReservation.bikes.map((bike: any) => {
       const pricePerDay = calculatePrice(bike.category, days);
       return {
@@ -712,6 +717,9 @@ const createReservation = async () => {
       };
     });
 
+    // ===============================
+    // TOTALES
+    // ===============================
     let totalAmount = 0;
     let depositAmount = 0;
 
@@ -736,66 +744,97 @@ const createReservation = async () => {
         );
     }
 
+    // ===============================
+    // 🔴 VALIDACIÓN SOLAPAMIENTO REAL
+    // ===============================
+    const selStart = convertToMadridTime(new Date(newReservation.start_date));
+    selStart.setHours(
+      Number(newReservation.pickup_time.split(":")[0]),
+      Number(newReservation.pickup_time.split(":")[1])
+    );
+
+    const selEnd = convertToMadridTime(new Date(newReservation.end_date));
+    selEnd.setHours(
+      Number(newReservation.return_time.split(":")[0]),
+      Number(newReservation.return_time.split(":")[1])
+    );
+
+    const { data: existingReservations, error: fetchError } = await supabase
+      .from("reservations")
+      .select(
+        "start_date, end_date, pickup_time, return_time, bikes, status"
+      )
+      .in("status", ["confirmed", "in_process"]);
+
+    if (fetchError) throw fetchError;
+
+    for (const reservation of existingReservations || []) {
+      const resStart = convertToMadridTime(new Date(reservation.start_date));
+      resStart.setHours(
+        Number(reservation.pickup_time.split(":")[0]),
+        Number(reservation.pickup_time.split(":")[1])
+      );
+
+      const resEnd = convertToMadridTime(new Date(reservation.end_date));
+      resEnd.setHours(
+        Number(reservation.return_time.split(":")[0]),
+        Number(reservation.return_time.split(":")[1])
+      );
+
+      const overlaps = selStart < resEnd && selEnd > resStart;
+      if (!overlaps) continue;
+
+      const existingBikeIds = reservation.bikes.flatMap((b: any) =>
+        Array.isArray(b.bike_ids) ? b.bike_ids : []
+      );
+
+      const newBikeIds = newReservation.bikes.map((b: any) => b.id);
+
+      const sameBike = newBikeIds.some((id: number) =>
+        existingBikeIds.includes(id)
+      );
+
+      if (sameBike) {
+        toast({
+          title: "❌ Reserva solapada",
+          description:
+            "La bicicleta ya está reservada en ese horario.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // ===============================
+    // INSERT FINAL
+    // ===============================
     const dataToSave = {
       ...newReservation,
-      start_date: formatDateForDB(new Date(newReservation.start_date)),
-      end_date: formatDateForDB(new Date(newReservation.end_date)),
-      total_days: days,
+      bikes: bikesForDB,
       total_amount: totalAmount,
       deposit_amount: depositAmount,
-      paid_amount: totalAmount,
-      bikes: bikesForDB,
-      locale: newReservation.locale || "es",
-      payment_gateway: "admin",
-      payment_status: "paid",
-      pickup_location: newReservation.pickup_location,
-      return_location: newReservation.return_location,
+      status: "confirmed",
     };
 
-    const { data, error } = await supabase
+    const { error: insertError } = await supabase
       .from("reservations")
-      .insert([dataToSave])
-      .select()
-      .single();
+      .insert([dataToSave]);
 
-    if (error) throw error;
+    if (insertError) throw insertError;
 
     toast({
-      title: "Reserva creada",
-      description: "La reserva se ha creado correctamente",
-      variant: "default",
+      title: "✅ Reserva creada",
+      description: "La reserva se creó correctamente.",
     });
 
-    // 3. Resetear formulario y volver al paso 1
-    setNewReservation({
-      customer_name: "",
-      customer_email: "",
-      customer_phone: "",
-      customer_dni: "",
-      start_date: createLocalDate(),
-      end_date: createLocalDate(),
-      pickup_time: "10:00",
-      return_time: "18:00",
-      pickup_location: "sucursal_altea",
-      return_location: "sucursal_altea",
-      bikes: [],
-      accessories: [],
-      insurance: false,
-      status: "confirmed",
-      locale: "es",
+  } catch (err) {
+    console.error(err);
+    toast({
+      title: "❌ Error",
+      description: "No se pudo crear la reserva.",
+      variant: "destructive",
     });
-
-    // 4. Volver al primer paso
-    setReservationStep("dates");
-
-    // 5. Recargar las reservas para que aparezca la nueva
-    await fetchData();
-
-  } catch (err: any) {
-    console.error("Error creando reserva:", err);
-    setError(err.message || "Error creando reserva");
   } finally {
-    // 6. Siempre habilitar el botón al final (incluso si hay error)
     setIsCreatingReservation(false);
   }
 };
