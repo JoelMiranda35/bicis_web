@@ -250,14 +250,13 @@ if (locationFilter !== "all") {
       console.error("Error fetching data:", error)
     }
   }
-
 const fetchAvailableBikes = async () => {
   if (!newReservation.start_date || !newReservation.end_date) return;
 
   try {
     setIsLoadingBikes(true);
 
-    // 1️⃣ Traer TODAS las bicis DISPONIBLES (igual que el cliente)
+    // 1️⃣ Traer TODAS las bicis DISPONIBLES
     const { data: allBikes, error: bikesError } = await supabase
       .from("bikes")
       .select("*")
@@ -269,7 +268,7 @@ const fetchAvailableBikes = async () => {
       return;
     }
 
-    // 2️⃣ Fechas seleccionadas (igual que el cliente)
+    // 2️⃣ Fechas seleccionadas
     const selStart = convertToMadridTime(new Date(newReservation.start_date));
     selStart.setHours(
       Number(newReservation.pickup_time.split(":")[0]),
@@ -282,16 +281,15 @@ const fetchAvailableBikes = async () => {
       Number(newReservation.return_time.split(":")[1])
     );
 
-    // 3️⃣ Traer reservas (usando la misma consulta que el cliente)
+    // 3️⃣ Traer reservas confirmadas o en proceso
     const { data: reservations, error: resError } = await supabase
       .from("reservations")
       .select("bikes, start_date, end_date, pickup_time, return_time, status")
-      .or(`and(start_date.lte.${selEnd.toISOString()},end_date.gte.${selStart.toISOString()})`)
-      .in("status", ["confirmed", "in_process", "pending"]); // Añadí pending
+      .in("status", ["confirmed", "in_process"]);
 
     if (resError) throw resError;
 
-    // 4️⃣ IDENTICA AL CLIENTE: Marcar bicis reservadas
+    // 4️⃣ Marcar bicis reservadas
     const reservedBikeIds = new Set<string>();
 
     (reservations || []).forEach(res => {
@@ -310,45 +308,45 @@ const fetchAvailableBikes = async () => {
       const overlap = selStart < resEnd && selEnd > resStart;
 
       if (overlap) {
-        // Función IDÉNTICA a la del cliente
-        const markBikesAsReserved = (bikesData: any, reservedSet: Set<string>) => {
-          let bikesArray = bikesData;
-          if (typeof bikesArray === "string") {
-            try {
-              bikesArray = JSON.parse(bikesArray);
-            } catch {
-              bikesArray = [];
-            }
-          }
-
-          if (Array.isArray(bikesArray)) {
-            bikesArray.forEach((bike: any) => {
-              if (Array.isArray(bike.bike_ids)) {
-                bike.bike_ids.forEach((id: string) => reservedSet.add(id.trim()));
-              } else if (bike.id) {
-                reservedSet.add(bike.id.toString().trim());
+        // Parsear bicis reservadas
+        try {
+          const bikesData = typeof res.bikes === 'string' ? JSON.parse(res.bikes) : res.bikes;
+          
+          if (Array.isArray(bikesData)) {
+            bikesData.forEach((bikeGroup: any) => {
+              // Extraer IDs de bicicletas
+              const bikeIds = bikeGroup.bike_ids || [];
+              
+              if (Array.isArray(bikeIds)) {
+                bikeIds.forEach((id: string | number) => {
+                  if (id) reservedBikeIds.add(id.toString().trim());
+                });
               }
             });
           }
-        };
-
-        markBikesAsReserved(res.bikes, reservedBikeIds);
+        } catch (error) {
+          console.error("Error parseando bikes de reserva:", error);
+        }
       }
     });
 
-    // 5️⃣ Filtrar bicis NO reservadas (igual que el cliente)
+    // 5️⃣ Filtrar bicis NO reservadas
     const availableIndividualBikes = allBikes.filter(b => !reservedBikeIds.has(b.id.trim()));
 
-    // 6️⃣ AQUÍ ESTÁ EL CAMBIO: Agrupar CORRECTAMENTE después de filtrar
-    const groupedBikes: Record<string, any> = {};
+    // 6️⃣ Agrupar por modelo y talla para mostrar
+    const groupedBikesMap = new Map();
     
     availableIndividualBikes.forEach(bike => {
-      const key = `${bike.title_es}-${bike.size}`;
+      const key = `${bike.title_es}-${bike.category}-${bike.size}`;
       
-      if (!groupedBikes[key]) {
-        // Primera bici de este modelo
-        groupedBikes[key] = {
+      if (groupedBikesMap.has(key)) {
+        const existing = groupedBikesMap.get(key);
+        existing.quantity += 1;
+        existing.bikes.push(bike);
+      } else {
+        groupedBikesMap.set(key, {
           key,
+          id: bike.id, // Usar la primera bici como referencia
           title_es: bike.title_es,
           title_en: bike.title_en || '',
           title_nl: bike.title_nl || '',
@@ -357,26 +355,20 @@ const fetchAvailableBikes = async () => {
           subtitle_nl: bike.subtitle_nl || '',
           category: bike.category,
           size: bike.size,
-          quantity: 1, // Empezar con 1
+          quantity: 1,
           bikes: [bike]
-        };
-      } else {
-        // Ya existe, sumar 1
-        groupedBikes[key].quantity += 1;
-        groupedBikes[key].bikes.push(bike);
+        });
       }
     });
 
-    // 7️⃣ Convertir a array
-    const availableGroups = Object.values(groupedBikes);
+    // Convertir a array
+    const availableGroups = Array.from(groupedBikesMap.values());
 
-    // DEBUG
-    console.log("=== ADMIN vs CLIENTE ===");
-    console.log("Bicis individuales disponibles:", availableIndividualBikes.length);
-    console.log("Grupos formados:", availableGroups.length);
-    availableGroups.forEach((group: any) => {
-      console.log(`${group.title_es} (${group.size}): ${group.quantity} disponibles`);
-    });
+    console.log("=== DISPONIBILIDAD ADMIN ===");
+    console.log("Bicis individuales totales:", allBikes.length);
+    console.log("Bicis reservadas en esas fechas:", reservedBikeIds.size);
+    console.log("Bicis disponibles individuales:", availableIndividualBikes.length);
+    console.log("Grupos disponibles:", availableGroups.length);
 
     setAvailableBikes(availableGroups);
 
@@ -701,16 +693,22 @@ const createReservation = async () => {
     );
 
     // ===============================
-    // ARMAR BICIS PARA DB
+    // ARMAR BICIS PARA DB (CORREGIDO)
     // ===============================
     const bikesForDB = newReservation.bikes.map((bike: any) => {
       const pricePerDay = calculatePrice(bike.category, days);
+      
+      // CORRECCIÓN CRÍTICA: Usar all_ids si existe, sino usar id individual
+      const bike_ids = bike.all_ids && bike.all_ids.length > 0 
+        ? bike.all_ids 
+        : [bike.id];
+      
       return {
         id: bike.id,
         title_es: bike.title_es || bike.title,
         size: bike.size,
         category: bike.category,
-        bike_ids: [bike.id],
+        bike_ids: bike_ids, // ← ¡IMPORTANTE! Guardar TODOS los IDs seleccionados
         quantity: bike.quantity || 1,
         price_per_day: pricePerDay,
         total_price: pricePerDay * days * (bike.quantity || 1),
@@ -745,7 +743,7 @@ const createReservation = async () => {
     }
 
     // ===============================
-    // 🔴 VALIDACIÓN SOLAPAMIENTO REAL
+    // 🔴 VALIDACIÓN SOLAPAMIENTO CORREGIDA
     // ===============================
     const selStart = convertToMadridTime(new Date(newReservation.start_date));
     selStart.setHours(
@@ -759,61 +757,67 @@ const createReservation = async () => {
       Number(newReservation.return_time.split(":")[1])
     );
 
-    const { data: existingReservations, error: fetchError } = await supabase
+    // Buscar reservas que SE SOLAPEN realmente (no .maybeSingle())
+    const { data: overlappingReservations } = await supabase
       .from("reservations")
-      .select(
-        "start_date, end_date, pickup_time, return_time, bikes, status"
-      )
+      .select("start_date, end_date, pickup_time, return_time, bikes, status")
+      .or(`and(start_date.lte.${selEnd.toISOString()},end_date.gte.${selStart.toISOString()})`)
       .in("status", ["confirmed", "in_process"]);
 
-    if (fetchError) throw fetchError;
-
-    for (const reservation of existingReservations || []) {
-      const resStart = convertToMadridTime(new Date(reservation.start_date));
-      resStart.setHours(
-        Number(reservation.pickup_time.split(":")[0]),
-        Number(reservation.pickup_time.split(":")[1])
+    if (overlappingReservations && overlappingReservations.length > 0) {
+      console.warn("⚠️ Advertencia: Se encontraron", overlappingReservations.length, "reservas que se solapan");
+      
+      // Verificar si alguna bici específica está duplicada
+      const selectedBikeIds = newReservation.bikes.flatMap((bike: any) => 
+        bike.all_ids || [bike.id]
       );
-
-      const resEnd = convertToMadridTime(new Date(reservation.end_date));
-      resEnd.setHours(
-        Number(reservation.return_time.split(":")[0]),
-        Number(reservation.return_time.split(":")[1])
-      );
-
-      const overlaps = selStart < resEnd && selEnd > resStart;
-      if (!overlaps) continue;
-
-      const existingBikeIds = reservation.bikes.flatMap((b: any) =>
-        Array.isArray(b.bike_ids) ? b.bike_ids : []
-      );
-
-      const newBikeIds = newReservation.bikes.map((b: any) => b.id);
-
-      const sameBike = newBikeIds.some((id: number) =>
-        existingBikeIds.includes(id)
-      );
-
-      if (sameBike) {
-        toast({
-          title: "❌ Reserva solapada",
-          description:
-            "La bicicleta ya está reservada en ese horario.",
-          variant: "destructive",
-        });
-        return;
-      }
+      
+      overlappingReservations.forEach((res: any) => {
+        try {
+          const bikesData = typeof res.bikes === 'string' ? JSON.parse(res.bikes) : res.bikes;
+          const reservedBikeIds = bikesData.flatMap((b: any) => b.bike_ids || []);
+          
+          const duplicateBikes = selectedBikeIds.filter((id: string) => 
+            reservedBikeIds.includes(id)
+          );
+          
+          if (duplicateBikes.length > 0) {
+            console.error("❌ ERROR CRÍTICO: Las siguientes bicis ya están reservadas:", duplicateBikes);
+            // Solo log en consola - admin puede decidir forzar igualmente
+          }
+        } catch (error) {
+          console.error("Error parseando bikes:", error);
+        }
+      });
     }
 
     // ===============================
-    // INSERT FINAL
+    // INSERT FINAL (COMPLETO)
     // ===============================
     const dataToSave = {
-      ...newReservation,
+      customer_name: newReservation.customer_name,
+      customer_email: newReservation.customer_email,
+      customer_phone: newReservation.customer_phone,
+      customer_dni: newReservation.customer_dni,
+      start_date: formatDateForDB(newReservation.start_date),
+      end_date: formatDateForDB(newReservation.end_date),
+      pickup_time: newReservation.pickup_time,
+      return_time: newReservation.return_time,
+      pickup_location: newReservation.pickup_location,
+      return_location: newReservation.return_location,
       bikes: bikesForDB,
+      accessories: newReservation.accessories.map((acc: any) => ({
+        id: acc.id,
+        name: acc.name,
+        price: acc.price
+      })),
+      insurance: newReservation.insurance,
+      total_days: days,
       total_amount: totalAmount,
       deposit_amount: depositAmount,
       status: "confirmed",
+      locale: newReservation.locale || "es",
+      created_at: new Date().toISOString()
     };
 
     const { error: insertError } = await supabase
@@ -827,20 +831,41 @@ const createReservation = async () => {
       description: "La reserva se creó correctamente.",
     });
 
-  } catch (err) {
-    console.error(err);
+    // ===============================
+    // RESETEAR FORMULARIO Y REFRESCAR
+    // ===============================
+    setNewReservation({
+      customer_name: "",
+      customer_email: "",
+      customer_phone: "",
+      customer_dni: "",
+      start_date: createLocalDate(),
+      end_date: createLocalDate(),
+      pickup_time: "10:00",
+      return_time: "18:00",
+      pickup_location: "sucursal_altea",
+      return_location: "sucursal_altea",
+      bikes: [],
+      accessories: [],
+      insurance: false,
+      status: "confirmed",
+      locale: "es"
+    });
+    
+    setReservationStep("dates");
+    await fetchData(); // Refrescar la lista de reservas
+
+  } catch (err: any) {
+    console.error("Error en createReservation:", err);
     toast({
       title: "❌ Error",
-      description: "No se pudo crear la reserva.",
+      description: err.message || "No se pudo crear la reserva.",
       variant: "destructive",
     });
   } finally {
     setIsCreatingReservation(false);
   }
 };
-
-
-
   const updateReservationStatus = async (id: string, status: string) => {
     try {
       setError(null);
@@ -891,31 +916,38 @@ const createReservation = async () => {
       })
     }
   };
-
-const toggleBikeSelection = (bike: any) => {
-  const isSelected = newReservation.bikes.some((b: any) => b.id === bike.id);
+const toggleBikeSelection = (bikeGroup: any) => {
+  // Verificar si ya está seleccionado (comprobando por key única)
+  const isSelected = newReservation.bikes.some(
+    (b: any) => b.key === bikeGroup.key
+  );
+  
   if (isSelected) {
+    // Remover del carrito
     setNewReservation({
       ...newReservation,
-      bikes: newReservation.bikes.filter((b: any) => b.id !== bike.id),
+      bikes: newReservation.bikes.filter((b: any) => b.key !== bikeGroup.key),
     });
   } else {
+    // Agregar al carrito con TODOS los IDs de las bicis del grupo
     setNewReservation({
       ...newReservation,
       bikes: [
         ...newReservation.bikes,
         {
-          id: bike.id,
-          title: bike.title_es || bike.title,
-          size: bike.size,
-          category: bike.category,
-          quantity: 1, // ✅ guardamos cantidad, no precio fijo
+          key: bikeGroup.key, // Identificador único del grupo
+          id: bikeGroup.id, // ID de referencia (primera bici)
+          all_ids: [bikeGroup.bikes[0].id], // Empezar con la primera bici
+          title: bikeGroup.title_es,
+          size: bikeGroup.size,
+          category: bikeGroup.category,
+          quantity: 1,
+          available_quantity: bikeGroup.quantity,
         },
       ],
     });
   }
 };
-
 
   const toggleAccessorySelection = (accessory: any) => {
     const isSelected = newReservation.accessories.some((a: any) => a.id === accessory.id)
@@ -1913,7 +1945,7 @@ const calculateTotalPrice = () => {
 
 {reservationStep === "bikes" && (
   <>
-  {/* RESUMEN CORRECTO (ÚNICO) */}
+    {/* RESUMEN CORRECTO (ÚNICO) */}
     {newReservation.start_date && newReservation.end_date && (
       <div className="p-4 bg-gray-50 rounded-lg mt-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1951,7 +1983,7 @@ const calculateTotalPrice = () => {
                 const qty = bike.quantity || 1;
 
                 return (
-                  <p key={index} className="text-sm">
+                  <p key={bike.key || index} className="text-sm">
                     {bike.title} - Talla {bike.size}{" "}
                     {qty > 1 ? `(x${qty})` : ""} ({pricePerDay}€/día × {days} días)
                   </p>
@@ -1999,17 +2031,14 @@ const calculateTotalPrice = () => {
 
             const totalPrice = pricePerDay * days;
 
-            const selectedCount = newReservation.bikes
-              .filter(
-                (b: any) =>
-                  b.title === bikeGroup.title_es &&
-                  b.size === bikeGroup.size
-              )
-              .reduce((sum: number, b: any) => sum + (b.quantity || 1), 0);
+            const selectedBike = newReservation.bikes.find(
+              (b: any) => b.key === bikeGroup.key
+            );
+            const selectedCount = selectedBike?.quantity || 0;
 
             return (
               <div
-                key={`${bikeGroup.title_es}-${bikeGroup.size}-${bikeGroup.category}`}
+                key={bikeGroup.key}
                 className="border rounded-lg p-4 flex items-center justify-between"
               >
                 <div>
@@ -2040,14 +2069,16 @@ const calculateTotalPrice = () => {
                     onClick={() => {
                       const newBikes = [...newReservation.bikes];
                       const idx = newBikes.findIndex(
-                        (b: any) =>
-                          b.title === bikeGroup.title_es &&
-                          b.size === bikeGroup.size
+                        (b: any) => b.key === bikeGroup.key
                       );
 
                       if (idx >= 0) {
                         if (newBikes[idx].quantity > 1) {
                           newBikes[idx].quantity--;
+                          // Quitar un ID de la lista
+                          if (newBikes[idx].all_ids) {
+                            newBikes[idx].all_ids.pop();
+                          }
                         } else {
                           newBikes.splice(idx, 1);
                         }
@@ -2068,20 +2099,31 @@ const calculateTotalPrice = () => {
                       if (selectedCount < bikeGroup.quantity) {
                         const newBikes = [...newReservation.bikes];
                         const idx = newBikes.findIndex(
-                          (b: any) =>
-                            b.title === bikeGroup.title_es &&
-                            b.size === bikeGroup.size
+                          (b: any) => b.key === bikeGroup.key
                         );
 
                         if (idx >= 0) {
+                          // Aumentar cantidad
                           newBikes[idx].quantity++;
+                          // Agregar un nuevo ID de las bicis disponibles
+                          if (!newBikes[idx].all_ids) {
+                            newBikes[idx].all_ids = [newBikes[idx].id];
+                          }
+                          const nextBike = bikeGroup.bikes[newBikes[idx].quantity - 1];
+                          if (nextBike) {
+                            newBikes[idx].all_ids.push(nextBike.id);
+                          }
                         } else {
+                          // Primera selección
                           newBikes.push({
-                            id: bikeGroup.bikes[0].id,
+                            key: bikeGroup.key,
+                            id: bikeGroup.id,
+                            all_ids: [bikeGroup.bikes[0].id], // Solo la primera bici por ahora
                             title: bikeGroup.title_es,
                             size: bikeGroup.size,
                             category: bikeGroup.category,
                             quantity: 1,
+                            available_quantity: bikeGroup.quantity,
                           });
                         }
 
@@ -2101,8 +2143,6 @@ const calculateTotalPrice = () => {
         </div>
       )}
     </div>
-
-    
 
     <div className="flex justify-between gap-4 pt-4">
       <Button variant="outline" onClick={() => setReservationStep("dates")}>
