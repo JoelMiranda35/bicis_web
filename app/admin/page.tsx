@@ -742,8 +742,8 @@ const createReservation = async () => {
         );
     }
 
-    // ===============================
-    // 🔴 VALIDACIÓN SOLAPAMIENTO CORREGIDA
+        // ===============================
+    // 🔴 VALIDACIÓN SOLAPAMIENTO CORREGIDA (Previene duplicados REALES)
     // ===============================
     const selStart = convertToMadridTime(new Date(newReservation.start_date));
     selStart.setHours(
@@ -757,40 +757,56 @@ const createReservation = async () => {
       Number(newReservation.return_time.split(":")[1])
     );
 
-    // Buscar reservas que SE SOLAPEN realmente (no .maybeSingle())
+    // Buscar TODAS las reservas que SE SOLAPEN realmente
     const { data: overlappingReservations } = await supabase
       .from("reservations")
       .select("start_date, end_date, pickup_time, return_time, bikes, status")
       .or(`and(start_date.lte.${selEnd.toISOString()},end_date.gte.${selStart.toISOString()})`)
       .in("status", ["confirmed", "in_process"]);
 
+    // Verificar solapamiento REAL de bicis específicas
     if (overlappingReservations && overlappingReservations.length > 0) {
-      console.warn("⚠️ Advertencia: Se encontraron", overlappingReservations.length, "reservas que se solapan");
-      
-      // Verificar si alguna bici específica está duplicada
+      // Extraer TODOS los IDs de bicis seleccionadas por el admin
       const selectedBikeIds = newReservation.bikes.flatMap((bike: any) => 
         bike.all_ids || [bike.id]
       );
       
+      let hasConflict = false;
+      let conflictingBikes: string[] = [];
+      
+      // Revisar cada reserva existente
       overlappingReservations.forEach((res: any) => {
         try {
           const bikesData = typeof res.bikes === 'string' ? JSON.parse(res.bikes) : res.bikes;
           const reservedBikeIds = bikesData.flatMap((b: any) => b.bike_ids || []);
           
+          // Verificar si alguna bici ya está reservada
           const duplicateBikes = selectedBikeIds.filter((id: string) => 
             reservedBikeIds.includes(id)
           );
           
           if (duplicateBikes.length > 0) {
-            console.error("❌ ERROR CRÍTICO: Las siguientes bicis ya están reservadas:", duplicateBikes);
-            // Solo log en consola - admin puede decidir forzar igualmente
+            hasConflict = true;
+            conflictingBikes = [...conflictingBikes, ...duplicateBikes];
           }
         } catch (error) {
-          console.error("Error parseando bikes:", error);
+          console.error("Error parseando bikes de reserva existente:", error);
         }
       });
+      
+      if (hasConflict) {
+        // ERROR REAL - NO permitir la reserva (misma bici ya reservada)
+        const uniqueConflicts = [...new Set(conflictingBikes)];
+        throw new Error(
+          `❌ NO se puede crear la reserva. ${uniqueConflicts.length} bici(s) ya están reservadas en ese horario. ` +
+          `IDs: ${uniqueConflicts.join(', ')}. ` +
+          `Por favor, selecciona otras bicis o cambia las fechas.`
+        );
+      } else {
+        // Solo advertencia si no hay conflicto de bicis específicas
+        console.warn(`⚠️ Advertencia: Hay ${overlappingReservations.length} reserva(s) en esas fechas, pero no para las bicis seleccionadas`);
+      }
     }
-
     // ===============================
     // INSERT FINAL (COMPLETO)
     // ===============================
