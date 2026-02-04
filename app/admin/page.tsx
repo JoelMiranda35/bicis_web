@@ -695,26 +695,28 @@ const createReservation = async () => {
     // ===============================
     // ARMAR BICIS PARA DB (CORREGIDO)
     // ===============================
+    // ===============================
+    // ARMAR BICIS PARA DB (CORREGIDO)
+    // ===============================
     const bikesForDB = newReservation.bikes.map((bike: any) => {
       const pricePerDay = calculatePrice(bike.category, days);
       
-      // CORRECCIÓN CRÍTICA: Usar all_ids si existe, sino usar id individual
-      const bike_ids = bike.all_ids && bike.all_ids.length > 0 
+      // Aseguramos que existan IDs. Si no hay all_ids, usamos el ID base como seguridad.
+      let bike_ids = bike.all_ids && bike.all_ids.length > 0 
         ? bike.all_ids 
         : [bike.id];
-      
+
       return {
         id: bike.id,
         title_es: bike.title_es || bike.title,
         size: bike.size,
         category: bike.category,
-        bike_ids: bike_ids, // ← ¡IMPORTANTE! Guardar TODOS los IDs seleccionados
+        bike_ids: bike_ids, // <--- ESTO ES LA CLAVE: Guardamos la lista de IDs físicos
         quantity: bike.quantity || 1,
         price_per_day: pricePerDay,
         total_price: pricePerDay * days * (bike.quantity || 1),
       };
     });
-
     // ===============================
     // TOTALES
     // ===============================
@@ -933,27 +935,29 @@ const createReservation = async () => {
     }
   };
 const toggleBikeSelection = (bikeGroup: any) => {
-  // Verificar si ya está seleccionado (comprobando por key única)
-  const isSelected = newReservation.bikes.some(
-    (b: any) => b.key === bikeGroup.key
-  );
-  
-  if (isSelected) {
-    // Remover del carrito
-    setNewReservation({
-      ...newReservation,
-      bikes: newReservation.bikes.filter((b: any) => b.key !== bikeGroup.key),
-    });
+  // Verificar si ya está seleccionado
+  const index = newReservation.bikes.findIndex((b: any) => b.key === bikeGroup.key);
+
+  if (index >= 0) {
+    // Si ya existe, lo quitamos (toggle simple)
+    const newBikes = [...newReservation.bikes];
+    newBikes.splice(index, 1);
+    setNewReservation({ ...newReservation, bikes: newBikes });
   } else {
-    // Agregar al carrito con TODOS los IDs de las bicis del grupo
+    // Si no existe, lo agregamos (cantidad 1)
+    // CORRECCIÓN: Aseguramos capturar el ID de la primera bici física del grupo
+    const firstRealBikeId = bikeGroup.bikes && bikeGroup.bikes.length > 0
+      ? bikeGroup.bikes[0].id
+      : bikeGroup.id;
+
     setNewReservation({
       ...newReservation,
       bikes: [
         ...newReservation.bikes,
         {
-          key: bikeGroup.key, // Identificador único del grupo
-          id: bikeGroup.id, // ID de referencia (primera bici)
-          all_ids: [bikeGroup.bikes[0].id], // Empezar con la primera bici
+          key: bikeGroup.key,
+          id: bikeGroup.id, // ID representativo para mostrar info
+          all_ids: [firstRealBikeId], // <--- IMPORTANTE: Guardamos el ID único físico
           title: bikeGroup.title_es,
           size: bikeGroup.size,
           category: bikeGroup.category,
@@ -2020,6 +2024,7 @@ const calculateTotalPrice = () => {
         </div>
       </div>
     )}
+    
     <div>
       <Label>Bicicletas*</Label>
 
@@ -2055,104 +2060,172 @@ const calculateTotalPrice = () => {
             return (
               <div
                 key={bikeGroup.key}
-                className="border rounded-lg p-4 flex items-center justify-between"
+                className="border rounded-lg p-4"
               >
-                <div>
-                  <h4 className="font-medium">{bikeGroup.title_es}</h4>
-                  <p className="text-sm text-gray-600">Talla: {bikeGroup.size}</p>
-                  <p className="text-sm text-gray-600">
-                    Disponibles: {bikeGroup.quantity}
-                  </p>
-                  <p className="text-sm text-gray-600">
-                    Precio: {totalPrice}€ ({pricePerDay}€/día × {days} días)
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Depósito: {calculateDeposit(bikeGroup.category)}€
-                  </p>
-
-                  {selectedCount > 0 && (
-                    <p className="text-xs text-green-600">
-                      Seleccionadas: {selectedCount}
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <h4 className="font-medium">{bikeGroup.title_es}</h4>
+                    <p className="text-sm text-gray-600">Talla: {bikeGroup.size}</p>
+                    <p className="text-sm text-gray-600">
+                      Disponibles: {bikeGroup.quantity}
                     </p>
-                  )}
-                </div>
+                    <p className="text-sm text-gray-600">
+                      Precio: {totalPrice}€ ({pricePerDay}€/día × {days} días)
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Depósito: {calculateDeposit(bikeGroup.category)}€
+                    </p>
+                  </div>
+                  
+                  {/* CONTADOR CON BOTONES +/- - NUEVO */}
+                  <div className="flex flex-col items-center">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={selectedCount === 0}
+                        onClick={() => {
+                          const newBikes = [...newReservation.bikes];
+                          const idx = newBikes.findIndex(
+                            (b: any) => b.key === bikeGroup.key
+                          );
 
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={selectedCount === 0}
-                    onClick={() => {
-                      const newBikes = [...newReservation.bikes];
-                      const idx = newBikes.findIndex(
-                        (b: any) => b.key === bikeGroup.key
-                      );
+                          if (idx >= 0) {
+                            const updatedBike = { ...newBikes[idx] };
 
-                      if (idx >= 0) {
-                        if (newBikes[idx].quantity > 1) {
-                          newBikes[idx].quantity--;
-                          // Quitar un ID de la lista
-                          if (newBikes[idx].all_ids) {
-                            newBikes[idx].all_ids.pop();
+                            if (updatedBike.quantity > 1) {
+                              updatedBike.quantity--;
+                              // Eliminar el último ID
+                              if (updatedBike.all_ids && updatedBike.all_ids.length > 0) {
+                                const newIds = [...updatedBike.all_ids];
+                                newIds.pop();
+                                updatedBike.all_ids = newIds;
+                              }
+                              newBikes[idx] = updatedBike;
+                            } else {
+                              // Eliminar completamente
+                              newBikes.splice(idx, 1);
+                            }
+                            
+                            setNewReservation({
+                              ...newReservation,
+                              bikes: newBikes,
+                            });
                           }
-                        } else {
-                          newBikes.splice(idx, 1);
-                        }
-                        setNewReservation({
-                          ...newReservation,
-                          bikes: newBikes,
-                        });
-                      }
-                    }}
-                  >
-                    -
-                  </Button>
+                        }}
+                      >
+                        -
+                      </Button>
 
-                  <Button
-                    size="sm"
-                    disabled={selectedCount >= bikeGroup.quantity}
-                    onClick={() => {
-                      if (selectedCount < bikeGroup.quantity) {
-                        const newBikes = [...newReservation.bikes];
-                        const idx = newBikes.findIndex(
-                          (b: any) => b.key === bikeGroup.key
-                        );
+                      <span className="w-8 text-center font-medium text-lg">
+                        {selectedCount}
+                      </span>
 
-                        if (idx >= 0) {
-                          // Aumentar cantidad
-                          newBikes[idx].quantity++;
-                          // Agregar un nuevo ID de las bicis disponibles
-                          if (!newBikes[idx].all_ids) {
-                            newBikes[idx].all_ids = [newBikes[idx].id];
+                      <Button
+                        size="sm"
+                        disabled={selectedCount >= bikeGroup.quantity}
+                        onClick={() => {
+                          if (selectedCount < bikeGroup.quantity) {
+                            const newBikes = [...newReservation.bikes];
+                            const idx = newBikes.findIndex(
+                              (b: any) => b.key === bikeGroup.key
+                            );
+
+                            if (idx >= 0) {
+                              const updatedBike = { ...newBikes[idx] };
+                              updatedBike.quantity++;
+                              
+                              // Agregar ID de la siguiente bici disponible
+                              const nextIndex = updatedBike.quantity - 1;
+                              const nextBike = bikeGroup.bikes[nextIndex];
+
+                              if (nextBike) {
+                                const currentIds = updatedBike.all_ids ? [...updatedBike.all_ids] : [];
+                                currentIds.push(nextBike.id);
+                                updatedBike.all_ids = currentIds;
+                              }
+                              
+                              newBikes[idx] = updatedBike;
+
+                              setNewReservation({
+                                ...newReservation,
+                                bikes: newBikes,
+                              });
+                            } else {
+                              // Primera selección
+                              const firstRealBikeId = bikeGroup.bikes && bikeGroup.bikes.length > 0
+                                ? bikeGroup.bikes[0].id
+                                : bikeGroup.id;
+
+                              setNewReservation({
+                                ...newReservation,
+                                bikes: [
+                                  ...newReservation.bikes,
+                                  {
+                                    key: bikeGroup.key,
+                                    id: bikeGroup.id,
+                                    all_ids: [firstRealBikeId],
+                                    title: bikeGroup.title_es,
+                                    size: bikeGroup.size,
+                                    category: bikeGroup.category,
+                                    quantity: 1,
+                                    available_quantity: bikeGroup.quantity,
+                                  },
+                                ],
+                              });
+                            }
                           }
-                          const nextBike = bikeGroup.bikes[newBikes[idx].quantity - 1];
-                          if (nextBike) {
-                            newBikes[idx].all_ids.push(nextBike.id);
-                          }
-                        } else {
-                          // Primera selección
-                          newBikes.push({
-                            key: bikeGroup.key,
-                            id: bikeGroup.id,
-                            all_ids: [bikeGroup.bikes[0].id], // Solo la primera bici por ahora
-                            title: bikeGroup.title_es,
-                            size: bikeGroup.size,
-                            category: bikeGroup.category,
-                            quantity: 1,
-                            available_quantity: bikeGroup.quantity,
+                        }}
+                      >
+                        +
+                      </Button>
+                    </div>
+                    
+                    {selectedCount > 0 ? (
+                      <Badge variant="secondary" className="text-xs">
+                        {selectedCount} seleccionada(s)
+                      </Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const firstRealBikeId = bikeGroup.bikes && bikeGroup.bikes.length > 0
+                            ? bikeGroup.bikes[0].id
+                            : bikeGroup.id;
+
+                          setNewReservation({
+                            ...newReservation,
+                            bikes: [
+                              ...newReservation.bikes,
+                              {
+                                key: bikeGroup.key,
+                                id: bikeGroup.id,
+                                all_ids: [firstRealBikeId],
+                                title: bikeGroup.title_es,
+                                size: bikeGroup.size,
+                                category: bikeGroup.category,
+                                quantity: 1,
+                                available_quantity: bikeGroup.quantity,
+                              },
+                            ],
                           });
-                        }
-
-                        setNewReservation({
-                          ...newReservation,
-                          bikes: newBikes,
-                        });
-                      }
-                    }}
-                  >
-                    +
-                  </Button>
+                        }}
+                      >
+                        Seleccionar
+                      </Button>
+                    )}
+                  </div>
                 </div>
+
+                {/* Indicador visual de cantidad seleccionada */}
+                {selectedCount > 0 && (
+                  <div className="mt-2 pt-2 border-t">
+                    <p className="text-xs text-green-600 text-center">
+                      {selectedCount} de {bikeGroup.quantity} disponible(s)
+                    </p>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -2173,7 +2246,6 @@ const calculateTotalPrice = () => {
     </div>
   </>
 )}
-
  
 {reservationStep === "accessories" && (
   <>

@@ -1312,54 +1312,108 @@ const calculateTotal = (): number => {
     }
   };
 
-  const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
-    if (!startDate || !endDate || selectedBikes.length === 0) {
+ const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
+  if (!startDate || !endDate || selectedBikes.length === 0) {
+    return { available: false, unavailableBikes: [] };
+  }
+
+  try {
+    // Preparar fechas para comparación
+    const selStart = convertToMadridTime(new Date(startDate));
+    selStart.setHours(Number(pickupTime.split(':')[0]), Number(pickupTime.split(':')[1]));
+
+    const selEnd = convertToMadridTime(new Date(endDate));
+    selEnd.setHours(Number(returnTime.split(':')[0]), Number(returnTime.split(':')[1]));
+
+    // Extraer TODOS los IDs de bicis seleccionadas
+    const selectedBikeIds: string[] = [];
+    selectedBikes.forEach(bike => {
+      if (bike.bikes && bike.bikes.length > 0) {
+        bike.bikes.forEach((individualBike: any) => {
+          if (individualBike.id) {
+            selectedBikeIds.push(individualBike.id.trim());
+          }
+        });
+      }
+    });
+
+    if (selectedBikeIds.length === 0) {
       return { available: false, unavailableBikes: [] };
     }
 
-    try {
-      const { data: overlappingReservations, error } = await supabase
-        .from("reservations")
-        .select("bikes, start_date, end_date, pickup_time, return_time, status")
-        .or(`and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`)
-        .in("status", ["confirmed", "in_process"]);
+    // Buscar TODAS las reservas confirmadas o en proceso
+    const { data: overlappingReservations, error } = await supabase
+      .from("reservations")
+      .select("bikes, start_date, end_date, pickup_time, return_time, status")
+      .in("status", ["confirmed", "in_process"]);
 
-      if (error) throw error;
+    if (error) throw error;
 
-      const reservedBikeIds = new Set<string>();
-      const selectedBikeIds = new Set<string>(selectedBikes.flatMap(b => b.bikes.map(bike => bike.id)));
+    const reservedBikeIds = new Set<string>();
+    const unavailableBikes: string[] = [];
 
-      const selStart = convertToMadridTime(new Date(startDate));
-      selStart.setHours(Number(pickupTime.split(':')[0]), Number(pickupTime.split(':')[1]));
+    (overlappingReservations || []).forEach(reservation => {
+      const resStart = convertToMadridTime(new Date(reservation.start_date));
+      resStart.setHours(
+        Number(reservation.pickup_time.split(':')[0]),
+        Number(reservation.pickup_time.split(':')[1])
+      );
 
-      const selEnd = convertToMadridTime(new Date(endDate));
-      selEnd.setHours(Number(returnTime.split(':')[0]), Number(returnTime.split(':')[1]));
+      const resEnd = convertToMadridTime(new Date(reservation.end_date));
+      resEnd.setHours(
+        Number(reservation.return_time.split(':')[0]),
+        Number(reservation.return_time.split(':')[1])
+      );
 
-      overlappingReservations?.forEach(reservation => {
-        const resStart = convertToMadridTime(new Date(reservation.start_date));
-        resStart.setHours(Number(reservation.pickup_time.split(':')[0]), Number(reservation.pickup_time.split(':')[1]));
+      // Verificar solapamiento REAL
+      const overlaps = selStart < resEnd && selEnd > resStart;
 
-        const resEnd = convertToMadridTime(new Date(reservation.end_date));
-        resEnd.setHours(Number(reservation.return_time.split(':')[0]), Number(reservation.return_time.split(':')[1]));
-
-        const overlaps = selStart < resEnd && selEnd > resStart;
-
-        if (overlaps) {
-          markBikesAsReserved(reservation.bikes, reservedBikeIds);
+      if (overlaps) {
+        try {
+          const bikesData = typeof reservation.bikes === 'string' 
+            ? JSON.parse(reservation.bikes) 
+            : reservation.bikes;
+          
+          if (Array.isArray(bikesData)) {
+            bikesData.forEach((bikeGroup: any) => {
+              if (bikeGroup.bike_ids && Array.isArray(bikeGroup.bike_ids)) {
+                bikeGroup.bike_ids.forEach((id: string | number) => {
+                  if (id) {
+                    const idStr = id.toString().trim();
+                    reservedBikeIds.add(idStr);
+                    
+                    // Verificar si esta bici está en nuestra selección
+                    if (selectedBikeIds.includes(idStr) && !unavailableBikes.includes(idStr)) {
+                      unavailableBikes.push(idStr);
+                    }
+                  }
+                });
+              }
+            });
+          }
+        } catch (parseError) {
+          console.error("❌ Error parseando bikes:", reservation.bikes, parseError);
         }
-      });
+      }
+    });
 
-      const unavailableBikes = Array.from(selectedBikeIds).filter(id => reservedBikeIds.has(id));
+    console.log("🔍 CheckBikesAvailability - Resultado:", {
+      bicisSeleccionadas: selectedBikeIds.length,
+      bicisReservadasEnPeriodo: reservedBikeIds.size,
+      bicisNoDisponibles: unavailableBikes.length,
+      idsNoDisponibles: unavailableBikes
+    });
 
-      return {
-        available: unavailableBikes.length === 0,
-        unavailableBikes
-      };
-    } catch (error) {
-      //console.error("Error checking bikes availability:", error);
-      return { available: false, unavailableBikes: [] };
-    }
-  };
+    return {
+      available: unavailableBikes.length === 0,
+      unavailableBikes
+    };
+
+  } catch (error) {
+    console.error("Error checking bikes availability:", error);
+    return { available: false, unavailableBikes: [] };
+  }
+};
 
   // ✅ AGREGAR esta función helper
 function getLocalDateString(date: Date): string {
@@ -1394,12 +1448,134 @@ const handleSubmitReservation = async () => {
       throw new Error("Completa todos los campos requeridos");
     }
 
-    const { available } = await checkBikesAvailability();
-    if (!available) {
-      throw new Error("Algunas bicicletas ya no están disponibles");
+    // ============================================
+    // 🔴 NUEVO: VALIDACIÓN COMPLETA DE DISPONIBILIDAD
+    // ============================================
+    console.log("🔍 Verificando disponibilidad real de bicis...");
+    
+    if (!startDate || !endDate || selectedBikes.length === 0) {
+      throw new Error("No hay bicicletas seleccionadas");
     }
 
+    // Preparar fechas para comparación
+    const selStart = convertToMadridTime(new Date(startDate));
+    selStart.setHours(
+      Number(pickupTime.split(":")[0]),
+      Number(pickupTime.split(":")[1])
+    );
+
+    const selEnd = convertToMadridTime(new Date(endDate));
+    selEnd.setHours(
+      Number(returnTime.split(":")[0]),
+      Number(returnTime.split(":")[1])
+    );
+
+    // Extraer TODOS los IDs de bicis seleccionadas
+    const selectedBikeIds: string[] = [];
+    selectedBikes.forEach(bike => {
+      if (bike.bikes && bike.bikes.length > 0) {
+        // Extraer IDs reales de cada bici física seleccionada
+        bike.bikes.forEach((individualBike: any) => {
+          if (individualBike.id) {
+            selectedBikeIds.push(individualBike.id.trim());
+          }
+        });
+      }
+    });
+
+    console.log("📊 Bicis seleccionadas (IDs):", selectedBikeIds);
+
+    if (selectedBikeIds.length === 0) {
+      throw new Error("Error: No se pudieron identificar las bicicletas seleccionadas");
+    }
+
+    // Buscar TODAS las reservas confirmadas o en proceso que se solapen
+    const { data: overlappingReservations, error: overlapError } = await supabase
+      .from("reservations")
+      .select("id, bikes, start_date, end_date, pickup_time, return_time, status")  // ✅ INCLUIR 'id'
+      .in("status", ["confirmed", "in_process"]);
+
+    if (overlapError) {
+      console.error("Error buscando reservas solapadas:", overlapError);
+      // Continuamos pero con advertencia
+    }
+
+    let hasConflict = false;
+    let conflictingBikes: string[] = [];
+
+    if (overlappingReservations && overlappingReservations.length > 0) {
+      // Revisar cada reserva existente
+      overlappingReservations.forEach((reservation) => {
+        try {
+          const resStart = convertToMadridTime(new Date(reservation.start_date));
+          resStart.setHours(
+            Number(reservation.pickup_time.split(":")[0]),
+            Number(reservation.pickup_time.split(":")[1])
+          );
+
+          const resEnd = convertToMadridTime(new Date(reservation.end_date));
+          resEnd.setHours(
+            Number(reservation.return_time.split(":")[0]),
+            Number(reservation.return_time.split(":")[1])
+          );
+
+          // Verificar solapamiento REAL
+          const overlaps = selStart < resEnd && selEnd > resStart;
+
+          if (overlaps) {
+            // Extraer IDs de bicis reservadas en esta reserva
+            const reservedBikeIds: string[] = [];
+            
+            // Parsear datos de bicis
+            const bikesData = typeof reservation.bikes === 'string' 
+              ? JSON.parse(reservation.bikes) 
+              : reservation.bikes;
+            
+            if (Array.isArray(bikesData)) {
+              bikesData.forEach((bikeGroup: any) => {
+                if (bikeGroup.bike_ids && Array.isArray(bikeGroup.bike_ids)) {
+                  bikeGroup.bike_ids.forEach((id: string | number) => {
+                    if (id) reservedBikeIds.push(id.toString().trim());
+                  });
+                }
+              });
+            }
+
+            // Verificar conflictos
+            const duplicateBikes = selectedBikeIds.filter(id => 
+              reservedBikeIds.includes(id)
+            );
+
+            if (duplicateBikes.length > 0) {
+              hasConflict = true;
+              conflictingBikes = [...conflictingBikes, ...duplicateBikes];
+              console.error("🚨 CONFLICTO ENCONTRADO:", {
+                reservaExistente: reservation.id,  // ✅ AHORA 'id' EXISTE
+                bicisConflictivas: duplicateBikes,
+                fechasReserva: `${reservation.start_date} a ${reservation.end_date}`
+              });
+            }
+          }
+        } catch (error) {
+          console.error("Error parseando bikes de reserva existente:", error);
+        }
+      });
+    }
+
+    if (hasConflict) {
+      const uniqueConflicts = [...new Set(conflictingBikes)];
+      throw new Error(
+        `❌ NO se puede completar la reserva. ${uniqueConflicts.length} bici(s) ya están reservadas en esas fechas y horario.\n` +
+        `Por favor, selecciona otras bicis o cambia las fechas/horarios.\n` +
+        `(IDs de bicis no disponibles: ${uniqueConflicts.join(', ')})`
+      );
+    }
+    
+    console.log("✅ Validación de disponibilidad: OK");
+
+    // ============================================
     // 🔒 PREVENIR MÚLTIPLES ENVÍOS - VERIFICAR SI YA HAY CLIENT SECRET
+    // ============================================
     if (clientSecret) {
       throw new Error("El proceso de pago ya está en curso. No envíes múltiples veces.");
     }
@@ -1490,7 +1666,9 @@ const handleSubmitReservation = async () => {
       size: bike.size,
       quantity: bike.quantity,
       pricePerDay: calculatePrice(bike.category, days),
-      totalPrice: calculatePrice(bike.category, days) * days * bike.quantity
+      totalPrice: calculatePrice(bike.category, days) * days * bike.quantity,
+      // 🔴 NUEVO: Incluir IDs específicos en metadata
+      bike_ids: bike.bikes.map((b: any) => b.id).filter(Boolean)
     }));
 
     // Simplificar los accesorios
@@ -1521,25 +1699,28 @@ const handleSubmitReservation = async () => {
       bikes_data: JSON.stringify(simplifiedBikesData),
       accessories_data: JSON.stringify(simplifiedAccessories),
       // 🚨 IDEMPOTENCY KEY ÚNICA Y VERIFICADA
-      idempotency_key: idempotencyKey
+      idempotency_key: idempotencyKey,
+      // 🔴 NUEVO: Incluir IDs de bicis para validación en webhook
+      selected_bike_ids: selectedBikeIds.join(',')
     };
 
     console.log("=== Creando PaymentIntent ===");
     console.log("Idempotency Key:", idempotencyKey);
     console.log("Monto:", amountInCents);
     console.log("Cliente:", customerData.email);
+    console.log("Bicis seleccionadas (IDs):", selectedBikeIds);
 
     const response = await fetch('/api/stripe/create-payment-intent', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'X-Idempotency-Key': idempotencyKey // 🔥 ENCABEZADO ADICIONAL
+        'X-Idempotency-Key': idempotencyKey
       },
       body: JSON.stringify({
         amount: amountInCents,
         currency: 'eur',
         metadata,
-        idempotencyKey // 🔥 ENVIAR EN BODY TAMBIÉN
+        idempotencyKey
       })
     });
 
@@ -1558,7 +1739,8 @@ const handleSubmitReservation = async () => {
       event_type: 'payment_intent_created_frontend',
       metadata: { 
         customer_email: customerData.email,
-        idempotency_key: idempotencyKey
+        idempotency_key: idempotencyKey,
+        bike_ids: selectedBikeIds
       },
       created_at: new Date().toISOString(),
     });
@@ -1571,7 +1753,7 @@ const handleSubmitReservation = async () => {
     setPaymentError(error.message || "Error al procesar el pago. Por favor, inténtelo de nuevo.");
     
     // 🔒 Limpiar clientSecret en caso de error
-    if (error.message.includes("múltiples") || error.message.includes("proceso de pago")) {
+    if (error.message.includes("múltiples") || error.message.includes("proceso de pago") || error.message.includes("NO se puede completar")) {
       setClientSecret(null);
     }
     
