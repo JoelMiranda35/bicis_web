@@ -697,28 +697,35 @@ const fetchAvailableBikes = async () => {
 </div>
 const createReservation = async () => {
   // 1. Prevenir ejecución si ya está procesando
-  if (isCreatingReservation) return;
+  console.log("DEBUG: createReservation iniciada");
+  
+  if (isCreatingReservation) {
+    console.log("DEBUG: Ya está en proceso, abortando");
+    return;
+  }
 
   try {
     // 2. Marcar como procesando inmediatamente
+    console.log("DEBUG: Configurando isCreatingReservation = true");
     setIsCreatingReservation(true);
+    console.log("DEBUG: Estado actual de newReservation:", newReservation);
 
     // ===============================
     // CÁLCULO DE DÍAS
     // ===============================
+    console.log("DEBUG: Calculando días totales...");
     const days = calculateTotalDays(
       new Date(newReservation.start_date),
       new Date(newReservation.end_date),
       newReservation.pickup_time,
       newReservation.return_time
     );
+    console.log("DEBUG: Días calculados:", days);
 
     // ===============================
     // ARMAR BICIS PARA DB (CORREGIDO)
     // ===============================
-    // ===============================
-    // ARMAR BICIS PARA DB (CORREGIDO)
-    // ===============================
+    console.log("DEBUG: Preparando bicis para BD...");
     const bikesForDB = newReservation.bikes.map((bike: any) => {
       const pricePerDay = calculatePrice(bike.category, days);
       
@@ -738,9 +745,12 @@ const createReservation = async () => {
         total_price: pricePerDay * days * (bike.quantity || 1),
       };
     });
+    console.log("DEBUG: Bicis para BD:", bikesForDB);
+
     // ===============================
     // TOTALES
     // ===============================
+    console.log("DEBUG: Calculando totales...");
     let totalAmount = 0;
     let depositAmount = 0;
 
@@ -752,53 +762,74 @@ const createReservation = async () => {
       }
     });
 
-    newReservation.accessories.forEach(
-      (acc: any) => (totalAmount += acc.price || 0)
-    );
+    console.log("DEBUG: Total bicis:", totalAmount);
+    console.log("DEBUG: Depósito bicis:", depositAmount);
+
+    newReservation.accessories.forEach((acc: any) => {
+      console.log("DEBUG: Accesorio:", acc.name, "precio:", acc.price);
+      totalAmount += acc.price || 0;
+    });
 
     if (newReservation.insurance) {
-      totalAmount +=
-        calculateInsurance(days) *
+      const insuranceTotal = calculateInsurance(days) *
         newReservation.bikes.reduce(
           (sum: number, b: any) => sum + (b.quantity || 1),
           0
         );
+      console.log("DEBUG: Seguro total:", insuranceTotal);
+      totalAmount += insuranceTotal;
     }
 
-        // ===============================
+    console.log("DEBUG: Total final:", totalAmount);
+
+    // ===============================
     // 🔴 VALIDACIÓN SOLAPAMIENTO CORREGIDA (Previene duplicados REALES)
     // ===============================
-   // CORRECCIÓN: Crear fechas en hora Madrid correctamente
-const selStart = new Date(newReservation.start_date);
-const selEnd = new Date(newReservation.end_date);
+    console.log("DEBUG: Validando solapamiento de fechas...");
+    
+    // CORRECCIÓN: Crear fechas en hora Madrid correctamente
+    const selStart = new Date(newReservation.start_date);
+    const selEnd = new Date(newReservation.end_date);
 
-// Aplicar hora de recogida/devolución
-const [pickupH, pickupM] = newReservation.pickup_time.split(':').map(Number);
-const [returnH, returnM] = newReservation.return_time.split(':').map(Number);
+    // Aplicar hora de recogida/devolución
+    const [pickupH, pickupM] = newReservation.pickup_time.split(':').map(Number);
+    const [returnH, returnM] = newReservation.return_time.split(':').map(Number);
 
-// Crear fechas completas en hora Madrid
-const startDateMadrid = convertToMadridTime(new Date(
-  selStart.getFullYear(),
-  selStart.getMonth(),
-  selStart.getDate(),
-  pickupH,
-  pickupM
-));
+    // Crear fechas completas en hora Madrid
+    const startDateMadrid = convertToMadridTime(new Date(
+      selStart.getFullYear(),
+      selStart.getMonth(),
+      selStart.getDate(),
+      pickupH,
+      pickupM
+    ));
 
-const endDateMadrid = convertToMadridTime(new Date(
-  selEnd.getFullYear(),
-  selEnd.getMonth(),
-  selEnd.getDate(),
-  returnH,
-  returnM
-));
+    const endDateMadrid = convertToMadridTime(new Date(
+      selEnd.getFullYear(),
+      selEnd.getMonth(),
+      selEnd.getDate(),
+      returnH,
+      returnM
+    ));
+
+    console.log("DEBUG: Fechas para validación:", {
+      startDateMadrid: startDateMadrid.toISOString(),
+      endDateMadrid: endDateMadrid.toISOString()
+    });
 
     // Buscar TODAS las reservas que SE SOLAPEN realmente
-    const { data: overlappingReservations } = await supabase
-  .from("reservations")
-  .select("start_date, end_date, pickup_time, return_time, bikes, status")
-  .or(`and(start_date.lte.${endDateMadrid.toISOString()},end_date.gte.${startDateMadrid.toISOString()})`)
-  .in("status", ["confirmed", "in_process"]);
+    const { data: overlappingReservations, error: overlapError } = await supabase
+      .from("reservations")
+      .select("start_date, end_date, pickup_time, return_time, bikes, status")
+      .or(`and(start_date.lte.${endDateMadrid.toISOString()},end_date.gte.${startDateMadrid.toISOString()})`)
+      .in("status", ["confirmed", "in_process"]);
+
+    if (overlapError) {
+      console.error("DEBUG: Error al buscar solapamientos:", overlapError);
+      throw overlapError;
+    }
+
+    console.log("DEBUG: Reservas solapadas encontradas:", overlappingReservations?.length || 0);
 
     // Verificar solapamiento REAL de bicis específicas
     if (overlappingReservations && overlappingReservations.length > 0) {
@@ -806,6 +837,8 @@ const endDateMadrid = convertToMadridTime(new Date(
       const selectedBikeIds = newReservation.bikes.flatMap((bike: any) => 
         bike.all_ids || [bike.id]
       );
+      
+      console.log("DEBUG: IDs de bicis seleccionadas:", selectedBikeIds);
       
       let hasConflict = false;
       let conflictingBikes: string[] = [];
@@ -816,6 +849,8 @@ const endDateMadrid = convertToMadridTime(new Date(
           const bikesData = typeof res.bikes === 'string' ? JSON.parse(res.bikes) : res.bikes;
           const reservedBikeIds = bikesData.flatMap((b: any) => b.bike_ids || []);
           
+          console.log("DEBUG: IDs de bicis en reserva existente:", reservedBikeIds);
+          
           // Verificar si alguna bici ya está reservada
           const duplicateBikes = selectedBikeIds.filter((id: string) => 
             reservedBikeIds.includes(id)
@@ -824,6 +859,7 @@ const endDateMadrid = convertToMadridTime(new Date(
           if (duplicateBikes.length > 0) {
             hasConflict = true;
             conflictingBikes = [...conflictingBikes, ...duplicateBikes];
+            console.log("DEBUG: Conflicto encontrado con bicis:", duplicateBikes);
           }
         } catch (error) {
           console.error("Error parseando bikes de reserva existente:", error);
@@ -833,6 +869,8 @@ const endDateMadrid = convertToMadridTime(new Date(
       if (hasConflict) {
         // ERROR REAL - NO permitir la reserva (misma bici ya reservada)
         const uniqueConflicts = [...new Set(conflictingBikes)];
+        console.log("DEBUG: Conflictos únicos:", uniqueConflicts);
+        
         throw new Error(
           `❌ NO se puede crear la reserva. ${uniqueConflicts.length} bici(s) ya están reservadas en ese horario. ` +
           `IDs: ${uniqueConflicts.join(', ')}. ` +
@@ -843,9 +881,12 @@ const endDateMadrid = convertToMadridTime(new Date(
         console.warn(`⚠️ Advertencia: Hay ${overlappingReservations.length} reserva(s) en esas fechas, pero no para las bicis seleccionadas`);
       }
     }
+
     // ===============================
     // INSERT FINAL (COMPLETO)
     // ===============================
+    console.log("DEBUG: Preparando datos para insertar en BD...");
+    
     const dataToSave = {
       customer_name: newReservation.customer_name,
       customer_email: newReservation.customer_email,
@@ -872,12 +913,20 @@ const endDateMadrid = convertToMadridTime(new Date(
       created_at: new Date().toISOString()
     };
 
+    console.log("DEBUG: Datos a guardar en BD:", dataToSave);
+
+    console.log("DEBUG: Intentando insertar en BD...");
     const { error: insertError } = await supabase
       .from("reservations")
       .insert([dataToSave]);
 
-    if (insertError) throw insertError;
+    if (insertError) {
+      console.error("DEBUG: Error al insertar en BD:", insertError);
+      throw insertError;
+    }
 
+    console.log("DEBUG: Reserva insertada exitosamente en BD");
+    
     toast({
       title: "✅ Reserva creada",
       description: "La reserva se creó correctamente.",
@@ -886,6 +935,8 @@ const endDateMadrid = convertToMadridTime(new Date(
     // ===============================
     // RESETEAR FORMULARIO Y REFRESCAR
     // ===============================
+    console.log("DEBUG: Reseteando formulario...");
+    
     setNewReservation({
       customer_name: "",
       customer_email: "",
@@ -905,16 +956,33 @@ const endDateMadrid = convertToMadridTime(new Date(
     });
     
     setReservationStep("dates");
+    
+    console.log("DEBUG: Actualizando datos...");
     await fetchData(); // Refrescar la lista de reservas
+    
+    console.log("DEBUG: createReservation finalizada exitosamente");
 
   } catch (err: any) {
-    console.error("Error en createReservation:", err);
+    console.error("❌ Error en createReservation:", err);
+    
+    // Mostrar más detalles del error
+    if (err.message) {
+      console.error("❌ Mensaje de error:", err.message);
+    }
+    if (err.code) {
+      console.error("❌ Código de error:", err.code);
+    }
+    if (err.details) {
+      console.error("❌ Detalles:", err.details);
+    }
+    
     toast({
       title: "❌ Error",
       description: err.message || "No se pudo crear la reserva.",
       variant: "destructive",
     });
   } finally {
+    console.log("DEBUG: Configurando isCreatingReservation = false");
     setIsCreatingReservation(false);
   }
 };
@@ -2555,12 +2623,48 @@ const calculateTotalPrice = () => {
     <div className="flex justify-between gap-4 pt-4">
       <Button 
         variant="outline" 
-        onClick={() => setReservationStep("accessories")}
+        onClick={() => {
+          // LOG: Botón "Volver a Accesorios" funciona
+          console.log("DEBUG: Botón Volver a Accesorios clickeado");
+          setReservationStep("accessories");
+        }}
       >
         Volver a Accesorios
       </Button>
       <Button 
-        onClick={createReservation}
+        onClick={() => {
+          // LOG: Verificar que el botón se está ejecutando
+          console.log("DEBUG: Botón Confirmar Reserva clickeado");
+          console.log("DEBUG: Datos de reserva:", newReservation);
+          console.log("DEBUG: isCreatingReservation estado:", isCreatingReservation);
+          
+          // LOG: Verificar si el botón está deshabilitado
+          const isDisabled = !newReservation.customer_name || 
+            !newReservation.customer_email || 
+            !newReservation.customer_phone || 
+            !newReservation.customer_dni;
+          
+          console.log("DEBUG: Validación campos obligatorios:", {
+            customer_name: newReservation.customer_name,
+            customer_email: newReservation.customer_email,
+            customer_phone: newReservation.customer_phone,
+            customer_dni: newReservation.customer_dni,
+            isDisabled: isDisabled
+          });
+          
+          if (isDisabled) {
+            console.log("DEBUG: Botón deshabilitado - faltan campos obligatorios");
+            return;
+          }
+          
+          if (isCreatingReservation) {
+            console.log("DEBUG: Ya se está creando una reserva, ignorando click");
+            return;
+          }
+          
+          console.log("DEBUG: Llamando a createReservation()");
+          createReservation();
+        }}
         disabled={
           !newReservation.customer_name || 
           !newReservation.customer_email || 
