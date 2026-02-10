@@ -44,29 +44,12 @@ import { es } from "date-fns/locale"
 import { calculatePrice, calculateDeposit, calculateInsurance, isValidCategory } from "@/lib/pricing"
 import { toast } from "@/components/ui/use-toast"
 
-// FUNCIONES DE MANEJO DE FECHAS - CORREGIDAS PARA ESPAÑA
+// En admin/page.tsx REEMPLAZA su función con esta:
 const convertToMadridTime = (date: Date): Date => {
-  // Obtener componentes de la fecha en UTC
-  const utcYear = date.getUTCFullYear();
-  const utcMonth = date.getUTCMonth();
-  const utcDay = date.getUTCDate();
-  const utcHours = date.getUTCHours();
-  const utcMinutes = date.getUTCMinutes();
-  const utcSeconds = date.getUTCSeconds();
-  
-  // Madrid está en CET (UTC+1) - usar siempre +1 para evitar cambios de horario
-  const madridOffset = 1; // Horas
-  const madridHours = utcHours + madridOffset;
-  
-  // Crear nueva fecha ajustada
-  const madridDate = new Date(Date.UTC(
-    utcYear, utcMonth, utcDay, 
-    madridHours, utcMinutes, utcSeconds
-  ));
-  
-  return madridDate;
+  if (!date) return new Date();
+  const madridString = date.toLocaleString("en-US", { timeZone: "Europe/Madrid" });
+  return new Date(madridString);
 };
-
 // Función SIMPLIFICADA para crear fechas
 const createLocalDate = (date?: Date): Date => {
   if (!date) {

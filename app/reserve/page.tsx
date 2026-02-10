@@ -85,12 +85,7 @@ if (typeof window !== 'undefined') {
   window.__STRIPE_PAYMENT_IN_PROGRESS = false;
 }
 
-const convertToMadridTime = (date: Date): Date => {
-  const madridTimeZone = "Europe/Madrid";
-  const utcDate = new Date(date.toISOString());
-  const localString = utcDate.toLocaleString("en-US", { timeZone: madridTimeZone });
-  return new Date(localString);
-};
+
 
 // Initialize Stripe
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
@@ -146,8 +141,12 @@ const translateBikeContent = (
 };
 
 const createLocalDate = (date?: Date): Date => {
-  if (!date) return new Date();
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  // Si no se pasa fecha, usamos "ahora" en Madrid
+  const baseDate = date || new Date();
+  const madridString = baseDate.toLocaleString("en-US", { timeZone: "Europe/Madrid" });
+  const madridDate = new Date(madridString);
+  madridDate.setHours(0, 0, 0, 0);
+  return madridDate;
 };
 
 const getTimeOptions = (isSaturday: boolean) => {
@@ -1422,6 +1421,11 @@ function getLocalDateString(date: Date): string {
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
+const convertToMadridTime = (date: Date): Date => {
+  if (!date) return new Date();
+  const madridString = date.toLocaleString("en-US", { timeZone: "Europe/Madrid" });
+  return new Date(madridString);
+};
 
 const handleSubmitReservation = async () => {
   // 🚨 BLOQUEO DURO CON MÚLTIPLES CAPAS
