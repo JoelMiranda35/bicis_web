@@ -44,20 +44,76 @@ import { es } from "date-fns/locale"
 import { calculatePrice, calculateDeposit, calculateInsurance, isValidCategory } from "@/lib/pricing"
 import { toast } from "@/components/ui/use-toast"
 
-
+// FUNCIONES DE MANEJO DE FECHAS - CORREGIDAS PARA ESPAÑA
 const convertToMadridTime = (date: Date): Date => {
-  const madridTimeZone = "Europe/Madrid";
-  const utcDate = new Date(date.toISOString());
-  const localString = utcDate.toLocaleString("en-US", { timeZone: madridTimeZone });
-  return new Date(localString);
+  // Obtener componentes de la fecha en UTC
+  const utcYear = date.getUTCFullYear();
+  const utcMonth = date.getUTCMonth();
+  const utcDay = date.getUTCDate();
+  const utcHours = date.getUTCHours();
+  const utcMinutes = date.getUTCMinutes();
+  const utcSeconds = date.getUTCSeconds();
+  
+  // Madrid está en CET (UTC+1) - usar siempre +1 para evitar cambios de horario
+  const madridOffset = 1; // Horas
+  const madridHours = utcHours + madridOffset;
+  
+  // Crear nueva fecha ajustada
+  const madridDate = new Date(Date.UTC(
+    utcYear, utcMonth, utcDay, 
+    madridHours, utcMinutes, utcSeconds
+  ));
+  
+  return madridDate;
 };
 
+// Función SIMPLIFICADA para crear fechas
+const createLocalDate = (date?: Date): Date => {
+  if (!date) {
+    // Fecha actual a medianoche en Madrid
+    const now = new Date();
+    const madridNow = convertToMadridTime(now);
+    return new Date(madridNow.getFullYear(), madridNow.getMonth(), madridNow.getDate());
+  }
+  
+  // Crear fecha sin hora (solo día)
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+};
 
-const locationOptions = [
-  { value: "sucursal_altea", label: "Altea Bike Shop - Calle la Tella 2, Altea" },
-  { value: "sucursal_albir", label: "Albir Cycling - Av del Albir 159, El Albir" }
-];
+// Guardar como UTC siempre
+const formatDateForDB = (date: Date): string => {
+  return date.toISOString();
+};
 
+// Parsear desde BD - siempre asumir que está en Madrid
+const parseDateFromDB = (dateString: string): Date => {
+  const date = new Date(dateString);
+  return convertToMadridTime(date);
+};
+
+const isDateDisabled = (date: Date, isStartDate: boolean = true, currentSelectedDate?: Date): boolean => {
+  const today = createLocalDate();
+  const checkDate = createLocalDate(date);
+  
+  // No permitir fechas pasadas
+  if (checkDate < today) {
+    return true;
+  }
+  
+  // No permitir domingos
+  if (isSunday(checkDate)) return true;
+  
+  return false;
+};
+
+const getTimeOptions = (isSaturday: boolean) => {
+  if (isSaturday) {
+    return ["10:00", "11:00", "12:00", "13:00", "14:00"];
+  }
+  return ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
+};
+
+// ================== DEFINICIONES DE TIPOS Y CONSTANTES ==================
 type BikeCategory = "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB";
 
 const CATEGORY_NAMES: Record<BikeCategory, string> = {
@@ -69,41 +125,12 @@ const CATEGORY_NAMES: Record<BikeCategory, string> = {
   E_MTB: "E-MTB"
 };
 
-// Función para crear una fecha sin problemas de zona horaria
-const createLocalDate = (date?: Date): Date => {
-  if (!date) return new Date();
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-};
+const locationOptions = [
+  { value: "sucursal_altea", label: "Altea Bike Shop - Calle la Tella 2, Altea" },
+  { value: "sucursal_albir", label: "Albir Cycling - Av del Albir 159, El Albir" }
+];
+// ========================================================================
 
-// Función para formatear fechas consistentemente
-const formatDateForDB = (date: Date): string => {
-  return date.toISOString();
-};
-
-const parseDateFromDB = (dateString: string): Date => {
-  return new Date(dateString);
-};
-
-const isDateDisabled = (date: Date, isStartDate: boolean = true, currentSelectedDate?: Date): boolean => {
-  const today = createLocalDate();
-  
-  // Permitir seleccionar la fecha actual aunque sea hoy
-  if (date < today && !(currentSelectedDate && isSameDay(date, currentSelectedDate))) {
-    return true;
-  }
-  
-  // No permitir domingos
-  if (isSunday(date)) return true;
-  
-  return false;
-};
-
-const getTimeOptions = (isSaturday: boolean) => {
-  if (isSaturday) {
-    return ["10:00", "11:00", "12:00", "13:00", "14:00"];
-  }
-  return ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
-};
 
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -230,26 +257,37 @@ if (locationFilter !== "all") {
           insurance,
           created_at
         `)
-        .order("start_date", { ascending: false }) // ← Esto pone las más próximas primero
+        .order("start_date", { ascending: false })
     ])
-      if (bikesRes.error) throw bikesRes.error
-      if (accessoriesRes.error) throw accessoriesRes.error
-      if (reservationsRes.error) throw reservationsRes.error
+    
+    if (bikesRes.error) throw bikesRes.error
+    if (accessoriesRes.error) throw accessoriesRes.error
+    if (reservationsRes.error) throw reservationsRes.error
 
-      const formattedReservations = (reservationsRes.data || []).map(res => ({
+    // CORRECCIÓN: Asegurar que las fechas se parsean correctamente
+    const formattedReservations = (reservationsRes.data || []).map(res => {
+      // Verificar que las fechas existan antes de parsear
+      const startDate = res.start_date ? parseDateFromDB(res.start_date) : createLocalDate();
+      const endDate = res.end_date ? parseDateFromDB(res.end_date) : createLocalDate();
+      
+      return {
         ...res,
-        start_date: parseDateFromDB(res.start_date),
-        end_date: parseDateFromDB(res.end_date)
-      }));
+        start_date: startDate,
+        end_date: endDate
+      };
+    });
 
-      setBikes(bikesRes.data || [])
-      setAccessories(accessoriesRes.data || [])
-      setReservations(formattedReservations)
-    } catch (error: any) {
-      setError(error.message || "Error al cargar los datos")
-      console.error("Error fetching data:", error)
-    }
+    setBikes(bikesRes.data || [])
+    setAccessories(accessoriesRes.data || [])
+    setReservations(formattedReservations)
+    
+    console.log("Datos cargados - Total reservas:", formattedReservations.length);
+  } catch (error: any) {
+    setError(error.message || "Error al cargar los datos")
+    console.error("Error fetching data:", error)
   }
+}
+
 const fetchAvailableBikes = async () => {
   if (!newReservation.start_date || !newReservation.end_date) return;
 
@@ -747,24 +785,37 @@ const createReservation = async () => {
         // ===============================
     // 🔴 VALIDACIÓN SOLAPAMIENTO CORREGIDA (Previene duplicados REALES)
     // ===============================
-    const selStart = convertToMadridTime(new Date(newReservation.start_date));
-    selStart.setHours(
-      Number(newReservation.pickup_time.split(":")[0]),
-      Number(newReservation.pickup_time.split(":")[1])
-    );
+   // CORRECCIÓN: Crear fechas en hora Madrid correctamente
+const selStart = new Date(newReservation.start_date);
+const selEnd = new Date(newReservation.end_date);
 
-    const selEnd = convertToMadridTime(new Date(newReservation.end_date));
-    selEnd.setHours(
-      Number(newReservation.return_time.split(":")[0]),
-      Number(newReservation.return_time.split(":")[1])
-    );
+// Aplicar hora de recogida/devolución
+const [pickupH, pickupM] = newReservation.pickup_time.split(':').map(Number);
+const [returnH, returnM] = newReservation.return_time.split(':').map(Number);
+
+// Crear fechas completas en hora Madrid
+const startDateMadrid = convertToMadridTime(new Date(
+  selStart.getFullYear(),
+  selStart.getMonth(),
+  selStart.getDate(),
+  pickupH,
+  pickupM
+));
+
+const endDateMadrid = convertToMadridTime(new Date(
+  selEnd.getFullYear(),
+  selEnd.getMonth(),
+  selEnd.getDate(),
+  returnH,
+  returnM
+));
 
     // Buscar TODAS las reservas que SE SOLAPEN realmente
     const { data: overlappingReservations } = await supabase
-      .from("reservations")
-      .select("start_date, end_date, pickup_time, return_time, bikes, status")
-      .or(`and(start_date.lte.${selEnd.toISOString()},end_date.gte.${selStart.toISOString()})`)
-      .in("status", ["confirmed", "in_process"]);
+  .from("reservations")
+  .select("start_date, end_date, pickup_time, return_time, bikes, status")
+  .or(`and(start_date.lte.${endDateMadrid.toISOString()},end_date.gte.${startDateMadrid.toISOString()})`)
+  .in("status", ["confirmed", "in_process"]);
 
     // Verificar solapamiento REAL de bicis específicas
     if (overlappingReservations && overlappingReservations.length > 0) {
