@@ -44,12 +44,53 @@ import { es } from "date-fns/locale"
 import { calculatePrice, calculateDeposit, calculateInsurance, isValidCategory } from "@/lib/pricing"
 import { toast } from "@/components/ui/use-toast"
 
-// En admin/page.tsx REEMPLAZA su función con esta:
-const convertToMadridTime = (date: Date): Date => {
-  if (!date) return new Date();
-  const madridString = date.toLocaleString("en-US", { timeZone: "Europe/Madrid" });
-  return new Date(madridString);
+
+
+// ============================================
+// ✅ FORZAR FECHA EN ESPAÑA (SOLUCIÓN DEFINITIVA)
+//    Agregar después de los imports
+// ============================================
+
+// ============================================
+// ✅ FORCE SPAIN DATE - VERSIÓN CORREGIDA DEFINITIVA
+//    Reemplazar COMPLETAMENTE en admin/page.tsx
+// ============================================
+
+const forceSpainDate = (date: Date, time: string): Date => {
+  // Extraer año, mes, día
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  
+  // Extraer hora y minuto
+  const [hours, minutes] = time.split(':').map(Number);
+  
+  // 🔥 CORREGIDO: España en INVIERNO es GMT+1 (ESTE ES EL ERROR)
+  // Octubre a Marzo: +01:00
+  // Marzo a Octubre: +02:00
+  const isWinter = (date.getMonth() + 1) <= 3 || (date.getMonth() + 1) >= 11;
+  const offset = isWinter ? '+01:00' : '+02:00';
+  
+  console.log("DEBUG [forceSpainDate]:", {
+    fecha: `${year}-${month}-${day}`,
+    hora: `${hours}:${minutes}`,
+    mes: date.getMonth() + 1,
+    isWinter,
+    offset,
+    resultado: `${year}-${month}-${day}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00.000${offset}`
+  });
+  
+  // Crear string ISO con offset español CORRECTO
+  const spainString = `${year}-${month}-${day}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00.000${offset}`;
+  
+  return new Date(spainString);
 };
+
+// ============================================
+// 🔧 BLOQUE ÚNICO - REEMPLAZAR FUNCIONES DE FECHAS
+//    Buscar y reemplazar TODO este bloque
+// ============================================
+
 // Función SIMPLIFICADA para crear fechas
 const createLocalDate = (date?: Date): Date => {
   if (!date) {
@@ -63,16 +104,42 @@ const createLocalDate = (date?: Date): Date => {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 };
 
-// Guardar como UTC siempre
+// ✅ CORREGIDO: Guardar SOLO la fecha a medianoche UTC
 const formatDateForDB = (date: Date): string => {
-  return date.toISOString();
+  if (!date) return new Date().toISOString();
+  
+  // Extraer año, mes, día de la fecha seleccionada (en hora local)
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  
+  // 👉 GUARDAR SIEMPRE A LAS 00:00:00 UTC
+  // Esto hace que en España sea:
+  // - Invierno: 01:00
+  // - Verano: 02:00
+  return `${year}-${month}-${day}T00:00:00.000Z`;
 };
 
-// Parsear desde BD - siempre asumir que está en Madrid
+// ✅ CORREGIDO: Parsear desde BD - extraer SOLO la fecha
 const parseDateFromDB = (dateString: string): Date => {
-  const date = new Date(dateString);
-  return convertToMadridTime(date);
+  if (!dateString) return createLocalDate();
+  
+  // Extraer solo YYYY-MM-DD
+  const datePart = dateString.split('T')[0];
+  const [year, month, day] = datePart.split('-').map(Number);
+  
+  // Crear fecha en ESPAÑA a las 00:00:00
+  return new Date(year, month - 1, day, 0, 0, 0);
 };
+
+// ✅ CORREGIDO: Conversión a Madrid
+const convertToMadridTime = (date: Date): Date => {
+  if (!date) return new Date();
+  const madridString = date.toLocaleString("en-US", { timeZone: "Europe/Madrid" });
+  return new Date(madridString);
+};
+
+
 
 const isDateDisabled = (date: Date, isStartDate: boolean = true, currentSelectedDate?: Date): boolean => {
   const today = createLocalDate();
@@ -271,6 +338,11 @@ if (locationFilter !== "all") {
   }
 }
 
+// ============================================
+// 🔧 fetchAvailableBikes - VERSIÓN CORREGIDA
+//    Reemplazar COMPLETAMENTE la función
+// ============================================
+
 const fetchAvailableBikes = async () => {
   if (!newReservation.start_date || !newReservation.end_date) return;
 
@@ -289,20 +361,25 @@ const fetchAvailableBikes = async () => {
       return;
     }
 
-    // 2️⃣ Fechas seleccionadas
-    const selStart = convertToMadridTime(new Date(newReservation.start_date));
-    selStart.setHours(
-      Number(newReservation.pickup_time.split(":")[0]),
-      Number(newReservation.pickup_time.split(":")[1])
+    // ✅ CORREGIDO: Usar forceSpainDate en lugar de convertToMadridTime
+    const selStart = forceSpainDate(
+      new Date(newReservation.start_date), 
+      newReservation.pickup_time
+    );
+    
+    const selEnd = forceSpainDate(
+      new Date(newReservation.end_date), 
+      newReservation.return_time
     );
 
-    const selEnd = convertToMadridTime(new Date(newReservation.end_date));
-    selEnd.setHours(
-      Number(newReservation.return_time.split(":")[0]),
-      Number(newReservation.return_time.split(":")[1])
-    );
+    console.log("DEBUG [fetchAvailableBikes] Fechas corregidas:", {
+      selStart: selStart.toISOString(),
+      selEnd: selEnd.toISOString(),
+      inicioEspaña: selStart.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),
+      finEspaña: selEnd.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })
+    });
 
-    // 3️⃣ Traer reservas confirmadas o en proceso
+    // 3️⃣ Traer TODAS las reservas CONFIRMADAS o EN PROCESO
     const { data: reservations, error: resError } = await supabase
       .from("reservations")
       .select("bikes, start_date, end_date, pickup_time, return_time, status")
@@ -310,38 +387,38 @@ const fetchAvailableBikes = async () => {
 
     if (resError) throw resError;
 
-    // 4️⃣ Marcar bicis reservadas
+    // 4️⃣ 🔥 CRÍTICO: Extraer TODOS los bike_ids de TODAS las reservas que SOLAPAN
     const reservedBikeIds = new Set<string>();
 
     (reservations || []).forEach(res => {
-      const resStart = convertToMadridTime(new Date(res.start_date));
-      resStart.setHours(
-        Number(res.pickup_time.split(":")[0]),
-        Number(res.pickup_time.split(":")[1])
+      // ✅ CORREGIDO: Usar forceSpainDate para cada reserva
+      const resStart = forceSpainDate(
+        new Date(res.start_date), 
+        res.pickup_time
+      );
+      
+      const resEnd = forceSpainDate(
+        new Date(res.end_date), 
+        res.return_time
       );
 
-      const resEnd = convertToMadridTime(new Date(res.end_date));
-      resEnd.setHours(
-        Number(res.return_time.split(":")[0]),
-        Number(res.return_time.split(":")[1])
-      );
-
+      // ✅ Verificar SOLAPAMIENTO REAL
       const overlap = selStart < resEnd && selEnd > resStart;
 
       if (overlap) {
-        // Parsear bicis reservadas
         try {
-          const bikesData = typeof res.bikes === 'string' ? JSON.parse(res.bikes) : res.bikes;
+          const bikesData = typeof res.bikes === 'string' 
+            ? JSON.parse(res.bikes) 
+            : res.bikes;
           
           if (Array.isArray(bikesData)) {
             bikesData.forEach((bikeGroup: any) => {
-              // Extraer IDs de bicicletas
-              const bikeIds = bikeGroup.bike_ids || [];
-              
-              if (Array.isArray(bikeIds)) {
-                bikeIds.forEach((id: string | number) => {
+              if (bikeGroup.bike_ids && Array.isArray(bikeGroup.bike_ids)) {
+                bikeGroup.bike_ids.forEach((id: string | number) => {
                   if (id) reservedBikeIds.add(id.toString().trim());
                 });
+              } else if (bikeGroup.id) {
+                reservedBikeIds.add(bikeGroup.id.toString().trim());
               }
             });
           }
@@ -351,10 +428,21 @@ const fetchAvailableBikes = async () => {
       }
     });
 
-    // 5️⃣ Filtrar bicis NO reservadas
+    // 5️⃣ Excluir bicis de esta reserva (si es edición)
+    if (newReservation.id) {
+      newReservation.bikes.forEach((bike: any) => {
+        if (bike.all_ids && Array.isArray(bike.all_ids)) {
+          bike.all_ids.forEach((id: string) => {
+            reservedBikeIds.delete(id.toString().trim());
+          });
+        }
+      });
+    }
+
+    // 6️⃣ Filtrar bicis NO reservadas
     const availableIndividualBikes = allBikes.filter(b => !reservedBikeIds.has(b.id.trim()));
 
-    // 6️⃣ Agrupar por modelo y talla para mostrar
+    // 7️⃣ Agrupar por modelo y talla
     const groupedBikesMap = new Map();
     
     availableIndividualBikes.forEach(bike => {
@@ -367,7 +455,7 @@ const fetchAvailableBikes = async () => {
       } else {
         groupedBikesMap.set(key, {
           key,
-          id: bike.id, // Usar la primera bici como referencia
+          id: bike.id,
           title_es: bike.title_es,
           title_en: bike.title_en || '',
           title_nl: bike.title_nl || '',
@@ -382,19 +470,27 @@ const fetchAvailableBikes = async () => {
       }
     });
 
-    // Convertir a array
     const availableGroups = Array.from(groupedBikesMap.values());
 
-    console.log("=== DISPONIBILIDAD ADMIN ===");
-    console.log("Bicis individuales totales:", allBikes.length);
-    console.log("Bicis reservadas en esas fechas:", reservedBikeIds.size);
-    console.log("Bicis disponibles individuales:", availableIndividualBikes.length);
-    console.log("Grupos disponibles:", availableGroups.length);
+    // 8️⃣ LOGS PARA DEPURACIÓN
+    console.log("=== 🟢 DISPONIBILIDAD ADMIN CORREGIDA ===");
+    console.log("📅 Fechas:", newReservation.start_date, "-", newReservation.end_date);
+    console.log("⏰ Horas:", newReservation.pickup_time, "-", newReservation.return_time);
+    console.log("🌍 Horas España:", {
+      inicio: selStart.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),
+      fin: selEnd.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })
+    });
+    console.log("🚲 Bicis individuales totales:", allBikes.length);
+    console.log("🔒 Bicis reservadas en estas fechas:", reservedBikeIds.size);
+    console.log("🆔 IDs reservados:", Array.from(reservedBikeIds));
+    console.log("✅ Bicis disponibles individuales:", availableIndividualBikes.length);
+    console.log("📦 Grupos disponibles:", availableGroups.length);
+    console.log("=========================================");
 
     setAvailableBikes(availableGroups);
 
   } catch (error) {
-    console.error("Error calculando disponibilidad:", error);
+    console.error("❌ Error calculando disponibilidad:", error);
     setAvailableBikes([]);
   } finally {
     setIsLoadingBikes(false);
@@ -695,8 +791,12 @@ const fetchAvailableBikes = async () => {
     </Button>
   </div>
 </div>
+// ============================================
+// ✅ CREATE RESERVATION - VERSIÓN DEFINITIVA
+//    Reemplazar COMPLETAMENTE en admin/page.tsx
+// ============================================
+
 const createReservation = async () => {
-  // 1. Prevenir ejecución si ya está procesando
   console.log("DEBUG: createReservation iniciada");
   
   if (isCreatingReservation) {
@@ -705,13 +805,12 @@ const createReservation = async () => {
   }
 
   try {
-    // 2. Marcar como procesando inmediatamente
     console.log("DEBUG: Configurando isCreatingReservation = true");
     setIsCreatingReservation(true);
     console.log("DEBUG: Estado actual de newReservation:", newReservation);
 
     // ===============================
-    // CÁLCULO DE DÍAS
+    // CÁLCULO DE DÍAS (CORREGIDO CON forceSpainDate)
     // ===============================
     console.log("DEBUG: Calculando días totales...");
     const days = calculateTotalDays(
@@ -723,13 +822,12 @@ const createReservation = async () => {
     console.log("DEBUG: Días calculados:", days);
 
     // ===============================
-    // ARMAR BICIS PARA DB (CORREGIDO)
+    // ARMAR BICIS PARA DB
     // ===============================
     console.log("DEBUG: Preparando bicis para BD...");
     const bikesForDB = newReservation.bikes.map((bike: any) => {
       const pricePerDay = calculatePrice(bike.category, days);
       
-      // Aseguramos que existan IDs. Si no hay all_ids, usamos el ID base como seguridad.
       let bike_ids = bike.all_ids && bike.all_ids.length > 0 
         ? bike.all_ids 
         : [bike.id];
@@ -739,7 +837,7 @@ const createReservation = async () => {
         title_es: bike.title_es || bike.title,
         size: bike.size,
         category: bike.category,
-        bike_ids: bike_ids, // <--- ESTO ES LA CLAVE: Guardamos la lista de IDs físicos
+        bike_ids: bike_ids,
         quantity: bike.quantity || 1,
         price_per_day: pricePerDay,
         total_price: pricePerDay * days * (bike.quantity || 1),
@@ -757,8 +855,7 @@ const createReservation = async () => {
     bikesForDB.forEach((bike: any) => {
       if (isValidCategory(bike.category)) {
         totalAmount += bike.total_price;
-        depositAmount +=
-          calculateDeposit(bike.category) * (bike.quantity || 1);
+        depositAmount += calculateDeposit(bike.category) * (bike.quantity || 1);
       }
     });
 
@@ -783,45 +880,23 @@ const createReservation = async () => {
     console.log("DEBUG: Total final:", totalAmount);
 
     // ===============================
-    // 🔴 VALIDACIÓN SOLAPAMIENTO CORREGIDA (Previene duplicados REALES)
+    // 🔥 VALIDACIÓN DE SOLAPAMIENTO CORREGIDA CON forceSpainDate
     // ===============================
     console.log("DEBUG: Validando solapamiento de fechas...");
     
-    // CORRECCIÓN: Crear fechas en hora Madrid correctamente
-    const selStart = new Date(newReservation.start_date);
-    const selEnd = new Date(newReservation.end_date);
-
-    // Aplicar hora de recogida/devolución
-    const [pickupH, pickupM] = newReservation.pickup_time.split(':').map(Number);
-    const [returnH, returnM] = newReservation.return_time.split(':').map(Number);
-
-    // Crear fechas completas en hora Madrid
-    const startDateMadrid = convertToMadridTime(new Date(
-      selStart.getFullYear(),
-      selStart.getMonth(),
-      selStart.getDate(),
-      pickupH,
-      pickupM
-    ));
-
-    const endDateMadrid = convertToMadridTime(new Date(
-      selEnd.getFullYear(),
-      selEnd.getMonth(),
-      selEnd.getDate(),
-      returnH,
-      returnM
-    ));
+    // ✅ USAR forceSpainDate PARA AMBAS FECHAS
+    const startSpain = forceSpainDate(newReservation.start_date, newReservation.pickup_time);
+    const endSpain = forceSpainDate(newReservation.end_date, newReservation.return_time);
 
     console.log("DEBUG: Fechas para validación:", {
-      startDateMadrid: startDateMadrid.toISOString(),
-      endDateMadrid: endDateMadrid.toISOString()
+      startSpain: startSpain.toISOString(),
+      endSpain: endSpain.toISOString()
     });
 
-    // Buscar TODAS las reservas que SE SOLAPEN realmente
+    // Buscar TODAS las reservas confirmadas o en proceso
     const { data: overlappingReservations, error: overlapError } = await supabase
       .from("reservations")
       .select("start_date, end_date, pickup_time, return_time, bikes, status")
-      .or(`and(start_date.lte.${endDateMadrid.toISOString()},end_date.gte.${startDateMadrid.toISOString()})`)
       .in("status", ["confirmed", "in_process"]);
 
     if (overlapError) {
@@ -829,61 +904,72 @@ const createReservation = async () => {
       throw overlapError;
     }
 
-    console.log("DEBUG: Reservas solapadas encontradas:", overlappingReservations?.length || 0);
+    console.log("DEBUG: Total reservas activas en sistema:", overlappingReservations?.length || 0);
 
-    // Verificar solapamiento REAL de bicis específicas
-    if (overlappingReservations && overlappingReservations.length > 0) {
-      // Extraer TODOS los IDs de bicis seleccionadas por el admin
-      const selectedBikeIds = newReservation.bikes.flatMap((bike: any) => 
-        bike.all_ids || [bike.id]
-      );
+    // Extraer TODOS los IDs de bicis seleccionadas
+    const selectedBikeIds = newReservation.bikes.flatMap((bike: any) => 
+      bike.all_ids || [bike.id]
+    );
+    
+    console.log("DEBUG: IDs de bicis seleccionadas:", selectedBikeIds);
+    
+    let hasConflict = false;
+    let conflictingBikes: string[] = [];
+    let reservasConConflicto: string[] = [];
+    
+    // Revisar cada reserva existente
+    overlappingReservations?.forEach((res: any) => {
+      // ✅ USAR forceSpainDate PARA CADA RESERVA
+      const resStart = forceSpainDate(new Date(res.start_date), res.pickup_time);
+      const resEnd = forceSpainDate(new Date(res.end_date), res.return_time);
       
-      console.log("DEBUG: IDs de bicis seleccionadas:", selectedBikeIds);
+      // Verificar solapamiento REAL
+      const overlaps = resStart < endSpain && resEnd > startSpain;
       
-      let hasConflict = false;
-      let conflictingBikes: string[] = [];
-      
-      // Revisar cada reserva existente
-      overlappingReservations.forEach((res: any) => {
+      if (overlaps) {
         try {
           const bikesData = typeof res.bikes === 'string' ? JSON.parse(res.bikes) : res.bikes;
-          const reservedBikeIds = bikesData.flatMap((b: any) => b.bike_ids || []);
           
-          console.log("DEBUG: IDs de bicis en reserva existente:", reservedBikeIds);
-          
-          // Verificar si alguna bici ya está reservada
-          const duplicateBikes = selectedBikeIds.filter((id: string) => 
-            reservedBikeIds.includes(id)
-          );
-          
-          if (duplicateBikes.length > 0) {
-            hasConflict = true;
-            conflictingBikes = [...conflictingBikes, ...duplicateBikes];
-            console.log("DEBUG: Conflicto encontrado con bicis:", duplicateBikes);
-          }
+          bikesData.forEach((bikeGroup: any) => {
+            const reservedBikeIds = bikeGroup.bike_ids || [];
+            
+            // Verificar si alguna bici seleccionada está en esta reserva
+            const duplicateBikes = selectedBikeIds.filter((id: string) => 
+              reservedBikeIds.includes(id)
+            );
+            
+            if (duplicateBikes.length > 0) {
+              hasConflict = true;
+              conflictingBikes = [...conflictingBikes, ...duplicateBikes];
+              reservasConConflicto = [...reservasConConflicto, res.id];
+              console.log("DEBUG: 🔴 Conflicto encontrado - Reserva:", res.id, "Bicis:", duplicateBikes);
+            }
+          });
         } catch (error) {
           console.error("Error parseando bikes de reserva existente:", error);
         }
-      });
-      
-      if (hasConflict) {
-        // ERROR REAL - NO permitir la reserva (misma bici ya reservada)
-        const uniqueConflicts = [...new Set(conflictingBikes)];
-        console.log("DEBUG: Conflictos únicos:", uniqueConflicts);
-        
-        throw new Error(
-          `❌ NO se puede crear la reserva. ${uniqueConflicts.length} bici(s) ya están reservadas en ese horario. ` +
-          `IDs: ${uniqueConflicts.join(', ')}. ` +
-          `Por favor, selecciona otras bicis o cambia las fechas.`
-        );
-      } else {
-        // Solo advertencia si no hay conflicto de bicis específicas
-        console.warn(`⚠️ Advertencia: Hay ${overlappingReservations.length} reserva(s) en esas fechas, pero no para las bicis seleccionadas`);
       }
+    });
+    
+    if (hasConflict) {
+      const uniqueConflicts = [...new Set(conflictingBikes)];
+      const uniqueReservas = [...new Set(reservasConConflicto)];
+      
+      console.log("DEBUG: Conflictos únicos:", uniqueConflicts);
+      console.log("DEBUG: Reservas con conflicto:", uniqueReservas);
+      
+      throw new Error(
+        `❌ NO se puede crear la reserva. ${uniqueConflicts.length} bici(s) ya están reservadas en ese horario.\n` +
+        `IDs: ${uniqueConflicts.join(', ')}\n` +
+        `Reservas conflictivas: ${uniqueReservas.length}\n` +
+        `Por favor, selecciona otras bicis o cambia las fechas.`
+      );
+    } else {
+      console.log("DEBUG: ✅ No hay conflictos de bicis específicas");
     }
 
     // ===============================
-    // INSERT FINAL (COMPLETO)
+    // INSERT FINAL
     // ===============================
     console.log("DEBUG: Preparando datos para insertar en BD...");
     
@@ -914,8 +1000,8 @@ const createReservation = async () => {
     };
 
     console.log("DEBUG: Datos a guardar en BD:", dataToSave);
-
     console.log("DEBUG: Intentando insertar en BD...");
+    
     const { error: insertError } = await supabase
       .from("reservations")
       .insert([dataToSave]);
@@ -925,7 +1011,7 @@ const createReservation = async () => {
       throw insertError;
     }
 
-    console.log("DEBUG: Reserva insertada exitosamente en BD");
+    console.log("DEBUG: ✅ Reserva insertada exitosamente en BD");
     
     toast({
       title: "✅ Reserva creada",
@@ -933,7 +1019,7 @@ const createReservation = async () => {
     });
 
     // ===============================
-    // RESETEAR FORMULARIO Y REFRESCAR
+    // RESETEAR FORMULARIO
     // ===============================
     console.log("DEBUG: Reseteando formulario...");
     
@@ -958,23 +1044,11 @@ const createReservation = async () => {
     setReservationStep("dates");
     
     console.log("DEBUG: Actualizando datos...");
-    await fetchData(); // Refrescar la lista de reservas
-    
-    console.log("DEBUG: createReservation finalizada exitosamente");
+    await fetchData();
 
   } catch (err: any) {
     console.error("❌ Error en createReservation:", err);
-    
-    // Mostrar más detalles del error
-    if (err.message) {
-      console.error("❌ Mensaje de error:", err.message);
-    }
-    if (err.code) {
-      console.error("❌ Código de error:", err.code);
-    }
-    if (err.details) {
-      console.error("❌ Detalles:", err.details);
-    }
+    console.error("❌ Mensaje de error:", err.message);
     
     toast({
       title: "❌ Error",
@@ -1093,40 +1167,61 @@ const toggleBikeSelection = (bikeGroup: any) => {
     }
   }
   
+// ============================================
+// ✅ BLOQUE 1 - CORREGIR CÁLCULO DE DÍAS
+//    Reemplazar en admin/page.tsx
+// ============================================
+
+// ============================================
+// ✅ BLOQUE 1 - CORREGIR CÁLCULO DE DÍAS
+//    Reemplazar función calculateTotalDays COMPLETA
+//    Ubicación: admin/page.tsx (línea ~100)
+// ============================================
+
+// ============================================
+// ✅ CALCULATE TOTAL DAYS - VERSIÓN DEFINITIVA
+//    Reemplazar COMPLETAMENTE en admin/page.tsx
+// ============================================
+
 const calculateTotalDays = (
   startDate: Date,
   endDate: Date,
   pickupTime: string,
   returnTime: string
 ): number => {
-  // SIEMPRE retorna 1 día para reservas en el mismo día
-  if (isSameDay(startDate, endDate)) return 1;
-
-  const startDay = new Date(
-    startDate.getFullYear(),
-    startDate.getMonth(),
-    startDate.getDate()
-  );
-  const endDay = new Date(
-    endDate.getFullYear(),
-    endDate.getMonth(),
-    endDate.getDate()
-  );
-
-  const diffDays = Math.floor(
-    (endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24)
-  );
-
-  // convertir horas a minutos para comparar bien
-  const [pickupH, pickupM] = pickupTime.split(":").map(Number);
-  const [returnH, returnM] = returnTime.split(":").map(Number);
-
-  // si la devolución es más tarde que la recogida → sumar 1 día
-  if (returnH > pickupH || (returnH === pickupH && returnM > pickupM)) {
-    return diffDays + 1;
+  try {
+    // ✅ USAR forceSpainDate PARA AMBAS FECHAS
+    const startSpain = forceSpainDate(startDate, pickupTime);
+    const endSpain = forceSpainDate(endDate, returnTime);
+    
+    console.log("DEBUG [calculateTotalDays]:", {
+      startDate,
+      endDate,
+      pickupTime,
+      returnTime,
+      startSpain: startSpain.toISOString(),
+      endSpain: endSpain.toISOString()
+    });
+    
+    // Si es el mismo día, retornar 1
+    if (startSpain.toDateString() === endSpain.toDateString()) {
+      console.log("DEBUG [calculateTotalDays]: Mismo día = 1");
+      return 1;
+    }
+    
+    // Calcular diferencia en días (redondear hacia arriba)
+    const diffTime = endSpain.getTime() - startSpain.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    console.log("DEBUG [calculateTotalDays]: Días calculados =", diffDays);
+    
+    // Mínimo 1 día, máximo 30 días
+    return Math.max(1, Math.min(diffDays, 30));
+    
+  } catch (error) {
+    console.error("❌ Error en calculateTotalDays:", error);
+    return 1; // Valor por defecto seguro
   }
-
-  return diffDays;
 };
 
 
