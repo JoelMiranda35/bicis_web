@@ -338,6 +338,117 @@ if (locationFilter !== "all") {
   }
 }
 
+// ========================================
+// 🗑️ FUNCIÓN PARA BORRAR CANCELADAS DEL MES
+// ========================================
+
+const deleteCancelledReservationsOfMonth = async () => {
+  try {
+    // Confirmar acción
+    const confirmDelete = window.confirm(
+      `¿Estás seguro de que quieres BORRAR todas las reservas CANCELADAS del mes ${format(selectedMonth, 'MMMM yyyy', { locale: es })}?\n\n` +
+      `Esta acción NO se puede deshacer.`
+    );
+    
+    if (!confirmDelete) return;
+
+    // Calcular inicio y fin del mes seleccionado
+    const monthStart = startOfMonth(selectedMonth);
+    const monthEnd = endOfMonth(selectedMonth);
+
+    console.log('🗑️ Borrando canceladas del mes:', {
+      mes: format(selectedMonth, 'MMMM yyyy', { locale: es }),
+      desde: monthStart,
+      hasta: monthEnd
+    });
+
+    // Buscar reservas canceladas del mes
+    const { data: cancelledReservations, error: fetchError } = await supabase
+      .from('reservations')
+      .select('id, customer_name, start_date')
+      .eq('status', 'cancelled')
+      .gte('start_date', monthStart.toISOString())
+      .lte('start_date', monthEnd.toISOString());
+
+    if (fetchError) {
+      console.error('Error buscando canceladas:', fetchError);
+      toast({
+        title: "Error",
+        description: "No se pudieron buscar las reservas canceladas",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!cancelledReservations || cancelledReservations.length === 0) {
+      toast({
+        title: "Sin reservas",
+        description: `No hay reservas canceladas en ${format(selectedMonth, 'MMMM yyyy', { locale: es })}`,
+      });
+      return;
+    }
+
+    console.log(`📋 Encontradas ${cancelledReservations.length} reservas canceladas para borrar`);
+
+    // Confirmar cantidad
+    const confirmCount = window.confirm(
+      `Se encontraron ${cancelledReservations.length} reserva(s) cancelada(s).\n\n` +
+      `¿Confirmas que quieres borrarlas TODAS?`
+    );
+
+    if (!confirmCount) return;
+
+    // Borrar todas
+    const idsToDelete = cancelledReservations.map(r => r.id);
+    
+    // 🔒 PROTECCIÓN: Doble verificación - SOLO borra si status='cancelled'
+    const { data: deletedData, error: deleteError } = await supabase
+      .from('reservations')
+      .delete()
+      .in('id', idsToDelete)
+      .eq('status', 'cancelled')  // ✅ CRÍTICO: Doble verificación de seguridad
+      .select();  // Devolver las reservas borradas para verificar
+
+    if (deleteError) {
+      console.error('Error borrando reservas:', deleteError);
+      toast({
+        title: "Error al borrar",
+        description: deleteError.message,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // ✅ VERIFICACIÓN: Comparar cuántas se encontraron vs cuántas se borraron
+    const actualDeleted = deletedData?.length || 0;
+    
+    if (actualDeleted < cancelledReservations.length) {
+      console.warn('⚠️ ADVERTENCIA: Se borraron menos reservas de las esperadas', {
+        esperadas: cancelledReservations.length,
+        borradas: actualDeleted
+      });
+    }
+
+    console.log(`✅ ${actualDeleted} reservas canceladas borradas exitosamente`);
+
+    toast({
+      title: "✅ Reservas borradas",
+      description: `Se borraron ${actualDeleted} reserva(s) cancelada(s) de ${format(selectedMonth, 'MMMM yyyy', { locale: es })}`,
+    });
+
+    // Recargar datos
+    fetchData();
+
+  } catch (error) {
+    console.error('Error en deleteCancelledReservationsOfMonth:', error);
+    toast({
+      title: "Error",
+      description: "Ocurrió un error al borrar las reservas",
+      variant: "destructive",
+    });
+  }
+};
+
 // ============================================
 // 🔧 fetchAvailableBikes - VERSIÓN CORREGIDA
 //    Reemplazar COMPLETAMENTE la función
@@ -1643,6 +1754,19 @@ const calculateTotalPrice = () => {
   </SelectContent>
 </Select>
     </div>
+  </div>
+
+  {/* 🗑️ BOTÓN PARA BORRAR CANCELADAS DEL MES */}
+  <div className="mt-4 flex justify-end">
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={deleteCancelledReservationsOfMonth}
+      className="text-red-600 hover:bg-red-50 hover:text-red-700 border-red-200"
+    >
+      <Trash2 className="h-4 w-4 mr-2" />
+      Borrar canceladas de {format(selectedMonth, 'MMMM', { locale: es })}
+    </Button>
   </div>
 </CardHeader>
     <CardContent>

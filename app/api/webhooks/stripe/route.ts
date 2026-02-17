@@ -133,8 +133,8 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
         .from('reservations')
         .select('id, status, stripe_payment_intent_id')
         .eq('customer_email', paymentIntent.metadata.customer_email)
-        .eq('start_date', `${paymentIntent.metadata.start_date} 00:00:00+00`)
-        .eq('end_date', `${paymentIntent.metadata.end_date} 00:00:00+00`)
+        .eq('start_date', `${paymentIntent.metadata.start_date}T00:00:00.000Z`)
+        .eq('end_date', `${paymentIntent.metadata.end_date}T00:00:00.000Z`)
         .eq('pickup_time', paymentIntent.metadata.pickup_time)
         .in('status', ['confirmed', 'pending'])
         .maybeSingle();
@@ -221,42 +221,345 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
     console.log('📦 Creating reservation from metadata:', metadata);
     console.log('📍 pickup_location from metadata:', metadata.pickup_location);
 
-    // ✅ SOLUCIÓN CORREGIDA - Usar directamente el metadata
-    const validatedPickupLocation = metadata.pickup_location || 'sucursal_altea';
+    // ========================================
+    // 🔴 FIX #1: VALIDACIÓN DE DOMINGOS
+    // ========================================
     
-    console.log('📍 Ubicación que se guardará en BD:', validatedPickupLocation);
+    const startDate = new Date(metadata.start_date + 'T00:00:00.000Z');
+    const endDate = new Date(metadata.end_date + 'T00:00:00.000Z');
+    
+    const startDay = startDate.getUTCDay();
+    const endDay = endDate.getUTCDay();
+    
+    if (startDay === 0 || endDay === 0) {
+      console.error('❌ WEBHOOK: Fecha en domingo detectada', {
+        start_date: metadata.start_date,
+        end_date: metadata.end_date,
+        startDay,
+        endDay
+      });
+      
+      // HACER REFUND AUTOMÁTICO
+      try {
+        await stripe.refunds.create({
+          payment_intent: paymentIntent.id,
+          reason: 'requested_by_customer',
+          metadata: {
+            reason: 'Sunday booking not allowed - Store closed on Sundays'
+          }
+        });
+        
+        console.log('✅ Refund creado por reserva en domingo');
+        
+        // Registrar refund
+        await supabase.from('payment_logs').insert({
+          payment_intent_id: paymentIntent.id,
+          event_type: 'refund_sunday_booking',
+          metadata: {
+            start_date: metadata.start_date,
+            end_date: metadata.end_date,
+            customer_email: metadata.customer_email
+          },
+          created_at: new Date().toISOString(),
+        });
+        
+        // Enviar email al cliente explicando
+        await sendRefundEmail(metadata.customer_email, {
+          reason: 'Tu reserva fue rechazada porque seleccionaste un domingo para recogida o devolución. Nuestra tienda está cerrada los domingos. Se ha procesado un reembolso automático.',
+          amount: paymentIntent.amount / 100,
+          refund_id: paymentIntent.id
+        });
+        
+      } catch (refundError) {
+        console.error('❌ Error creating refund for Sunday booking:', refundError);
+      }
+      
+      return; // NO crear reserva
+    }
+    
+    console.log('✅ WEBHOOK: Validación de domingos OK');
 
-    // Parsear datos de bicicletas
+    // ========================================
+    // 🔴 FIX #2: USAR selected_bike_ids GARANTIZADO
+    // ========================================
+    
+    const selectedBikeIds = metadata.selected_bike_ids 
+      ? metadata.selected_bike_ids.split(',').filter(Boolean).map(id => id.trim())
+      : [];
+
+    // VALIDACIÓN CRÍTICA
+    if (selectedBikeIds.length === 0) {
+      console.error('❌ WEBHOOK: No hay bike_ids en metadata');
+      
+      // REFUND + ALERTA
+      try {
+        await stripe.refunds.create({
+          payment_intent: paymentIntent.id,
+          reason: 'requested_by_customer',
+          metadata: {
+            reason: 'No bike IDs found in payment metadata'
+          }
+        });
+        
+        console.log('✅ Refund creado por falta de bike_ids');
+        
+        // Alerta al admin
+        await supabase.from('admin_alerts').insert({
+          alert_type: 'WEBHOOK_NO_BIKE_IDS',
+          payment_intent_id: paymentIntent.id,
+          customer_email: metadata.customer_email,
+          details: 'Payment succeeded but no bike_ids in metadata',
+          created_at: new Date().toISOString()
+        });
+        
+        // Email al cliente
+        await sendRefundEmail(metadata.customer_email, {
+          reason: 'Hubo un error técnico al procesar tu reserva (falta información de bicicletas). Se ha procesado un reembolso automático. Por favor, contacta con nosotros.',
+          amount: paymentIntent.amount / 100,
+          refund_id: paymentIntent.id
+        });
+        
+      } catch (refundError) {
+        console.error('❌ Error creating refund for missing bike_ids:', refundError);
+      }
+      
+      return;
+    }
+
+    console.log('✅ WEBHOOK: bike_ids encontrados:', selectedBikeIds.length, selectedBikeIds);
+
+    // ========================================
+    // 🔴 FIX #3: PARSEAR bikes_data SEGURO
+    // ========================================
+    
     let bikesData = [];
     try {
-      bikesData = JSON.parse(metadata.bikes_data || '[]');
-    } catch (e) {
-      console.error('Error parsing bikes data:', e);
+      if (metadata.bikes_data) {
+        bikesData = JSON.parse(metadata.bikes_data);
+        console.log('✅ bikes_data parseado:', bikesData.length, 'grupos');
+      }
+    } catch (error) {
+      console.warn('⚠️ WEBHOOK: Error parseando bikes_data, usando IDs directamente:', error);
+      // Continuar usando selectedBikeIds
     }
 
-    // Parsear datos de accesorios
+    // ========================================
+    // 🔴 FIX #4: RECONSTRUIR ESTRUCTURA CON IDS GARANTIZADOS
+    // ========================================
+    
+    const bikesToSave = bikesData.map((bike: any, index: number) => {
+      // Calcular qué IDs pertenecen a este grupo
+      const previousQuantity = bikesData.slice(0, index).reduce((sum: number, b: any) => 
+        sum + (b.qty || b.quantity || 0), 0);
+      const thisQuantity = bike.qty || bike.quantity || 1;
+      const bikeIdsForThisGroup = selectedBikeIds.slice(previousQuantity, previousQuantity + thisQuantity);
+      
+      return {
+        model: bike.model || "Sin modelo",
+        size: bike.size || "N/A",
+        quantity: thisQuantity,
+        category: bike.cat || bike.category || "ROAD",
+        bike_ids: bikeIdsForThisGroup  // 🔴 IDs desde metadata garantizado
+      };
+    });
+
+    // Si bikesData está vacío, crear estructura básica
+    if (bikesToSave.length === 0) {
+      console.warn('⚠️ bikes_data vacío, creando estructura básica');
+      bikesToSave.push({
+        model: "Bicicleta",
+        size: "N/A",
+        quantity: selectedBikeIds.length,
+        category: "ROAD",
+        bike_ids: selectedBikeIds
+      });
+    }
+
+    // ========================================
+    // 🔴 FIX #5: VERIFICAR ESTRUCTURA FINAL
+    // ========================================
+    
+    const finalBikeIds: string[] = [];
+    bikesToSave.forEach((bike: any) => {
+      if (bike.bike_ids && Array.isArray(bike.bike_ids)) {
+        finalBikeIds.push(...bike.bike_ids);
+      }
+    });
+
+    if (finalBikeIds.length === 0) {
+      console.error('❌ WEBHOOK: bikesToSave sin IDs después de reconstrucción');
+      
+      // REFUND + ALERTA
+      try {
+        await stripe.refunds.create({
+          payment_intent: paymentIntent.id,
+          reason: 'requested_by_customer',
+          metadata: {
+            reason: 'Failed to reconstruct bike IDs'
+          }
+        });
+        
+        await supabase.from('admin_alerts').insert({
+          alert_type: 'WEBHOOK_RECONSTRUCTION_FAILED',
+          payment_intent_id: paymentIntent.id,
+          customer_email: metadata.customer_email,
+          details: JSON.stringify({ bikesData, selectedBikeIds }),
+          created_at: new Date().toISOString()
+        });
+        
+      } catch (refundError) {
+        console.error('❌ Error creating refund:', refundError);
+      }
+      
+      return;
+    }
+
+    console.log('✅ WEBHOOK: Estructura final verificada:', {
+      grupos_de_bicis: bikesToSave.length,
+      total_bike_ids: finalBikeIds.length,
+      bike_ids: finalBikeIds
+    });
+
+    // ========================================
+    // 🔴 FIX #6: RE-VERIFICAR DISPONIBILIDAD
+    // ========================================
+    
+    console.log('🔍 WEBHOOK: Verificando disponibilidad final...');
+    
+    const { data: overlappingReservations } = await supabase
+      .from('reservations')
+      .select('bikes, start_date, end_date, pickup_time, return_time, status, id')
+      .in('status', ['confirmed', 'in_process']);
+
+    let hasConflict = false;
+    const conflictingBikes: string[] = [];
+
+    if (overlappingReservations && overlappingReservations.length > 0) {
+      overlappingReservations.forEach((reservation: any) => {
+        try {
+          const resStart = new Date(reservation.start_date);
+          const resEnd = new Date(reservation.end_date);
+          const selStart = new Date(metadata.start_date);
+          const selEnd = new Date(metadata.end_date);
+
+          // Verificar solapamiento
+          const overlaps = selStart < resEnd && selEnd > resStart;
+
+          if (overlaps) {
+            const reservedBikeIds: string[] = [];
+            const resBikes = typeof reservation.bikes === 'string' 
+              ? JSON.parse(reservation.bikes) 
+              : reservation.bikes;
+            
+            if (Array.isArray(resBikes)) {
+              resBikes.forEach((bikeGroup: any) => {
+                if (bikeGroup.bike_ids && Array.isArray(bikeGroup.bike_ids)) {
+                  reservedBikeIds.push(...bikeGroup.bike_ids.map((id: string) => id.trim()));
+                }
+              });
+            }
+
+            const duplicates = finalBikeIds.filter(id => reservedBikeIds.includes(id));
+            if (duplicates.length > 0) {
+              hasConflict = true;
+              conflictingBikes.push(...duplicates);
+              console.error('🚨 WEBHOOK: Conflicto detectado con reserva', reservation.id, duplicates);
+            }
+          }
+        } catch (error) {
+          console.error('Error checking reservation conflict:', error);
+        }
+      });
+    }
+
+    if (hasConflict) {
+      const uniqueConflicts = [...new Set(conflictingBikes)];
+      console.error('❌ WEBHOOK: CONFLICTO - Bicis no disponibles:', uniqueConflicts);
+      
+      // REFUND AUTOMÁTICO
+      try {
+        await stripe.refunds.create({
+          payment_intent: paymentIntent.id,
+          reason: 'requested_by_customer',
+          metadata: {
+            reason: `Bikes no longer available: ${uniqueConflicts.join(', ')}`
+          }
+        });
+        
+        console.log('✅ Refund creado por conflicto de disponibilidad');
+        
+        await supabase.from('payment_logs').insert({
+          payment_intent_id: paymentIntent.id,
+          event_type: 'refund_bike_conflict',
+          metadata: {
+            conflicting_bikes: uniqueConflicts,
+            customer_email: metadata.customer_email
+          },
+          created_at: new Date().toISOString(),
+        });
+        
+        // Email al cliente
+        await sendRefundEmail(metadata.customer_email, {
+          reason: `Lo sentimos, las siguientes bicicletas ya no están disponibles para las fechas seleccionadas: ${uniqueConflicts.join(', ')}. Se ha procesado un reembolso automático.`,
+          amount: paymentIntent.amount / 100,
+          refund_id: paymentIntent.id
+        });
+        
+      } catch (refundError) {
+        console.error('❌ Error creating refund for bike conflict:', refundError);
+      }
+      
+      return;
+    }
+
+    console.log('✅ WEBHOOK: Verificación de disponibilidad OK');
+
+    // ========================================
+    // 🔴 FIX #7: PARSEAR ACCESSORIES SEGURO
+    // ========================================
+    
     let accessoriesData = [];
     try {
-      accessoriesData = JSON.parse(metadata.accessories_data || '[]');
-    } catch (e) {
-      console.error('Error parsing accessories data:', e);
+      if (metadata.accessories_data) {
+        accessoriesData = JSON.parse(metadata.accessories_data);
+      }
+    } catch (error) {
+      console.warn('⚠️ Error parseando accessories_data:', error);
+      accessoriesData = [];
     }
 
+    // ========================================
+    // VALIDAR Y PREPARAR pickup_location
+    // ========================================
+    
+    const validPickupLocations = ['sucursal_altea', 'sucursal_albir'];
+    const validatedPickupLocation = validPickupLocations.includes(metadata.pickup_location)
+      ? metadata.pickup_location
+      : 'sucursal_altea';
+
+    if (metadata.pickup_location && !validPickupLocations.includes(metadata.pickup_location)) {
+      console.warn(`⚠️ pickup_location inválido recibido: ${metadata.pickup_location}, usando: ${validatedPickupLocation}`);
+    }
+
+    // ========================================
+    // 🔴 FIX #8: INSERTAR EN BD
+    // ========================================
+    
     const reservationData = {
       customer_name: metadata.customer_name || '',
       customer_email: metadata.customer_email || '',
       customer_phone: metadata.customer_phone || '',
       customer_dni: metadata.customer_dni || '',
-      start_date: metadata.start_date || new Date().toISOString(),
-      end_date: metadata.end_date || new Date().toISOString(),
+      start_date: `${metadata.start_date}T00:00:00.000Z`,
+      end_date: `${metadata.end_date}T00:00:00.000Z`,
       pickup_time: metadata.pickup_time || '10:00',
       return_time: metadata.return_time || '18:00',
       pickup_location: validatedPickupLocation,
       return_location: validatedPickupLocation,
       total_days: parseInt(metadata.total_days || '1'),
-      bikes: bikesData,
+      bikes: bikesToSave,  // 🔴 Estructura corregida
       accessories: accessoriesData,
-      insurance: metadata.insurance === 'true',
+      insurance: metadata.insurance === '1',
       total_amount: parseFloat(metadata.total_amount?.toString().replace(',', '.') || '0'),
       deposit_amount: parseFloat(metadata.deposit_amount?.toString().replace(',', '.') || '0'),
       paid_amount: paymentIntent.amount / 100,
@@ -269,7 +572,12 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
       updated_at: new Date().toISOString(),
     };
 
-    // 🔥 CAMBIO CRÍTICO: Usar UPSERT para aprovechar índice único
+    console.log('💾 WEBHOOK: Guardando en BD...', {
+      bikes_count: bikesToSave.length,
+      total_bike_ids: finalBikeIds.length
+    });
+
+    // 🔥 USAR UPSERT para aprovechar índice único
     const { data, error } = await supabase
       .from('reservations')
       .upsert([reservationData], {
@@ -280,11 +588,10 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
       .single();
 
     if (error) {
-      // Si es error de duplicado, es NORMAL - ya existe la reserva
-      if (error.code === '23505') { // Código de violación de unicidad
+      // Si es error de duplicado, es NORMAL
+      if (error.code === '23505') {
         console.log('🔄 Reserva duplicada detectada por BD (índice único):', paymentIntent.id);
         
-        // Recuperar la reserva existente
         const { data: existingReservation } = await supabase
           .from('reservations')
           .select('*')
@@ -292,15 +599,61 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
           .single();
           
         console.log('📋 Reserva existente recuperada:', existingReservation?.id);
-        return existingReservation; // Devolver la existente
+        return existingReservation;
       }
       
-      // Si es otro error, lanzarlo
-      console.error('Error upserting reservation:', error);
+      console.error('❌ Error upserting reservation:', error);
       throw error;
     }
 
-    console.log('✅ Reservation created/updated from metadata:', data.id);
+    console.log('✅ Reservation created/updated:', data.id);
+
+    // ========================================
+    // 🔴 FIX #9: VERIFICACIÓN POST-INSERCIÓN
+    // ========================================
+    
+    const savedBikes = data.bikes;
+    const savedBikeIds: string[] = [];
+    
+    if (Array.isArray(savedBikes)) {
+      savedBikes.forEach((bike: any) => {
+        if (bike.bike_ids && Array.isArray(bike.bike_ids)) {
+          savedBikeIds.push(...bike.bike_ids);
+        }
+      });
+    }
+
+    console.log('✅ WEBHOOK: Bicis guardadas en BD:', {
+      total: savedBikeIds.length,
+      ids: savedBikeIds.join(', ')
+    });
+
+    // 🚨 ALERTA SI NO HAY IDs GUARDADOS
+    if (savedBikeIds.length === 0) {
+      console.error('🚨🚨🚨 CRÍTICO: Reserva creada SIN bike_ids');
+      
+      await supabase.from('admin_alerts').insert({
+        alert_type: 'RESERVATION_WITHOUT_BIKES',
+        reservation_id: data.id,
+        payment_intent_id: paymentIntent.id,
+        customer_email: metadata.customer_email,
+        details: 'Reserva creada desde webhook sin bike_ids',
+        created_at: new Date().toISOString()
+      });
+    } else if (savedBikeIds.length !== selectedBikeIds.length) {
+      console.warn('⚠️ ADVERTENCIA: IDs guardados ≠ IDs seleccionados', {
+        seleccionados: selectedBikeIds.length,
+        guardados: savedBikeIds.length
+      });
+      
+      await supabase.from('admin_alerts').insert({
+        alert_type: 'BIKE_IDS_MISMATCH',
+        reservation_id: data.id,
+        payment_intent_id: paymentIntent.id,
+        details: JSON.stringify({ selectedBikeIds, savedBikeIds }),
+        created_at: new Date().toISOString()
+      });
+    }
     
     // 🔍 REGISTRAR RESERVA CREADA/ACTUALIZADA
     await supabase.from('payment_logs').insert({
@@ -308,6 +661,7 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
       event_type: 'reservation_created_or_updated',
       metadata: { 
         reservation_id: data.id,
+        bike_ids_count: savedBikeIds.length,
         action: data.created_at === data.updated_at ? 'created' : 'updated'
       },
       created_at: new Date().toISOString(),
@@ -327,7 +681,7 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
   } catch (error) {
     console.error('Error creating reservation from metadata:', error);
     
-    // Guardar error en base de datos para debugging
+    // Guardar error en base de datos
     await supabase
       .from('payment_errors')
       .insert({
@@ -341,7 +695,7 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
         created_at: new Date().toISOString()
       });
       
-    throw error; // Re-lanzar para manejo superior
+    throw error;
   }
 }
 
@@ -349,7 +703,6 @@ async function handlePaymentFailure(paymentIntent: Stripe.PaymentIntent) {
   try {
     console.log('❌ Payment failed:', paymentIntent.id);
     
-    // Actualizar reserva como fallida
     const { error } = await supabase
       .from('reservations')
       .update({
@@ -365,9 +718,6 @@ async function handlePaymentFailure(paymentIntent: Stripe.PaymentIntent) {
       console.log('✅ Reservation marked as failed:', paymentIntent.id);
     }
 
-    // Opcional: Enviar email de fallo de pago
-    // await sendPaymentFailedEmail(paymentIntent);
-
   } catch (error) {
     console.error('Error in handlePaymentFailure:', error);
   }
@@ -379,7 +729,6 @@ async function handleRefund(charge: Stripe.Charge) {
     
     const paymentIntentId = charge.payment_intent as string;
     
-    // Actualizar reserva como reembolsada
     const { error } = await supabase
       .from('reservations')
       .update({
@@ -405,13 +754,9 @@ async function handleCheckoutComplete(session: Stripe.Checkout.Session) {
     console.log('🛒 Checkout session completed:', session.id);
     console.log('📝 Session metadata:', session.metadata);
     
-    // Este evento es útil si usas Checkout Sessions en lugar de Payment Intents directos
-    // Por ahora lo dejamos como backup
-    
     if (session.payment_intent) {
       console.log('🔗 Checkout session linked to payment intent:', session.payment_intent);
       
-      // Podemos recuperar el payment intent para procesarlo
       const paymentIntent = await stripe.paymentIntents.retrieve(
         session.payment_intent as string
       );
@@ -452,7 +797,6 @@ async function sendConfirmationEmail(reservation: any) {
   } catch (error) {
     console.error('Error sending confirmation email:', error);
     
-    // Guardar error de email pero no fallar el proceso completo
     await supabase
       .from('email_errors')
       .insert({
@@ -461,6 +805,51 @@ async function sendConfirmationEmail(reservation: any) {
         error_data: JSON.stringify({
           customer: reservation.customer_email,
           error: error instanceof Error ? error.message : String(error)
+        }),
+        created_at: new Date().toISOString()
+      });
+  }
+}
+
+async function sendRefundEmail(email: string, refundInfo: { reason: string; amount: number; refund_id: string }) {
+  try {
+    console.log('📧 Sending refund email to:', email);
+    
+    const response = await fetch(`${process.env.NEXTAUTH_URL}/api/send-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        to: email,
+        subject: 'Reembolso Procesado - Altea Bike Shop',
+        type: 'refund',
+        refundData: {
+          reason: refundInfo.reason,
+          amount: refundInfo.amount,
+          refund_id: refundInfo.refund_id
+        },
+        language: 'es',
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Email API responded with status: ${response.status}`);
+    }
+
+    console.log('✅ Refund email sent to:', email);
+    
+  } catch (error) {
+    console.error('Error sending refund email:', error);
+    
+    await supabase
+      .from('email_errors')
+      .insert({
+        error_type: 'refund_email_failed',
+        error_data: JSON.stringify({
+          customer: email,
+          error: error instanceof Error ? error.message : String(error),
+          refund_info: refundInfo
         }),
         created_at: new Date().toISOString()
       });
