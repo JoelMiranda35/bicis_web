@@ -880,6 +880,8 @@ export default function ReservePage() {
   const [currentStep, setCurrentStep] = useState<Step>("dates");
   const [startDate, setStartDate] = useState<Date>(createLocalDate());
   const [endDate, setEndDate] = useState<Date>(createLocalDate()); // Mismo día por defecto
+  const [blockedDates, setBlockedDates] = useState<{date: Date, reason: string}[]>([]);
+  const [calendarMonth, setCalendarMonth] = useState<Date>(createLocalDate());
   const [pickupTime, setPickupTime] = useState("10:00");
   const [returnTime, setReturnTime] = useState("10:00"); // Changed default to match pickup time
   const [availableBikes, setAvailableBikes] = useState<any[]>([]);
@@ -933,6 +935,21 @@ const [returnLocation, setReturnLocation] = useState("sucursal_altea");
   fetchAccessories();
 }, []);
 
+// ✅ CARGAR DÍAS BLOQUEADOS (FERIADOS) - sincronizado con admin
+useEffect(() => {
+  const fetchBlockedDates = async () => {
+    const { data } = await supabase
+      .from("blocked_dates")
+      .select("date, reason");
+    if (data) {
+      setBlockedDates(data.map(d => {
+        const [y, m, day] = d.date.split('-').map(Number);
+        return { date: new Date(y, m - 1, day), reason: d.reason || "Feriado" };
+      }));
+    }
+  };
+  fetchBlockedDates();
+}, []);
 
 // 🚨 BLOQUE 3: Verificar reservas recientes al cargar
 useEffect(() => {
@@ -1315,13 +1332,10 @@ const calculateTotal = (): number => {
 
   const isDateDisabled = (date: Date): boolean => {
     const today = createLocalDate();
-    
-    if (date < today && !isSameDay(date, today)) {
-      return true;
-    }
-    
+    if (date < today && !isSameDay(date, today)) return true;
     if (isSunday(date)) return true;
-    
+    // ✅ Días bloqueados por admin (feriados)
+    if (blockedDates.some(item => isSameDay(item.date, createLocalDate(date)))) return true;
     return false;
   };
 
@@ -1849,7 +1863,44 @@ const handleSubmitReservation = async () => {
       </CardHeader>
       <CardContent>
         <StoreHoursNotice t={t} />
-        
+
+        {/* Aviso de días bloqueados en el mes visible */}
+        {(() => {
+          const closedLabel: Record<string, string> = {
+            es: "Cerrado",
+            en: "Closed",
+            nl: "Gesloten",
+          };
+          const titleLabel: Record<string, string> = {
+            es: "Días sin servicio este mes:",
+            en: "Days without service this month:",
+            nl: "Dagen zonder service deze maand:",
+          };
+          const monthStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+          const monthEnd = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0);
+          const thisMonthBlocked = blockedDates.filter(
+            b => b.date >= monthStart && b.date <= monthEnd
+          );
+          if (thisMonthBlocked.length === 0) return null;
+          return (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm font-semibold text-red-700 mb-1">
+                🚫 {titleLabel[language] || titleLabel.en}
+              </p>
+              <ul className="space-y-0.5">
+                {thisMonthBlocked.map((item, i) => (
+                  <li key={i} className="text-sm text-red-600">
+                    • {item.date.toLocaleDateString(
+                        language === "es" ? "es-ES" : language === "nl" ? "nl-NL" : "en-GB",
+                        { weekday: "long", day: "numeric", month: "long" }
+                      )} — {closedLabel[language] || closedLabel.en}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })()}
+
         <div className="flex flex-col md:flex-row gap-8 w-full">
           <div className="w-full md:w-1/2">
             <Label className="text-sm font-medium mb-2 block">
@@ -1859,12 +1910,13 @@ const handleSubmitReservation = async () => {
               <Calendar
                 mode="single"
                 selected={startDate}
+                month={calendarMonth}
+                onMonthChange={(month) => setCalendarMonth(month)}
                 onSelect={(date) => {
                   if (date) {
                     const newDate = createLocalDate(date);
                     if (isSunday(newDate)) return;
                     setStartDate(newDate);
-                    // Si la fecha de fin es anterior a la nueva fecha de inicio, actualizarla
                     if (endDate && newDate > endDate) {
                       setEndDate(newDate);
                     }
@@ -1874,17 +1926,13 @@ const handleSubmitReservation = async () => {
   if (!date) return true;
   const today = createLocalDate();
   const selectedDate = createLocalDate(date);
-  
-  // No permitir fechas anteriores a hoy
-  if (selectedDate < today && !isSameDay(selectedDate, today)) {
-    return true;
-  }
-  
-  // No permitir domingos
+  if (selectedDate < today && !isSameDay(selectedDate, today)) return true;
   if (isSunday(selectedDate)) return true;
-  
+  if (blockedDates.some(item => isSameDay(item.date, selectedDate))) return true;
   return false;
 }}
+              modifiers={{ blocked: blockedDates.map(item => item.date) }}
+              modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through opacity-60" }}
               />
             </div>
           </div>
@@ -1897,6 +1945,8 @@ const handleSubmitReservation = async () => {
               <Calendar
                 mode="single"
                 selected={endDate}
+                month={calendarMonth}
+                onMonthChange={(month) => setCalendarMonth(month)}
                 onSelect={(date) => {
                   if (date) {
                     const newDate = createLocalDate(date);
@@ -1908,21 +1958,19 @@ const handleSubmitReservation = async () => {
   if (!date) return true;
   const today = createLocalDate();
   const selectedDate = createLocalDate(date);
-  
-  // No permitir fechas anteriores a hoy
-  if (selectedDate < today && !isSameDay(selectedDate, today)) {
-    return true;
-  }
-  
-  // No permitir domingos
+  if (selectedDate < today && !isSameDay(selectedDate, today)) return true;
   if (isSunday(selectedDate)) return true;
-  
+  if (blockedDates.some(item => isSameDay(item.date, selectedDate))) return true;
+  if (startDate && selectedDate < createLocalDate(startDate)) return true;
   return false;
 }}
+              modifiers={{ blocked: blockedDates.map(item => item.date) }}
+              modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through opacity-60" }}
               />
             </div>
           </div>
         </div>
+
 
         {startDate && endDate && (
           <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">

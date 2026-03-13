@@ -141,7 +141,7 @@ const convertToMadridTime = (date: Date): Date => {
 
 
 
-const isDateDisabled = (date: Date, isStartDate: boolean = true, currentSelectedDate?: Date): boolean => {
+const isDateDisabled = (date: Date, isStartDate: boolean = true, currentSelectedDate?: Date, blocked: {date: Date, reason: string}[] = []): boolean => {
   const today = createLocalDate();
   const checkDate = createLocalDate(date);
   
@@ -152,6 +152,9 @@ const isDateDisabled = (date: Date, isStartDate: boolean = true, currentSelected
   
   // No permitir domingos
   if (isSunday(checkDate)) return true;
+
+  // No permitir días bloqueados
+  if (blocked.some((item) => isSameDay(item.date, checkDate))) return true;
   
   return false;
 };
@@ -224,6 +227,10 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [searchTerm, setSearchTerm] = useState("")
   const [locationFilter, setLocationFilter] = useState<string>("all")
+  const [blockedDates, setBlockedDates] = useState<{date: Date, reason: string}[]>([])
+  const [blockReason, setBlockReason] = useState<string>("")
+  const [calendarMonth, setCalendarMonth] = useState<Date>(createLocalDate())
+  const [hoveredBlockedReason, setHoveredBlockedReason] = useState<{text: string, x: number, y: number} | null>(null)
 
 
   useEffect(() => {
@@ -330,6 +337,7 @@ if (locationFilter !== "all") {
     setBikes(bikesRes.data || [])
     setAccessories(accessoriesRes.data || [])
     setReservations(formattedReservations)
+    await fetchBlockedDates()
     
     console.log("Datos cargados - Total reservas:", formattedReservations.length);
   } catch (error: any) {
@@ -337,6 +345,53 @@ if (locationFilter !== "all") {
     console.error("Error fetching data:", error)
   }
 }
+
+// ========================================
+// 📅 GESTIÓN DE DÍAS BLOQUEADOS (FERIADOS)
+// ========================================
+
+const fetchBlockedDates = async () => {
+  try {
+    const { data, error } = await supabase
+      .from("blocked_dates")
+      .select("*")
+      .order("date", { ascending: true });
+    if (error) throw error;
+    if (data) {
+      setBlockedDates(data.map(d => {
+        const [year, month, day] = d.date.split('-').map(Number);
+        return { date: new Date(year, month - 1, day), reason: d.reason || "Feriado" };
+      }));
+    }
+  } catch (error) {
+    console.error("Error fetching blocked dates:", error);
+  }
+};
+
+const toggleBlockedDate = async (date: Date) => {
+  const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const isBlocked = blockedDates.some((item) => isSameDay(item.date, date));
+
+  try {
+    if (isBlocked) {
+      const { error } = await supabase
+        .from("blocked_dates")
+        .delete()
+        .eq("date", dateStr);
+      if (error) throw error;
+      toast({ title: "✅ Día desbloqueado", description: `${format(date, "PPP", { locale: es })} ya está disponible` });
+    } else {
+      const { error } = await supabase
+        .from("blocked_dates")
+        .insert([{ date: dateStr, reason: blockReason || "Feriado", created_by: "admin" }]);
+      if (error) throw error;
+      toast({ title: "🚫 Día bloqueado", description: `${format(date, "PPP", { locale: es })} marcado como no disponible` });
+    }
+    await fetchBlockedDates();
+  } catch (error: any) {
+    toast({ title: "Error", description: error.message, variant: "destructive" });
+  }
+};
 
 // ========================================
 // 🗑️ FUNCIÓN PARA BORRAR CANCELADAS DEL MES
@@ -1475,6 +1530,7 @@ const calculateTotalPrice = () => {
             <TabsTrigger value="accessories">Accesorios</TabsTrigger>
             <TabsTrigger value="reservations">Reservas</TabsTrigger>
             <TabsTrigger value="create-reservation">Nueva Reserva</TabsTrigger>
+            <TabsTrigger value="blocked-dates">🚫 Feriados</TabsTrigger>
           </TabsList>
 
           <TabsContent value="bikes">
@@ -2060,8 +2116,12 @@ const calculateTotalPrice = () => {
                 if (date < today && !isSameDay(date, today)) {
                   return true;
                 }
-                return isSunday(date);
+                if (isSunday(date)) return true;
+                if (blockedDates.some((item) => isSameDay(item.date, createLocalDate(date)))) return true;
+                return false;
               }}
+              modifiers={{ blocked: blockedDates.map(item => item.date) }}
+              modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through" }}
             />
           </PopoverContent>
         </Popover>
@@ -2133,10 +2193,15 @@ const calculateTotalPrice = () => {
                 
                 // No permitir domingos
                 if (isSunday(selectedDate)) return true;
+
+                // No permitir días bloqueados
+                if (blockedDates.some((item) => isSameDay(item.date, selectedDate))) return true;
                 
                 // PERMITIR TODAS LAS FECHAS VÁLIDAS - sin restricción por fecha de inicio
                 return false;
               }}
+              modifiers={{ blocked: blockedDates.map(item => item.date) }}
+              modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through" }}
             />
           </PopoverContent>
         </Popover>
@@ -2900,6 +2965,182 @@ const calculateTotalPrice = () => {
               </CardContent>
             </Card>
           </TabsContent>
+          <TabsContent value="blocked-dates">
+            <Card>
+              <CardHeader>
+                <CardTitle>Gestión de Días No Disponibles</CardTitle>
+                <CardDescription>
+                  Hacé click en cualquier día del calendario para bloquearlo o desbloquearlo. Los días bloqueados aparecerán deshabilitados para los clientes.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+                  {/* Columna izquierda: Calendario interactivo */}
+                  <div>
+                    <h3 className="font-semibold mb-3 text-sm text-gray-700">Seleccioná los días a bloquear</h3>
+
+                    {/* Leyenda */}
+                    <div className="flex gap-4 mb-4 text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 rounded-full bg-red-500"></div>
+                        <span>Bloqueado</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 rounded-full bg-gray-200 border"></div>
+                        <span>Disponible</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 rounded-full bg-gray-100 border border-dashed"></div>
+                        <span>Domingo</span>
+                      </div>
+                    </div>
+
+                    {/* Razón opcional */}
+                    <div className="mb-4">
+                      <Label className="text-sm">Razón del bloqueo (opcional)</Label>
+                      <Input
+                        placeholder="Ej: Feriado nacional, Mantenimiento..."
+                        value={blockReason}
+                        onChange={(e) => setBlockReason(e.target.value)}
+                        className="mt-1"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Se aplicará al siguiente día que bloquees</p>
+                    </div>
+
+                    <Calendar
+                      mode="single"
+                      month={calendarMonth}
+                      onMonthChange={setCalendarMonth}
+                      selected={undefined}
+                      onSelect={(date) => {
+                        if (!date) return;
+                        const d = createLocalDate(date);
+                        if (isSunday(d)) return;
+                        toggleBlockedDate(d);
+                      }}
+                      locale={es}
+                      disabled={(date) => {
+                        const d = createLocalDate(date);
+                        if (isSunday(d)) return true;
+                        return false;
+                      }}
+                      modifiers={{
+                        blocked: blockedDates.map(item => item.date),
+                      }}
+                      modifiersClassNames={{
+                        blocked: "!bg-red-100 !text-red-700 font-bold hover:!bg-red-200 rounded-full border border-red-300",
+                      }}
+                      onDayMouseEnter={(date, modifiers, e) => {
+                        if (modifiers.blocked) {
+                          const item = blockedDates.find(b => isSameDay(b.date, createLocalDate(date)));
+                          if (item) {
+                            const rect = (e.target as HTMLElement).getBoundingClientRect();
+                            setHoveredBlockedReason({ text: item.reason, x: rect.left + rect.width / 2, y: rect.top });
+                          }
+                        }
+                      }}
+                      onDayMouseLeave={() => setHoveredBlockedReason(null)}
+                      className="rounded-lg border p-3"
+                      classNames={{
+                        day_selected: "",
+                        day_today: "border border-blue-400 font-bold",
+                      }}
+                    />
+                    {/* Tooltip flotante para razón del bloqueo */}
+                    {hoveredBlockedReason && (
+                      <div
+                        className="fixed z-50 pointer-events-none"
+                        style={{ left: hoveredBlockedReason.x, top: hoveredBlockedReason.y - 8, transform: "translate(-50%, -100%)" }}
+                      >
+                        <div className="bg-gray-900 text-white text-xs rounded-md px-2 py-1 whitespace-nowrap shadow-lg">
+                          🚫 {hoveredBlockedReason.text}
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-500 mt-2 text-center">
+                      Hacé click en un día para bloquearlo • Hacé click de nuevo para desbloquearlo
+                    </p>
+                  </div>
+
+                  {/* Columna derecha: Lista de días bloqueados */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-sm text-gray-700">
+                        Días bloqueados ({blockedDates.length})
+                      </h3>
+                      {blockedDates.length > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-red-600 border-red-200 hover:bg-red-50 text-xs"
+                          onClick={async () => {
+                            if (!confirm("¿Borrar TODOS los días bloqueados?")) return;
+                            await supabase.from("blocked_dates").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+                            await fetchBlockedDates();
+                            toast({ title: "✅ Todos los bloqueos eliminados" });
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" />
+                          Limpiar todo
+                        </Button>
+                      )}
+                    </div>
+
+                    {blockedDates.length === 0 ? (
+                      <div className="text-center py-12 text-gray-400 border rounded-lg border-dashed">
+                        <CalendarIcon className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                        <p className="text-sm">No hay días bloqueados</p>
+                        <p className="text-xs mt-1">Hacé click en el calendario para agregar</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                        {[...blockedDates]
+                          .sort((a, b) => a.date.getTime() - b.date.getTime())
+                          .map((item, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-lg"
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-0.5"></div>
+                              <div>
+                                <p className="text-sm font-medium capitalize">
+                                  {format(item.date, "EEEE d 'de' MMMM yyyy", { locale: es })}
+                                </p>
+                                <p className="text-xs text-red-500 mt-0.5">🚫 {item.reason}</p>
+                              </div>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-500 hover:text-red-700 hover:bg-red-100 h-7 w-7 p-0"
+                              onClick={() => toggleBlockedDate(item.date)}
+                              title="Desbloquear este día"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {blockedDates.length > 0 && (
+                      <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p className="text-xs text-blue-700">
+                          <strong>ℹ️ Sincronizado:</strong> Estos días aparecen bloqueados automáticamente en el calendario del cliente.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* fin tabs */}
         </Tabs>
 
         {editingBike && (
