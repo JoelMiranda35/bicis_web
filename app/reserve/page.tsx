@@ -129,6 +129,7 @@ interface BikeModel {
   subtitle_nl: string;
   category: BikeCategory;
   availableSizes: { size: string; count: number; bikes: any[] }[];
+  imageUrl?: string; // ✅ NUEVO: URL de la imagen de la bici
 }
 
 interface SelectedBike {
@@ -1151,45 +1152,45 @@ const fetchAvailableBikes = async () => {
       //console.error("❌ Error parseando bikes:", bikesData, err);
     }
   };
+const groupBikesByModel = () => {
+  const grouped = availableBikes.reduce(
+    (acc: Record<string, BikeModel>, bike) => {
+      const key = `${bike.title_es}-${bike.category}`;
+      if (!acc[key]) {
+        acc[key] = {
+          title_es: bike.title_es,
+          title_en: bike.title_en,
+          title_nl: bike.title_nl,
+          subtitle_es: bike.subtitle_es,
+          subtitle_en: bike.subtitle_en,
+          subtitle_nl: bike.subtitle_nl,
+          category: bike.category as BikeCategory,
+          availableSizes: [],
+          imageUrl: bike.image_url || bike.image || null, // ✅ NUEVO: Guardar la imagen
+        };
+      }
 
-  const groupBikesByModel = () => {
-    const grouped = availableBikes.reduce(
-      (acc: Record<string, BikeModel>, bike) => {
-        const key = `${bike.title_es}-${bike.category}`;
-        if (!acc[key]) {
-          acc[key] = {
-            title_es: bike.title_es,
-            title_en: bike.title_en,
-            title_nl: bike.title_nl,
-            subtitle_es: bike.subtitle_es,
-            subtitle_en: bike.subtitle_en,
-            subtitle_nl: bike.subtitle_nl,
-            category: bike.category as BikeCategory,
-            availableSizes: [],
-          };
-        }
+      const existingSizeIndex = acc[key].availableSizes.findIndex(
+        (s) => s.size === bike.size
+      );
+      if (existingSizeIndex >= 0) {
+        acc[key].availableSizes[existingSizeIndex].count++;
+        acc[key].availableSizes[existingSizeIndex].bikes.push(bike);
+      } else {
+        acc[key].availableSizes.push({
+          size: bike.size,
+          count: 1,
+          bikes: [bike],
+        });
+      }
 
-        const existingSizeIndex = acc[key].availableSizes.findIndex(
-          (s) => s.size === bike.size
-        );
-        if (existingSizeIndex >= 0) {
-          acc[key].availableSizes[existingSizeIndex].count++;
-          acc[key].availableSizes[existingSizeIndex].bikes.push(bike);
-        } else {
-          acc[key].availableSizes.push({
-            size: bike.size,
-            count: 1,
-            bikes: [bike],
-          });
-        }
+      return acc;
+    },
+    {}
+  );
 
-        return acc;
-      },
-      {}
-    );
-
-    setBikeModels(Object.values(grouped));
-  };
+  setBikeModels(Object.values(grouped));
+};
 
   const validateCustomerData = () => {
     const errors: Record<string, string> = {};
@@ -2162,47 +2163,106 @@ const handleSubmitReservation = async () => {
                           key={`${model.title_es}-${modelIndex}`}
                           className="mb-6 p-4 border rounded-lg"
                         >
-                          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                <Bike className="h-8 w-8 text-gray-400" />
-                              </div>
-                              <div>
-                                <h4 className="font-semibold">
-                                  {translateBikeContent(
-                                    {
-                                      es: model.title_es,
-                                      en: model.title_en,
-                                      nl: model.title_nl,
-                                    },
-                                    language
-                                  )}
-                                </h4>
-                                <p className="text-sm text-gray-600">
-                                  {translateBikeContent(
-                                    {
-                                      es: model.subtitle_es,
-                                      en: model.subtitle_en,
-                                      nl: model.subtitle_nl,
-                                    },
-                                    language
-                                  )}
-                                </p>
-                                <p className="text-sm font-medium text-green-600">
-                                  {calculatePrice(
-                                    model.category,
-                                    calculateTotalDays(
-                                      new Date(startDate!),
-                                      new Date(endDate!),
-                                      pickupTime,
-                                      returnTime
-                                    )
-                                  )}
-                                  {t("euro")}
-                                  {t("perDay")}
-                                </p>
-                              </div>
-                            </div>
+                         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+  <div className="flex items-start gap-4">
+    {/* Imagen con tap para ampliar en móvil */}
+    <div 
+      className="relative group cursor-pointer lg:cursor-default"
+      onClick={(e) => {
+        // Solo ejecutar en móvil (ancho menor a 1024px)
+        if (window.innerWidth < 1024 && model.imageUrl) {
+          const modal = document.createElement('div');
+          modal.className = 'fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4';
+          modal.onclick = (e) => {
+            if (e.target === modal) modal.remove();
+          };
+          modal.innerHTML = `
+            <div class="relative max-w-[90vw] max-h-[90vh]">
+              <img src="${model.imageUrl}" alt="Bike" class="max-w-full max-h-[90vh] object-contain rounded-lg" />
+              <button class="absolute -top-10 right-0 text-white text-3xl p-2" onclick="this.closest('div.fixed').remove()">✕</button>
+            </div>
+          `;
+          document.body.appendChild(modal);
+        }
+      }}
+    >
+      <div className="w-28 h-28 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden transition-transform duration-300 group-hover:scale-110 active:scale-95 lg:active:scale-100">
+        {model.imageUrl ? (
+          <img 
+            src={model.imageUrl} 
+            alt={translateBikeContent(
+              {
+                es: model.title_es,
+                en: model.title_en,
+                nl: model.title_nl,
+              },
+              language
+            )}
+            className="max-w-full max-h-full object-contain"
+          />
+        ) : (
+          <Bike className="h-14 w-14 text-gray-400" />
+        )}
+      </div>
+      
+      {/* Hover solo para PC */}
+      {model.imageUrl && (
+        <div className="absolute z-50 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all duration-300 bottom-full left-1/2 -translate-x-1/2 mb-2 pointer-events-none">
+          <div className="w-80 h-auto rounded-lg overflow-hidden shadow-2xl border-2 border-white bg-white p-2">
+            <img 
+              src={model.imageUrl} 
+              alt={translateBikeContent(
+                {
+                  es: model.title_es,
+                  en: model.title_en,
+                  nl: model.title_nl,
+                },
+                language
+              )}
+              className="w-full h-auto object-contain"
+            />
+          </div>
+          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-white rotate-45 border-r border-b border-gray-200"></div>
+        </div>
+      )}
+    </div>
+    
+    <div className="flex-1">
+      <h4 className="font-semibold">
+        {translateBikeContent(
+          {
+            es: model.title_es,
+            en: model.title_en,
+            nl: model.title_nl,
+          },
+          language
+        )}
+      </h4>
+      <p className="text-sm text-gray-600">
+        {translateBikeContent(
+          {
+            es: model.subtitle_es,
+            en: model.subtitle_en,
+            nl: model.subtitle_nl,
+          },
+          language
+        )}
+      </p>
+      <p className="text-sm font-medium text-green-600">
+        {calculatePrice(
+          model.category,
+          calculateTotalDays(
+            new Date(startDate!),
+            new Date(endDate!),
+            pickupTime,
+            returnTime
+          )
+        )}
+        {t("euro")}
+        {t("perDay")}
+      </p>
+    </div>
+  </div>
 
                             <div className="lg:col-span-2">
                               <Label className="text-sm font-medium mb-2 block">

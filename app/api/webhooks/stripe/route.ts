@@ -775,7 +775,14 @@ async function sendConfirmationEmail(reservation: any) {
   try {
     console.log('📧 Sending confirmation email for reservation:', reservation.id);
     
-    const response = await fetch(`${process.env.NEXTAUTH_URL}/api/send-email`, {
+    // ✅ CAMBIO: Usar NEXT_PUBLIC_SITE_URL en lugar de NEXTAUTH_URL
+    const apiUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXTAUTH_URL;
+    
+    if (!apiUrl) {
+      throw new Error('No se encontró la URL base (NEXT_PUBLIC_SITE_URL o NEXTAUTH_URL)');
+    }
+    
+    const response = await fetch(`${apiUrl}/api/send-email`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -815,7 +822,14 @@ async function sendRefundEmail(email: string, refundInfo: { reason: string; amou
   try {
     console.log('📧 Sending refund email to:', email);
     
-    const response = await fetch(`${process.env.NEXTAUTH_URL}/api/send-email`, {
+    // ✅ CAMBIO: Usar NEXT_PUBLIC_SITE_URL en lugar de NEXTAUTH_URL
+    const apiUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXTAUTH_URL;
+    
+    if (!apiUrl) {
+      throw new Error('No se encontró la URL base (NEXT_PUBLIC_SITE_URL o NEXTAUTH_URL)');
+    }
+    
+    const response = await fetch(`${apiUrl}/api/send-email`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
