@@ -35,6 +35,12 @@ const PRICING = {
     "10+": 50,
     deposit: 150,
   },
+  SCOOTER_MOVILIDAD: {
+    "1-3": 20,
+    "4-9": 17,
+    "10+": 12,
+    deposit: 200,
+  },
 } as const;
 
 

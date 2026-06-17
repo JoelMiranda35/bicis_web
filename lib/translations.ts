@@ -19,7 +19,7 @@ export type TranslationKey =
   | 'validationInvalidEmail' | 'validationInvalidPhone'
   | 'validationInvalidDocument' | 'validationValidDocumentInfo'
   | 'validationTermsRequired' | 'storeHoursTitle' | 'storeHoursContent'
-  | 'road' | 'roadPremium' | 'mtb' | 'cityBike' | 'eCityBike' | 'eMtb'
+  | 'road' | 'roadPremium' | 'mtb' | 'cityBike' | 'eCityBike' | 'eMtb' | 'scooterMobility'
   | 'perDay' | 'euro' | 'rentalTermsTitle' | 'rentalTermsContent'
   | 'downloadTerms' | 'specificBikesNoLongerAvailable'
   | 'bikesNoLongerAvailable' | 'reservationValidationError'
@@ -153,6 +153,7 @@ const translations = {
     cityBike: "City",
     eCityBike: "E-City",
     eMtb: "E-Mountain",
+    scooterMobility: "Mobility scooter",
     perDay: "/day",
     euro: "€",
     rentalTermsTitle: "I accept the rental terms and conditions",
@@ -335,6 +336,7 @@ const translations = {
     cityBike: "Ciudad",
     eCityBike: "E-Ciudad",
     eMtb: "E-Montaña",
+    scooterMobility: "Scooter movilidad",
     perDay: "/día",
     euro: "€",
     rentalTermsTitle: "Acepto los términos y condiciones de alquiler",
@@ -517,6 +519,7 @@ const translations = {
     cityBike: "Stadsfiets",
     eCityBike: "E-Stadsfiets",
     eMtb: "E-Mountainbike",
+    scooterMobility: "Mobiliteitsscooter",
     perDay: "/dag",
     euro: "€",
     rentalTermsTitle: "Ik accepteer de huurvoorwaarden",

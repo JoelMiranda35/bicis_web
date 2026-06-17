@@ -118,7 +118,7 @@ type Step =
   | "customer"
   | "payment"
   | "confirmation";
-type BikeCategory = "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB";
+type BikeCategory = "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB" | "SCOOTER_MOVILIDAD";
 
 interface BikeModel {
   title_es: string;
@@ -881,7 +881,11 @@ export default function ReservePage() {
   const [currentStep, setCurrentStep] = useState<Step>("dates");
   const [startDate, setStartDate] = useState<Date>(createLocalDate());
   const [endDate, setEndDate] = useState<Date>(createLocalDate()); // Mismo día por defecto
-  const [blockedDates, setBlockedDates] = useState<{date: Date, reason: string}[]>([]);
+  const [blockedDates, setBlockedDates] = useState<{
+    date: Date;
+    reason: string;
+    location: string;
+  }[]>([]);
   const [calendarMonth, setCalendarMonth] = useState<Date>(createLocalDate());
   const [pickupTime, setPickupTime] = useState("10:00");
   const [returnTime, setReturnTime] = useState("10:00"); // Changed default to match pickup time
@@ -941,16 +945,45 @@ useEffect(() => {
   const fetchBlockedDates = async () => {
     const { data } = await supabase
       .from("blocked_dates")
-      .select("date, reason");
+      .select("date, reason, location");
     if (data) {
       setBlockedDates(data.map(d => {
         const [y, m, day] = d.date.split('-').map(Number);
-        return { date: new Date(y, m - 1, day), reason: d.reason || "Feriado" };
+        return {
+          date: new Date(y, m - 1, day),
+          reason: d.reason || "Feriado",
+          location: d.location || "all",
+        };
       }));
     }
   };
   fetchBlockedDates();
 }, []);
+
+// ✅ Si el cliente cambia de tienda y la fecha elegida está cerrada para esa tienda,
+// limpiamos la selección para evitar que avance con una fecha inválida.
+useEffect(() => {
+  if (blockedDates.length === 0) return;
+
+  const startBlocked = startDate && blockedDates.some(item =>
+    isSameDay(item.date, createLocalDate(startDate)) &&
+    (item.location === "all" || item.location === pickupLocation)
+  );
+
+  const endBlocked = endDate && blockedDates.some(item =>
+    isSameDay(item.date, createLocalDate(endDate)) &&
+    (item.location === "all" || item.location === pickupLocation)
+  );
+
+  if (startBlocked || endBlocked) {
+    const today = createLocalDate();
+    setStartDate(today);
+    setEndDate(today);
+    setSelectedBikes([]);
+    setAvailableBikes([]);
+    setBikeModels([]);
+  }
+}, [pickupLocation, blockedDates]);
 
 // 🚨 BLOQUE 3: Verificar reservas recientes al cargar
 useEffect(() => {
@@ -1331,12 +1364,28 @@ const calculateTotal = (): number => {
     }, 0);
   };
 
+  // ✅ Solo bloquea feriados/cierres que apliquen a la tienda elegida.
+  // location = "all" aplica a ambas tiendas.
+  const getBlockedDatesForSelectedStore = () => {
+    return blockedDates.filter(item =>
+      item.location === "all" || item.location === pickupLocation
+    );
+  };
+
+  const isBlockedForSelectedStore = (date: Date): boolean => {
+    const selectedDate = createLocalDate(date);
+    return blockedDates.some(item =>
+      isSameDay(item.date, selectedDate) &&
+      (item.location === "all" || item.location === pickupLocation)
+    );
+  };
+
   const isDateDisabled = (date: Date): boolean => {
     const today = createLocalDate();
-    if (date < today && !isSameDay(date, today)) return true;
-    if (isSunday(date)) return true;
-    // ✅ Días bloqueados por admin (feriados)
-    if (blockedDates.some(item => isSameDay(item.date, createLocalDate(date)))) return true;
+    const selectedDate = createLocalDate(date);
+    if (selectedDate < today && !isSameDay(selectedDate, today)) return true;
+    if (isSunday(selectedDate)) return true;
+    if (isBlockedForSelectedStore(selectedDate)) return true;
     return false;
   };
 
@@ -1844,6 +1893,8 @@ const handleSubmitReservation = async () => {
         return t("eCityBike");
       case "E_MTB":
         return t("eMtb");
+      case "SCOOTER_MOVILIDAD":
+        return t("scooterMobility");
       default:
         return category;
     }
@@ -1872,17 +1923,37 @@ const handleSubmitReservation = async () => {
             en: "Closed",
             nl: "Gesloten",
           };
+
+          const closedInLabel: Record<string, string> = {
+            es: "en",
+            en: "at",
+            nl: "bij",
+          };
+
           const titleLabel: Record<string, string> = {
             es: "Días sin servicio este mes:",
             en: "Days without service this month:",
             nl: "Dagen zonder service deze maand:",
           };
+
+          const getBlockedLocationLabel = (location?: string) => {
+            if (location === "sucursal_altea") return "Altea Bike Shop";
+            if (location === "sucursal_albir") return "Albir Cycling";
+
+            if (language === "nl") return "alle winkels";
+            if (language === "en") return "all stores";
+            return "todas las tiendas";
+          };
+
           const monthStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
           const monthEnd = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0);
-          const thisMonthBlocked = blockedDates.filter(
+
+          const thisMonthBlocked = getBlockedDatesForSelectedStore().filter(
             b => b.date >= monthStart && b.date <= monthEnd
           );
+
           if (thisMonthBlocked.length === 0) return null;
+
           return (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
               <p className="text-sm font-semibold text-red-700 mb-1">
@@ -1894,7 +1965,10 @@ const handleSubmitReservation = async () => {
                     • {item.date.toLocaleDateString(
                         language === "es" ? "es-ES" : language === "nl" ? "nl-NL" : "en-GB",
                         { weekday: "long", day: "numeric", month: "long" }
-                      )} — {closedLabel[language] || closedLabel.en}
+                      )} — {closedLabel[language] || closedLabel.en}{" "}
+                      {closedInLabel[language] || closedInLabel.en}{" "}
+                      {getBlockedLocationLabel(item.location)}
+                      {item.reason && item.reason !== "Feriado" && item.reason !== "Cerrado" ? ` (${item.reason})` : ""}
                   </li>
                 ))}
               </ul>
@@ -1929,10 +2003,10 @@ const handleSubmitReservation = async () => {
   const selectedDate = createLocalDate(date);
   if (selectedDate < today && !isSameDay(selectedDate, today)) return true;
   if (isSunday(selectedDate)) return true;
-  if (blockedDates.some(item => isSameDay(item.date, selectedDate))) return true;
+  if (isBlockedForSelectedStore(selectedDate)) return true;
   return false;
 }}
-              modifiers={{ blocked: blockedDates.map(item => item.date) }}
+              modifiers={{ blocked: getBlockedDatesForSelectedStore().map(item => item.date) }}
               modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through opacity-60" }}
               />
             </div>
@@ -1961,11 +2035,11 @@ const handleSubmitReservation = async () => {
   const selectedDate = createLocalDate(date);
   if (selectedDate < today && !isSameDay(selectedDate, today)) return true;
   if (isSunday(selectedDate)) return true;
-  if (blockedDates.some(item => isSameDay(item.date, selectedDate))) return true;
+  if (isBlockedForSelectedStore(selectedDate)) return true;
   if (startDate && selectedDate < createLocalDate(startDate)) return true;
   return false;
 }}
-              modifiers={{ blocked: blockedDates.map(item => item.date) }}
+              modifiers={{ blocked: getBlockedDatesForSelectedStore().map(item => item.date) }}
               modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through opacity-60" }}
               />
             </div>
@@ -2022,6 +2096,9 @@ const handleSubmitReservation = async () => {
                 onValueChange={(value) => {
                   setPickupLocation(value);
                   setReturnLocation(value); // Siempre el mismo lugar para recogida y retorno
+                  setSelectedBikes([]);
+                  setAvailableBikes([]);
+                  setBikeModels([]);
                 }}
               >
                 <SelectTrigger>

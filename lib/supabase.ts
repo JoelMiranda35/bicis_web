@@ -13,7 +13,7 @@ export type Database = {
           id: string
           title: string
           subtitle: string
-          category: "ROAD" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB"
+          category: "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB" | "SCOOTER_MOVILIDAD"
           size: "XS" | "S" | "M" | "L" | "XL"
           available: boolean
           image_url: string | null
@@ -23,7 +23,7 @@ export type Database = {
           id?: string
           title: string
           subtitle: string
-          category: "ROAD" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB"
+          category: "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB" | "SCOOTER_MOVILIDAD"
           size: "XS" | "S" | "M" | "L" | "XL"
           available?: boolean
           image_url?: string | null
@@ -33,7 +33,7 @@ export type Database = {
           id?: string
           title?: string
           subtitle?: string
-          category?: "ROAD" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB"
+          category?: "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB" | "SCOOTER_MOVILIDAD"
           size?: "XS" | "S" | "M" | "L" | "XL"
           available?: boolean
           image_url?: string | null

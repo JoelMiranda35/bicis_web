@@ -141,7 +141,7 @@ const convertToMadridTime = (date: Date): Date => {
 
 
 
-const isDateDisabled = (date: Date, isStartDate: boolean = true, currentSelectedDate?: Date, blocked: {date: Date, reason: string}[] = []): boolean => {
+const isDateDisabled = (date: Date, isStartDate: boolean = true, currentSelectedDate?: Date, blocked: {date: Date, reason: string, location?: string}[] = []): boolean => {
   const today = createLocalDate();
   const checkDate = createLocalDate(date);
   
@@ -167,7 +167,7 @@ const getTimeOptions = (isSaturday: boolean) => {
 };
 
 // ================== DEFINICIONES DE TIPOS Y CONSTANTES ==================
-type BikeCategory = "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB";
+type BikeCategory = "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB" | "SCOOTER_MOVILIDAD";
 
 const CATEGORY_NAMES: Record<BikeCategory, string> = {
   ROAD: "Carretera",
@@ -175,7 +175,8 @@ const CATEGORY_NAMES: Record<BikeCategory, string> = {
   MTB: "MTB",
   CITY_BIKE: "Ciudad",
   E_CITY_BIKE: "E-Ciudad",
-  E_MTB: "E-MTB"
+  E_MTB: "E-MTB",
+  SCOOTER_MOVILIDAD: "Scooter movilidad"
 };
 
 const locationOptions = [
@@ -227,8 +228,9 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [searchTerm, setSearchTerm] = useState("")
   const [locationFilter, setLocationFilter] = useState<string>("all")
-  const [blockedDates, setBlockedDates] = useState<{date: Date, reason: string}[]>([])
+  const [blockedDates, setBlockedDates] = useState<{date: Date, reason: string, location: string}[]>([])
   const [blockReason, setBlockReason] = useState<string>("")
+  const [blockedLocation, setBlockedLocation] = useState<string>("all")
   const [calendarMonth, setCalendarMonth] = useState<Date>(createLocalDate())
   const [hoveredBlockedReason, setHoveredBlockedReason] = useState<{text: string, x: number, y: number} | null>(null)
 
@@ -356,11 +358,17 @@ const fetchBlockedDates = async () => {
       .from("blocked_dates")
       .select("*")
       .order("date", { ascending: true });
+
     if (error) throw error;
+
     if (data) {
       setBlockedDates(data.map(d => {
         const [year, month, day] = d.date.split('-').map(Number);
-        return { date: new Date(year, month - 1, day), reason: d.reason || "Feriado" };
+        return {
+          date: new Date(year, month - 1, day),
+          reason: d.reason || "Feriado",
+          location: d.location || "all",
+        };
       }));
     }
   } catch (error) {
@@ -368,25 +376,52 @@ const fetchBlockedDates = async () => {
   }
 };
 
-const toggleBlockedDate = async (date: Date) => {
+const getLocationLabel = (location: string) => {
+  if (location === "sucursal_altea") return "Altea Bike Shop";
+  if (location === "sucursal_albir") return "Albir Cycling";
+  return "Todas las tiendas";
+};
+
+const toggleBlockedDate = async (date: Date, locationParam?: string) => {
+  const locationToUse = locationParam || blockedLocation;
   const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  const isBlocked = blockedDates.some((item) => isSameDay(item.date, date));
+
+  const isBlocked = blockedDates.some((item) =>
+    isSameDay(item.date, date) && item.location === locationToUse
+  );
 
   try {
     if (isBlocked) {
       const { error } = await supabase
         .from("blocked_dates")
         .delete()
-        .eq("date", dateStr);
+        .eq("date", dateStr)
+        .eq("location", locationToUse);
+
       if (error) throw error;
-      toast({ title: "✅ Día desbloqueado", description: `${format(date, "PPP", { locale: es })} ya está disponible` });
+
+      toast({
+        title: "✅ Día desbloqueado",
+        description: `${format(date, "PPP", { locale: es })} disponible para ${getLocationLabel(locationToUse)}`,
+      });
     } else {
       const { error } = await supabase
         .from("blocked_dates")
-        .insert([{ date: dateStr, reason: blockReason || "Feriado", created_by: "admin" }]);
+        .insert([{
+          date: dateStr,
+          reason: blockReason || "Feriado",
+          created_by: "admin",
+          location: locationToUse,
+        }]);
+
       if (error) throw error;
-      toast({ title: "🚫 Día bloqueado", description: `${format(date, "PPP", { locale: es })} marcado como no disponible` });
+
+      toast({
+        title: "🚫 Día bloqueado",
+        description: `${format(date, "PPP", { locale: es })} bloqueado para ${getLocationLabel(locationToUse)}`,
+      });
     }
+
     await fetchBlockedDates();
   } catch (error: any) {
     toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -2117,10 +2152,10 @@ const calculateTotalPrice = () => {
                   return true;
                 }
                 if (isSunday(date)) return true;
-                if (blockedDates.some((item) => isSameDay(item.date, createLocalDate(date)))) return true;
+                if (blockedDates.some((item) => isSameDay(item.date, createLocalDate(date)) && (item.location === "all" || item.location === newReservation.pickup_location))) return true;
                 return false;
               }}
-              modifiers={{ blocked: blockedDates.map(item => item.date) }}
+              modifiers={{ blocked: blockedDates.filter(item => item.location === "all" || item.location === newReservation.pickup_location).map(item => item.date) }}
               modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through" }}
             />
           </PopoverContent>
@@ -2195,12 +2230,12 @@ const calculateTotalPrice = () => {
                 if (isSunday(selectedDate)) return true;
 
                 // No permitir días bloqueados
-                if (blockedDates.some((item) => isSameDay(item.date, selectedDate))) return true;
+                if (blockedDates.some((item) => isSameDay(item.date, selectedDate) && (item.location === "all" || item.location === newReservation.pickup_location))) return true;
                 
                 // PERMITIR TODAS LAS FECHAS VÁLIDAS - sin restricción por fecha de inicio
                 return false;
               }}
-              modifiers={{ blocked: blockedDates.map(item => item.date) }}
+              modifiers={{ blocked: blockedDates.filter(item => item.location === "all" || item.location === newReservation.pickup_location).map(item => item.date) }}
               modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through" }}
             />
           </PopoverContent>
@@ -2970,7 +3005,7 @@ const calculateTotalPrice = () => {
               <CardHeader>
                 <CardTitle>Gestión de Días No Disponibles</CardTitle>
                 <CardDescription>
-                  Hacé click en cualquier día del calendario para bloquearlo o desbloquearlo. Los días bloqueados aparecerán deshabilitados para los clientes.
+                  Hacé click en cualquier día del calendario para bloquearlo o desbloquearlo. Podés aplicar el cierre a todas las tiendas o a una tienda específica.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -2981,10 +3016,10 @@ const calculateTotalPrice = () => {
                     <h3 className="font-semibold mb-3 text-sm text-gray-700">Seleccioná los días a bloquear</h3>
 
                     {/* Leyenda */}
-                    <div className="flex gap-4 mb-4 text-sm">
+                    <div className="flex flex-wrap gap-4 mb-4 text-sm">
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 rounded-full bg-red-500"></div>
-                        <span>Bloqueado</span>
+                        <span>Bloqueado para la tienda seleccionada</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 rounded-full bg-gray-200 border"></div>
@@ -2994,6 +3029,22 @@ const calculateTotalPrice = () => {
                         <div className="w-4 h-4 rounded-full bg-gray-100 border border-dashed"></div>
                         <span>Domingo</span>
                       </div>
+                    </div>
+
+                    {/* Tienda a bloquear */}
+                    <div className="mb-4">
+                      <Label className="text-sm">Aplicar cierre a</Label>
+                      <Select value={blockedLocation} onValueChange={setBlockedLocation}>
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Seleccionar tienda" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todas las tiendas</SelectItem>
+                          <SelectItem value="sucursal_altea">Altea Bike Shop - Calle la Tella 2, Altea</SelectItem>
+                          <SelectItem value="sucursal_albir">Albir Cycling - Av del Albir 159, El Albir</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500 mt-1">Se aplicará al siguiente día que bloquees</p>
                     </div>
 
                     {/* Razón opcional */}
@@ -3026,17 +3077,25 @@ const calculateTotalPrice = () => {
                         return false;
                       }}
                       modifiers={{
-                        blocked: blockedDates.map(item => item.date),
+                        blocked: blockedDates
+                          .filter(item => item.location === blockedLocation)
+                          .map(item => item.date),
                       }}
                       modifiersClassNames={{
                         blocked: "!bg-red-100 !text-red-700 font-bold hover:!bg-red-200 rounded-full border border-red-300",
                       }}
                       onDayMouseEnter={(date, modifiers, e) => {
                         if (modifiers.blocked) {
-                          const item = blockedDates.find(b => isSameDay(b.date, createLocalDate(date)));
+                          const item = blockedDates.find(b =>
+                            isSameDay(b.date, createLocalDate(date)) && b.location === blockedLocation
+                          );
                           if (item) {
                             const rect = (e.target as HTMLElement).getBoundingClientRect();
-                            setHoveredBlockedReason({ text: item.reason, x: rect.left + rect.width / 2, y: rect.top });
+                            setHoveredBlockedReason({
+                              text: `${item.reason} · ${getLocationLabel(item.location)}`,
+                              x: rect.left + rect.width / 2,
+                              y: rect.top
+                            });
                           }
                         }
                       }}
@@ -3047,6 +3106,7 @@ const calculateTotalPrice = () => {
                         day_today: "border border-blue-400 font-bold",
                       }}
                     />
+
                     {/* Tooltip flotante para razón del bloqueo */}
                     {hoveredBlockedReason && (
                       <div
@@ -3059,6 +3119,7 @@ const calculateTotalPrice = () => {
                         </div>
                       </div>
                     )}
+
                     <p className="text-xs text-gray-500 mt-2 text-center">
                       Hacé click en un día para bloquearlo • Hacé click de nuevo para desbloquearlo
                     </p>
@@ -3099,37 +3160,39 @@ const calculateTotalPrice = () => {
                         {[...blockedDates]
                           .sort((a, b) => a.date.getTime() - b.date.getTime())
                           .map((item, idx) => (
-                          <div
-                            key={idx}
-                            className="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-lg"
-                          >
-                            <div className="flex items-center gap-2">
-                              <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-0.5"></div>
-                              <div>
-                                <p className="text-sm font-medium capitalize">
-                                  {format(item.date, "EEEE d 'de' MMMM yyyy", { locale: es })}
-                                </p>
-                                <p className="text-xs text-red-500 mt-0.5">🚫 {item.reason}</p>
-                              </div>
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-red-500 hover:text-red-700 hover:bg-red-100 h-7 w-7 p-0"
-                              onClick={() => toggleBlockedDate(item.date)}
-                              title="Desbloquear este día"
+                            <div
+                              key={`${item.date.toISOString()}-${item.location}-${idx}`}
+                              className="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-lg"
                             >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ))}
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-0.5"></div>
+                                <div>
+                                  <p className="text-sm font-medium capitalize">
+                                    {format(item.date, "EEEE d 'de' MMMM yyyy", { locale: es })}
+                                  </p>
+                                  <p className="text-xs text-red-500 mt-0.5">
+                                    🚫 {item.reason} · {getLocationLabel(item.location)}
+                                  </p>
+                                </div>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-red-500 hover:text-red-700 hover:bg-red-100 h-7 w-7 p-0"
+                                onClick={() => toggleBlockedDate(item.date, item.location)}
+                                title="Desbloquear este cierre"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
                       </div>
                     )}
 
                     {blockedDates.length > 0 && (
                       <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <p className="text-xs text-blue-700">
-                          <strong>ℹ️ Sincronizado:</strong> Estos días aparecen bloqueados automáticamente en el calendario del cliente.
+                          <strong>ℹ️ Sincronizado:</strong> Estos días aparecen bloqueados automáticamente en el calendario del cliente según la tienda elegida.
                         </p>
                       </div>
                     )}
@@ -3277,6 +3340,7 @@ function BikeForm({ bike, onSave, onCancel }: any) {
             <SelectItem value="CITY_BIKE">Ciudad</SelectItem>
             <SelectItem value="E_CITY_BIKE">E-Ciudad</SelectItem>
             <SelectItem value="E_MTB">E-MTB</SelectItem>
+            <SelectItem value="SCOOTER_MOVILIDAD">Scooter movilidad</SelectItem>
           </SelectContent>
         </Select>
       </div>
