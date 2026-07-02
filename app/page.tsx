@@ -23,7 +23,7 @@ export default function HomePage() {
 
   useEffect(() => {
     fetchRecommendedBikes()
-  }, [language]) // Reactiva cuando cambia el idioma
+  }, [language])
 
   const fetchRecommendedBikes = async () => {
     const { data, error } = await supabase
@@ -53,10 +53,19 @@ export default function HomePage() {
         <div className="relative z-10 text-center text-white max-w-4xl mx-auto px-4">
           <h1 className="text-5xl md:text-7xl font-bold mb-6">{t("exploreAltea")}</h1>
           <p className="text-xl md:text-2xl mb-8">{t("rentBestBikes")}</p>
+          
+          {/* ✅ MODIFICADO: Dos botones de reserva separados */}
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button asChild size="lg" className="bg-green-600 hover:bg-green-700">
-              <Link href="/reserve">{t("reserveNow")}</Link>
+              <Link href="/reserve?type=bikes"> {t("reserveBikes")}</Link>
             </Button>
+            <Button asChild size="lg" className="bg-blue-600 hover:bg-blue-700">
+              <Link href="/reserve?type=scooters"> {t("reserveScooters")}</Link>
+            </Button>
+          </div>
+          
+          {/* ✅ BOTÓN DE CATÁLOGO (se mantiene) */}
+          <div className="mt-4">
             <Button asChild variant="outline" size="lg" className="bg-white text-black hover:bg-gray-100">
               <Link href="/catalog">{t("viewCatalog")}</Link>
             </Button>
@@ -64,7 +73,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Features Section - LOGOS ARREGLADOS PARA MÓVIL */}
+      {/* Features Section */}
       <section className="py-12 md:py-16 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-8 md:mb-12">
@@ -73,7 +82,7 @@ export default function HomePage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-            {/* Premium Bikes - Logo más pequeño en móvil */}
+            {/* Premium Bikes */}
             <div className="text-center">
               <div className="bg-green-100 w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
                 <Bike className="h-5 w-5 md:h-8 md:w-8 text-green-600" />
@@ -82,16 +91,15 @@ export default function HomePage() {
               <p className="text-sm md:text-base text-gray-600 px-2">{t("renewedFleet")}</p>
             </div>
 
-            {/* Insurance Included - Logo más pequeño en móvil */}
+            {/* Insurance Included */}
             <div className="text-center">
               <div className="bg-green-100 w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
                 <Shield className="h-5 w-5 md:h-8 md:w-8 text-green-600" />
               </div>
               <h3 className="text-lg md:text-xl font-semibold mb-2">{t("insuranceIncluded")}</h3>
-              {/* Se eliminó la línea problemática con insuranceDescription */}
             </div>
 
-            {/* 24/7 Service - Logo más pequeño en móvil */}
+            {/* 24/7 Service */}
             <div className="text-center">
               <div className="bg-green-100 w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4">
                 <Clock className="h-5 w-5 md:h-8 md:w-8 text-green-600" />

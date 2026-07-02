@@ -114,6 +114,7 @@ const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
 type Step =
   | "dates"
   | "bikes"
+  | "scooters"
   | "accessories"
   | "customer"
   | "payment"
@@ -129,7 +130,7 @@ interface BikeModel {
   subtitle_nl: string;
   category: BikeCategory;
   availableSizes: { size: string; count: number; bikes: any[] }[];
-  imageUrl?: string; // ✅ NUEVO: URL de la imagen de la bici
+  imageUrl?: string;
 }
 
 interface SelectedBike {
@@ -163,7 +164,6 @@ const translateBikeContent = (
 };
 
 const createLocalDate = (date?: Date): Date => {
-  // Si no se pasa fecha, usamos "ahora" en Madrid
   const baseDate = date || new Date();
   const madridString = baseDate.toLocaleString("en-US", { timeZone: "Europe/Madrid" });
   const madridDate = new Date(madridString);
@@ -202,7 +202,6 @@ const locationOptions: LocationOption[] = [
 
 // ============================================
 // 🔧 calculateTotalDays - VERSIÓN CLIENTE CORREGIDA
-//    Reemplazar en page.tsx (cliente)
 // ============================================
 
 const calculateTotalDays = (
@@ -212,7 +211,6 @@ const calculateTotalDays = (
   returnTime: string
 ): number => {
   try {
-    // ✅ CORREGIDO: Usar forceSpainDate
     const startSpain = forceSpainDate(startDate, pickupTime);
     const endSpain = forceSpainDate(endDate, returnTime);
     
@@ -230,8 +228,6 @@ const calculateTotalDays = (
     return 1;
   }
 };
-
-//
 
 const calculateTotalDeposit = (bikes: SelectedBike[]): number => {
   return bikes.reduce((total: number, bike: SelectedBike) => {
@@ -385,8 +381,7 @@ const InsuranceContractCheckbox = ({
   );
 };
 
-// En page.tsx, reemplaza la función StripePaymentForm desde la línea ~730:
-
+// StripePaymentForm
 const StripePaymentForm = ({ 
   clientSecret,
   customerData,
@@ -405,7 +400,8 @@ const StripePaymentForm = ({
   pickupTime,
   pickupLocation,
   t,
-  returnTime
+  returnTime,
+  reservationType = "bikes"
 }: { 
   clientSecret: string;
   customerData: { name: string; email: string; phone: string; dni: string };
@@ -425,6 +421,7 @@ const StripePaymentForm = ({
   pickupLocation?: string;
   returnTime: string;
   t: (key: TranslationKey) => string;
+  reservationType?: "bikes" | "scooters";
 }) => {
   const stripe = useStripe();
   const elements = useElements();
@@ -437,20 +434,17 @@ const StripePaymentForm = ({
   const [reservationAlreadyExists, setReservationAlreadyExists] = useState(false);
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
 
-  // 🟢 NUEVO: Verificar si ya existe una reserva para este PaymentIntent
   useEffect(() => {
     const checkExistingReservation = async () => {
       if (!clientSecret || !customerData.email) return;
       
       try {
-        // Extraer el payment_intent_id del clientSecret
         const paymentIntentId = clientSecret.split('_secret_')[0];
         
         if (!paymentIntentId) return;
         
         console.log('🔍 Verificando reserva existente para PaymentIntent:', paymentIntentId);
         
-        // Buscar si ya existe una reserva con este payment_intent_id
         const { data: existingReservation, error } = await supabase
           .from('reservations')
           .select('id, status, customer_name, created_at')
@@ -478,12 +472,10 @@ const StripePaymentForm = ({
           setLocalPaymentError(`✅ Ya tienes una reserva confirmada (ID: ${existingReservation.id}) creada hace ${timeText}. 
             No es necesario pagar nuevamente. Redirigiendo...`);
           
-          // Limpiar cualquier polling existente
           if (pollingInterval) {
             clearInterval(pollingInterval);
           }
           
-          // Redirigir automáticamente a confirmación después de 3 segundos
           setTimeout(() => {
             setCurrentStep("confirmation");
           }, 3000);
@@ -495,7 +487,6 @@ const StripePaymentForm = ({
     
     checkExistingReservation();
     
-    // Limpiar al desmontar
     return () => {
       if (pollingInterval) {
         clearInterval(pollingInterval);
@@ -503,7 +494,6 @@ const StripePaymentForm = ({
     };
   }, [clientSecret, customerData.email]);
 
-  // 🟢 NUEVO: Iniciar polling para verificar creación de reserva después de pago exitoso
   const startReservationPolling = (paymentIntentId: string) => {
     console.log('🔄 Iniciando polling para reserva del PaymentIntent:', paymentIntentId);
     
@@ -527,7 +517,6 @@ const StripePaymentForm = ({
           
           setCardError(`✅ Reserva creada exitosamente (ID: ${reservation.id}). Redirigiendo...`);
           
-          // Esperar 2 segundos y redirigir
           setTimeout(() => {
             setCurrentStep("confirmation");
           }, 2000);
@@ -537,11 +526,10 @@ const StripePaymentForm = ({
       } catch (error) {
         console.error('Error en polling:', error);
       }
-    }, 2000); // Verificar cada 2 segundos
+    }, 2000);
     
     setPollingInterval(interval);
     
-    // Timeout después de 60 segundos
     setTimeout(() => {
       if (interval) {
         clearInterval(interval);
@@ -554,25 +542,21 @@ const StripePaymentForm = ({
  const handleSubmit = async (event: React.FormEvent) => {
   event.preventDefault();
   
-  // ✅ 1. BLOQUEO GLOBAL CON ESTADO ATÓMICO
   if (window.__STRIPE_PAYMENT_IN_PROGRESS) {
     setCardError("Ya hay un pago en proceso. Espera unos segundos.");
     return;
   }
   
-  // ✅ 2. VERIFICAR SI YA EXISTE RESERVA
   if (reservationAlreadyExists) {
     setCardError("Ya tienes una reserva confirmada. No es necesario pagar nuevamente.");
     return;
   }
   
-  // ✅ 3. BLOQUEO DE PROCESAMIENTO
   if (isProcessing || paymentCompleted) {
     setCardError("El pago ya está siendo procesado o fue completado.");
     return;
   }
   
-  // ✅ 4. BLOQUEO GLOBAL
   window.__STRIPE_PAYMENT_IN_PROGRESS = true;
   
   if (!stripe || !elements) {
@@ -624,11 +608,9 @@ const StripePaymentForm = ({
       
       console.log('✅ Pago Stripe exitoso. PaymentIntent ID:', confirmedPaymentIntent.id);
       
-      // 🟢 Iniciar polling para esperar creación de reserva por webhook
       setCardError("✅ Pago procesado exitosamente. Esperando confirmación de reserva...");
       startReservationPolling(confirmedPaymentIntent.id);
       
-      // 🟢 Registrar en base de datos para seguimiento
       try {
         await supabase.from('payment_logs').insert({
           payment_intent_id: confirmedPaymentIntent.id,
@@ -657,19 +639,16 @@ const StripePaymentForm = ({
       setClientSecret(null);
     }
     
-    // Limpiar polling si existe
     if (pollingInterval) {
       clearInterval(pollingInterval);
       setPollingInterval(null);
     }
   } finally {
     setIsProcessing(false);
-    // 🔒 LIBERAR BLOQUEOS
     window.__STRIPE_PAYMENT_IN_PROGRESS = false;
   }
 };
 
-  // ✅ MOVER estas validaciones FUERA del handleSubmit
   if (!clientSecret) {
     return (
       <div className="text-red-500 p-4 border border-red-200 bg-red-50 rounded-lg">
@@ -753,7 +732,6 @@ const StripePaymentForm = ({
         )}
       </Button>
 
-      {/* 🚨 BLOQUE 4: Mensajes preventivos importantes */}
       {isProcessing && !paymentCompleted && (
         <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
           <div className="flex items-start gap-2">
@@ -877,10 +855,16 @@ export default function ReservePage() {
   const { t, language } = useLanguage();
   const searchParams = useSearchParams();
   const isAdminMode = searchParams.get("admin") === "true";
+  
+  // ✅ Leer el tipo de reserva de la URL
+  const typeParam = searchParams.get("type");
+  const [reservationType, setReservationType] = useState<"bikes" | "scooters">(
+    typeParam === "scooters" ? "scooters" : "bikes"
+  );
 
   const [currentStep, setCurrentStep] = useState<Step>("dates");
   const [startDate, setStartDate] = useState<Date>(createLocalDate());
-  const [endDate, setEndDate] = useState<Date>(createLocalDate()); // Mismo día por defecto
+  const [endDate, setEndDate] = useState<Date>(createLocalDate());
   const [blockedDates, setBlockedDates] = useState<{
     date: Date;
     reason: string;
@@ -888,7 +872,7 @@ export default function ReservePage() {
   }[]>([]);
   const [calendarMonth, setCalendarMonth] = useState<Date>(createLocalDate());
   const [pickupTime, setPickupTime] = useState("10:00");
-  const [returnTime, setReturnTime] = useState("10:00"); // Changed default to match pickup time
+  const [returnTime, setReturnTime] = useState("10:00");
   const [availableBikes, setAvailableBikes] = useState<any[]>([]);
   const [bikeModels, setBikeModels] = useState<BikeModel[]>([]);
   const [selectedBikes, setSelectedBikes] = useState<SelectedBike[]>([]);
@@ -913,6 +897,27 @@ const [returnLocation, setReturnLocation] = useState("sucursal_altea");
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [reservationData, setReservationData] = useState<any>(null);
 
+  // ✅ Actualizar reservationType cuando cambia el parámetro URL
+  useEffect(() => {
+    if (typeParam === "scooters") {
+      setReservationType("scooters");
+    } else {
+      setReservationType("bikes");
+    }
+  }, [typeParam]);
+
+  // ✅ Cuando cambia el tipo, limpiar selecciones
+  useEffect(() => {
+    setSelectedBikes([]);
+    setSelectedAccessories([]);
+    setHasInsurance(false);
+    if (reservationType === "scooters") {
+      if (currentStep === "accessories") {
+        setCurrentStep("customer");
+      }
+    }
+  }, [reservationType]);
+
  useEffect(() => {
   const fetchAccessories = async () => {
     setIsLoadingAccessories(true);
@@ -922,9 +927,6 @@ const [returnLocation, setReturnLocation] = useState("sucursal_altea");
         .select("*")
         .eq("available", true);
       
-      //console.log("Datos de accesorios:", data); // ← Añade esto
-      //console.log("Error:", error); // ← Añade esto
-
       if (error) {
         throw error;
       }
@@ -940,7 +942,6 @@ const [returnLocation, setReturnLocation] = useState("sucursal_altea");
   fetchAccessories();
 }, []);
 
-// ✅ CARGAR DÍAS BLOQUEADOS (FERIADOS) - sincronizado con admin
 useEffect(() => {
   const fetchBlockedDates = async () => {
     const { data } = await supabase
@@ -960,8 +961,6 @@ useEffect(() => {
   fetchBlockedDates();
 }, []);
 
-// ✅ Si el cliente cambia de tienda y la fecha elegida está cerrada para esa tienda,
-// limpiamos la selección para evitar que avance con una fecha inválida.
 useEffect(() => {
   if (blockedDates.length === 0) return;
 
@@ -985,16 +984,13 @@ useEffect(() => {
   }
 }, [pickupLocation, blockedDates]);
 
-// 🚨 BLOQUE 3: Verificar reservas recientes al cargar
 useEffect(() => {
   const checkRecentPayment = async () => {
-    // Solo verificar si tenemos email del cliente
     if (!customerData.email || customerData.email.trim() === "") return;
     
     console.log("🔍 Verificando reservas recientes para:", customerData.email);
     
     try {
-      // Buscar reservas del mismo cliente en los últimos 60 minutos
       const sixtyMinutesAgo = new Date(Date.now() - 60 * 60000).toISOString();
       
       const { data: recentReservations, error } = await supabase
@@ -1014,7 +1010,6 @@ useEffect(() => {
       if (recentReservations && recentReservations.length > 0) {
         console.log('📊 Reservas recientes encontradas:', recentReservations.length);
         
-        // 🟢 NUEVO: Mostrar advertencia si hay múltiples reservas recientes
         if (recentReservations.length >= 2 && currentStep === "customer") {
           console.log('⚠️ Múltiples reservas recientes detectadas');
           
@@ -1022,14 +1017,13 @@ useEffect(() => {
           const timeSince = Date.now() - new Date(mostRecent.created_at).getTime();
           const minutesAgo = Math.floor(timeSince / 60000);
           
-          if (minutesAgo < 10) { // Si la más reciente es de hace menos de 10 minutos
+          if (minutesAgo < 10) {
             setPaymentError(`⚠️ Ya tienes ${recentReservations.length} reserva(s) reciente(s). 
               La más reciente es de hace ${minutesAgo} minuto(s) (ID: ${mostRecent.id}). 
               Si necesitas hacer otra reserva, espera unos minutos o contacta soporte.`);
           }
         }
         
-        // 🟢 NUEVO: Verificar si alguna reserva coincide EXACTAMENTE con los datos actuales
         if (startDate && endDate && pickupTime) {
           const currentStartDateStr = getLocalDateString(startDate);
           const currentEndDateStr = getLocalDateString(endDate);
@@ -1056,7 +1050,6 @@ useEffect(() => {
     }
   };
   
-  // Ejecutar cuando cambie el email, fechas o paso actual
   if (customerData.email && (currentStep === "customer" || currentStep === "payment")) {
     checkRecentPayment();
   }
@@ -1064,7 +1057,6 @@ useEffect(() => {
 
   useEffect(() => {
   if (startDate && endDate) {
-    // Solo establecer valores por defecto si no hay horas seleccionadas
     if (!pickupTime) {
       setPickupTime(isSaturday(startDate) ? "10:00" : "10:00");
     }
@@ -1081,15 +1073,6 @@ useEffect(() => {
       groupBikesByModel();
     }
   }, [availableBikes]);
-
- // ============================================
-// 🔧 BLOQUE 1: Reemplazar en page.tsx (cliente) - Línea ~160
-// ============================================
-
-// ============================================
-// 🔧 fetchAvailableBikes - VERSIÓN CLIENTE CORREGIDA
-//    Reemplazar en page.tsx (cliente)
-// ============================================
 
 const fetchAvailableBikes = async () => {
   if (!startDate || !endDate) return;
@@ -1113,7 +1096,6 @@ const fetchAvailableBikes = async () => {
 
     const reservedBikeIds = new Set<string>();
 
-    // ✅ CORREGIDO: Usar forceSpainDate en cliente
     const selStart = forceSpainDate(startDate, pickupTime);
     const selEnd = forceSpainDate(endDate, returnTime);
 
@@ -1125,7 +1107,6 @@ const fetchAvailableBikes = async () => {
     });
 
     reservations.forEach(res => {
-      // ✅ CORREGIDO: Usar forceSpainDate para cada reserva
       const resStart = forceSpainDate(new Date(res.start_date), res.pickup_time);
       const resEnd = forceSpainDate(new Date(res.end_date), res.return_time);
 
@@ -1185,6 +1166,7 @@ const fetchAvailableBikes = async () => {
       //console.error("❌ Error parseando bikes:", bikesData, err);
     }
   };
+  
 const groupBikesByModel = () => {
   const grouped = availableBikes.reduce(
     (acc: Record<string, BikeModel>, bike) => {
@@ -1199,7 +1181,7 @@ const groupBikesByModel = () => {
           subtitle_nl: bike.subtitle_nl,
           category: bike.category as BikeCategory,
           availableSizes: [],
-          imageUrl: bike.image_url || bike.image || null, // ✅ NUEVO: Guardar la imagen
+          imageUrl: bike.image_url || bike.image || null,
         };
       }
 
@@ -1304,6 +1286,63 @@ const groupBikesByModel = () => {
     }
   };
 
+  // ✅ Manejar selección de scooters (sin tallas)
+  const handleScooterSelection = (model: BikeModel, quantity: number) => {
+    const existingIndex = selectedBikes.findIndex(
+      (bike) => bike.title_es === model.title_es
+    );
+
+    if (quantity === 0) {
+      if (existingIndex >= 0) {
+        setSelectedBikes(
+          selectedBikes.filter((_, index) => index !== existingIndex)
+        );
+      }
+      return;
+    }
+
+    const totalAvailable = model.availableSizes.reduce(
+      (sum, size) => sum + size.count, 0
+    );
+    
+    if (quantity > totalAvailable) return;
+
+    const selectedBikesForScooter: any[] = [];
+    let remaining = quantity;
+    
+    for (const sizeInfo of model.availableSizes) {
+      const takeFromSize = Math.min(remaining, sizeInfo.count);
+      if (takeFromSize > 0) {
+        selectedBikesForScooter.push(...sizeInfo.bikes.slice(0, takeFromSize));
+        remaining -= takeFromSize;
+      }
+      if (remaining === 0) break;
+    }
+
+    const firstSize = model.availableSizes[0]?.size || "M";
+
+    if (existingIndex >= 0) {
+      const updated = [...selectedBikes];
+      updated[existingIndex] = {
+        ...model,
+        size: firstSize,
+        quantity,
+        bikes: selectedBikesForScooter,
+      };
+      setSelectedBikes(updated);
+    } else {
+      setSelectedBikes([
+        ...selectedBikes,
+        {
+          ...model,
+          size: firstSize,
+          quantity,
+          bikes: selectedBikesForScooter,
+        },
+      ]);
+    }
+  };
+
   const handleAccessorySelection = (accessory: Accessory) => {
     const existingIndex = selectedAccessories.findIndex(
       (a) => a.id === accessory.id
@@ -1322,27 +1361,62 @@ const groupBikesByModel = () => {
     setHasInsurance(checked);
   };
 
- // En la función calculateTotal, asegurarnos de que nunca devuelva 0
+  // ✅ Determinar si es solo scooters
+  const isScooterReservation = (): boolean => {
+    return reservationType === "scooters";
+  };
+
+  // ✅ Obtener el título del paso según el tipo
+  const getStepTitle = (baseKey: string): string => {
+    const isScooter = isScooterReservation();
+    const titles: Record<string, Record<string, string>> = {
+      dates: {
+        bikes: t("selectDates"),
+        scooters: t("selectDates")
+      },
+      bikes: {
+        bikes: t("selectBikes"),
+        scooters: t("selectScooters")
+      },
+      accessories: {
+        bikes: t("accessoriesInsurance"),
+        scooters: t("accessoriesInsurance")
+      },
+      customer: {
+        bikes: t("customerData"),
+        scooters: t("customerDataScooter")
+      },
+      payment: {
+        bikes: t("paymentDetails"),
+        scooters: t("paymentDetailsScooter")
+      },
+      confirmation: {
+        bikes: t("reservationConfirmed"),
+        scooters: t("scooterReservationConfirmed")
+      }
+    };
+
+    return titles[baseKey]?.[isScooter ? "scooters" : "bikes"] || baseKey;
+  };
+
 const calculateTotal = (): number => {
   if (!startDate || !endDate || selectedBikes.length === 0) {
-    throw new Error("No se han seleccionado bicicletas o fechas"); // ← Esto no debería ocurrir si el flujo está bien controlado
+    throw new Error("No se han seleccionado bicicletas o fechas");
   }
 
   const days = calculateTotalDays(startDate, endDate, pickupTime, returnTime);
   
-  // Bicicletas (siempre hay al menos 1)
   const bikeTotal = selectedBikes.reduce((total, bike) => {
     const price = calculatePrice(bike.category, days);
     return total + (price * bike.quantity);
   }, 0);
 
-  // Accesorios (manejar posibles valores null)
   const accessoryTotal = selectedAccessories.reduce((total, acc) => {
-    return total + (acc.price || 0); // ← Maneja null como 0
+    return total + (acc.price || 0);
   }, 0);
 
-  // Seguro (opcional)
-  const insuranceTotal = hasInsurance
+  const isScooter = isScooterReservation();
+  const insuranceTotal = (!isScooter && hasInsurance)
     ? calculateInsurance(days) * selectedBikes.reduce((t, b) => t + b.quantity, 0)
     : 0;
 
@@ -1350,13 +1424,10 @@ const calculateTotal = (): number => {
   
   if (total < 0) {
     throw new Error("El total no puede ser negativo");
-}
-
+  }
 
   return total;
 };
-
-
 
   const calculateTotalDeposit = (): number => {
     return selectedBikes.reduce((total, bike) => {
@@ -1364,8 +1435,6 @@ const calculateTotal = (): number => {
     }, 0);
   };
 
-  // ✅ Solo bloquea feriados/cierres que apliquen a la tienda elegida.
-  // location = "all" aplica a ambas tiendas.
   const getBlockedDatesForSelectedStore = () => {
     return blockedDates.filter(item =>
       item.location === "all" || item.location === pickupLocation
@@ -1422,22 +1491,12 @@ const calculateTotal = (): number => {
     }
   };
 
-// ============================================
-// 🔧 BLOQUE 3: Reemplazar en page.tsx (cliente) - Línea ~460
-// ============================================
-
-// ============================================
-// 🔧 checkBikesAvailability - VERSIÓN CLIENTE CORREGIDA
-//    Reemplazar en page.tsx (cliente)
-// ============================================
-
 const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
   if (!startDate || !endDate || selectedBikes.length === 0) {
     return { available: false, unavailableBikes: [] };
   }
 
   try {
-    // ✅ CORREGIDO: Usar forceSpainDate
     const selStart = forceSpainDate(startDate, pickupTime);
     const selEnd = forceSpainDate(endDate, returnTime);
 
@@ -1467,7 +1526,6 @@ const checkBikesAvailability = async (): Promise<{ available: boolean; unavailab
     const unavailableBikes: string[] = [];
 
     (overlappingReservations || []).forEach(reservation => {
-      // ✅ CORREGIDO: Usar forceSpainDate
       const resStart = forceSpainDate(new Date(reservation.start_date), reservation.pickup_time);
       const resEnd = forceSpainDate(new Date(reservation.end_date), reservation.return_time);
 
@@ -1514,13 +1572,13 @@ const checkBikesAvailability = async (): Promise<{ available: boolean; unavailab
   }
 };
 
-  // ✅ AGREGAR esta función helper
 function getLocalDateString(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
+
 const convertToMadridTime = (date: Date): Date => {
   if (!date) return new Date();
   const madridString = date.toLocaleString("en-US", { timeZone: "Europe/Madrid" });
@@ -1528,21 +1586,18 @@ const convertToMadridTime = (date: Date): Date => {
 };
 
 const handleSubmitReservation = async () => {
-  // 🚨 BLOQUEO DURO CON MÚLTIPLES CAPAS
   if (isSubmitting) {
     console.warn("⚠️ Bloqueado: Ya hay un pago en proceso");
     setPaymentError("Ya hay un pago en proceso. Por favor espera.");
     return;
   }
   
-  // 🚨 BLOQUEO GLOBAL ATÓMICO
   if (window.__STRIPE_PAYMENT_LOCK) {
     console.warn("⚠️ Bloqueado globalmente: Pago en otra pestaña");
     setPaymentError("Sistema ocupado. Intenta en unos segundos.");
     return;
   }
   
-  // ✅ ESTABLECER BLOQUEOS
   window.__STRIPE_PAYMENT_LOCK = true;
   setIsSubmitting(true);
   setPaymentError(null);
@@ -1552,16 +1607,12 @@ const handleSubmitReservation = async () => {
       throw new Error("Completa todos los campos requeridos");
     }
 
-    // ============================================
-    // 🔴 NUEVO: VALIDACIÓN COMPLETA DE DISPONIBILIDAD
-    // ============================================
     console.log("🔍 Verificando disponibilidad real de bicis...");
     
     if (!startDate || !endDate || selectedBikes.length === 0) {
       throw new Error("No hay bicicletas seleccionadas");
     }
 
-    // Preparar fechas para comparación
     const selStart = convertToMadridTime(new Date(startDate));
     selStart.setHours(
       Number(pickupTime.split(":")[0]),
@@ -1574,11 +1625,9 @@ const handleSubmitReservation = async () => {
       Number(returnTime.split(":")[1])
     );
 
-    // Extraer TODOS los IDs de bicis seleccionadas
     const selectedBikeIds: string[] = [];
     selectedBikes.forEach(bike => {
       if (bike.bikes && bike.bikes.length > 0) {
-        // Extraer IDs reales de cada bici física seleccionada
         bike.bikes.forEach((individualBike: any) => {
           if (individualBike.id) {
             selectedBikeIds.push(individualBike.id.trim());
@@ -1593,22 +1642,19 @@ const handleSubmitReservation = async () => {
       throw new Error("Error: No se pudieron identificar las bicicletas seleccionadas");
     }
 
-    // Buscar TODAS las reservas confirmadas o en proceso que se solapen
     const { data: overlappingReservations, error: overlapError } = await supabase
       .from("reservations")
-      .select("id, bikes, start_date, end_date, pickup_time, return_time, status")  // ✅ INCLUIR 'id'
+      .select("id, bikes, start_date, end_date, pickup_time, return_time, status")
       .in("status", ["confirmed", "in_process"]);
 
     if (overlapError) {
       console.error("Error buscando reservas solapadas:", overlapError);
-      // Continuamos pero con advertencia
     }
 
     let hasConflict = false;
     let conflictingBikes: string[] = [];
 
     if (overlappingReservations && overlappingReservations.length > 0) {
-      // Revisar cada reserva existente
       overlappingReservations.forEach((reservation) => {
         try {
           const resStart = convertToMadridTime(new Date(reservation.start_date));
@@ -1623,14 +1669,11 @@ const handleSubmitReservation = async () => {
             Number(reservation.return_time.split(":")[1])
           );
 
-          // Verificar solapamiento REAL
           const overlaps = selStart < resEnd && selEnd > resStart;
 
           if (overlaps) {
-            // Extraer IDs de bicis reservadas en esta reserva
             const reservedBikeIds: string[] = [];
             
-            // Parsear datos de bicis
             const bikesData = typeof reservation.bikes === 'string' 
               ? JSON.parse(reservation.bikes) 
               : reservation.bikes;
@@ -1645,7 +1688,6 @@ const handleSubmitReservation = async () => {
               });
             }
 
-            // Verificar conflictos
             const duplicateBikes = selectedBikeIds.filter(id => 
               reservedBikeIds.includes(id)
             );
@@ -1654,7 +1696,7 @@ const handleSubmitReservation = async () => {
               hasConflict = true;
               conflictingBikes = [...conflictingBikes, ...duplicateBikes];
               console.error("🚨 CONFLICTO ENCONTRADO:", {
-                reservaExistente: reservation.id,  // ✅ AHORA 'id' EXISTE
+                reservaExistente: reservation.id,
                 bicisConflictivas: duplicateBikes,
                 fechasReserva: `${reservation.start_date} a ${reservation.end_date}`
               });
@@ -1677,14 +1719,10 @@ const handleSubmitReservation = async () => {
     
     console.log("✅ Validación de disponibilidad: OK");
 
-    // ============================================
-    // 🔒 PREVENIR MÚLTIPLES ENVÍOS - VERIFICAR SI YA HAY CLIENT SECRET
-    // ============================================
     if (clientSecret) {
       throw new Error("El proceso de pago ya está en curso. No envíes múltiples veces.");
     }
 
-    // 🔒 Verificar si el cliente ya tiene reserva reciente (5 minutos)
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60000).toISOString();
     const { data: recentReservation } = await supabase
       .from('reservations')
@@ -1699,13 +1737,11 @@ const handleSubmitReservation = async () => {
       throw new Error(`Ya tienes una reserva confirmada hace ${minutesAgo} minutos (ID: ${recentReservation.id}). Espera al menos 5 minutos o contacta soporte.`);
     }
 
-    // 🔒 Cálculo seguro de días de alquiler
     const days = calculateTotalDays(startDate, endDate, pickupTime, returnTime);
     if (!Number.isFinite(days) || days <= 0) {
       throw new Error("La duración del alquiler no es válida");
     }
 
-    // Cálculo correcto del precio por días reales
     const bikeSubtotal = selectedBikes.reduce((total, bike) => {
       const pricePerDay = Number(calculatePrice(bike.category, days));
       const quantity = Number(bike.quantity);
@@ -1720,7 +1756,8 @@ const handleSubmitReservation = async () => {
       return total + (Number.isFinite(price) ? price : 0);
     }, 0);
 
-    const insuranceSubtotal = hasInsurance
+    const isScooter = isScooterReservation();
+    const insuranceSubtotal = (!isScooter && hasInsurance)
       ? Math.min(
           INSURANCE_MAX_PRICE,
           INSURANCE_PRICE_PER_DAY * days
@@ -1732,21 +1769,17 @@ const handleSubmitReservation = async () => {
 
     const totalAmount = bikeSubtotal + accessoriesSubtotal + insuranceSubtotal;
 
-    // Validación adicional del monto
     if (totalAmount <= 0) {
       throw new Error("El monto total debe ser mayor a 0");
     }
 
-    // Convertir a céntimos y validar
     const amountInCents = Math.round(totalAmount * 100);
     if (!Number.isInteger(amountInCents) || amountInCents <= 0) {
       throw new Error("El monto total no es válido");
     }
 
-    // Generar IDEMPOTENCY KEY ÚNICA
     const idempotencyKey = `res_${Date.now()}_${customerData.email}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // ✅ VERIFICAR SI YA EXISTE PAYMENT INTENT CON ESTA KEY
     const { data: existingIntent } = await supabase
       .from('payment_intents')
       .select('intent_id, status')
@@ -1756,7 +1789,6 @@ const handleSubmitReservation = async () => {
     if (existingIntent) {
       console.log('🔄 PaymentIntent ya existe para esta key:', existingIntent.intent_id);
       
-      // Si ya está succeeded, redirigir a confirmación
       if (existingIntent.status === 'succeeded') {
         setClientSecret(`pi_${existingIntent.intent_id}_secret_...`);
         setCurrentStep("payment");
@@ -1764,18 +1796,15 @@ const handleSubmitReservation = async () => {
       }
     }
 
-    // Simplificar los datos de bicicletas para la metadata
     const simplifiedBikesData = selectedBikes.map(bike => ({
       model: bike.title_es.substring(0, 50),
       size: bike.size,
       quantity: bike.quantity,
       pricePerDay: calculatePrice(bike.category, days),
       totalPrice: calculatePrice(bike.category, days) * days * bike.quantity,
-      // 🔴 NUEVO: Incluir IDs específicos en metadata
       bike_ids: bike.bikes.map((b: any) => b.id).filter(Boolean)
     }));
 
-    // Simplificar los accesorios
     const simplifiedAccessories = selectedAccessories.map(acc => ({
       id: acc.id,
       name: acc.name_es.substring(0, 50),
@@ -1796,16 +1825,15 @@ const handleSubmitReservation = async () => {
       total_days: days.toString(),
       bikes_count: selectedBikes.reduce((total, bike) => total + bike.quantity, 0),
       accessories_count: selectedAccessories.length,
-      insurance: hasInsurance ? "1" : "0",
+      insurance: (!isScooter && hasInsurance) ? "1" : "0",
       total_amount: totalAmount.toFixed(2),
       deposit_amount: calculateTotalDeposit().toFixed(2),
       locale: language,
       bikes_data: JSON.stringify(simplifiedBikesData),
       accessories_data: JSON.stringify(simplifiedAccessories),
-      // 🚨 IDEMPOTENCY KEY ÚNICA Y VERIFICADA
       idempotency_key: idempotencyKey,
-      // 🔴 NUEVO: Incluir IDs de bicis para validación en webhook
-      selected_bike_ids: selectedBikeIds.join(',')
+      selected_bike_ids: selectedBikeIds.join(','),
+      reservation_type: reservationType
     };
 
     console.log("=== Creando PaymentIntent ===");
@@ -1813,6 +1841,7 @@ const handleSubmitReservation = async () => {
     console.log("Monto:", amountInCents);
     console.log("Cliente:", customerData.email);
     console.log("Bicis seleccionadas (IDs):", selectedBikeIds);
+    console.log("Tipo de reserva:", reservationType);
 
     const response = await fetch('/api/stripe/create-payment-intent', {
       method: 'POST',
@@ -1837,14 +1866,14 @@ const handleSubmitReservation = async () => {
     
     console.log("✅ PaymentIntent creado:", paymentIntentId);
     
-    // 🔍 REGISTRAR INTENTO EXITOSO
     await supabase.from('payment_logs').insert({
       payment_intent_id: paymentIntentId,
       event_type: 'payment_intent_created_frontend',
       metadata: { 
         customer_email: customerData.email,
         idempotency_key: idempotencyKey,
-        bike_ids: selectedBikeIds
+        bike_ids: selectedBikeIds,
+        reservation_type: reservationType
       },
       created_at: new Date().toISOString(),
     });
@@ -1856,12 +1885,10 @@ const handleSubmitReservation = async () => {
     console.error("Error en handleSubmitReservation:", error);
     setPaymentError(error.message || "Error al procesar el pago. Por favor, inténtelo de nuevo.");
     
-    // 🔒 Limpiar clientSecret en caso de error
     if (error.message.includes("múltiples") || error.message.includes("proceso de pago") || error.message.includes("NO se puede completar")) {
       setClientSecret(null);
     }
     
-    // 🔍 REGISTRAR ERROR
     await supabase.from('payment_errors').insert({
       error_type: 'handleSubmitReservation_error',
       error_data: JSON.stringify({
@@ -1874,7 +1901,6 @@ const handleSubmitReservation = async () => {
     
   } finally {
     setIsSubmitting(false);
-    // 🔒 LIBERAR BLOQUEOS
     window.__STRIPE_PAYMENT_LOCK = false;
   }
 };
@@ -1901,288 +1927,293 @@ const handleSubmitReservation = async () => {
   };
 
   const renderStepContent = () => {
+    const isScooter = isScooterReservation();
+    
     switch (currentStep) {
-     
-          case "dates":
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CalendarDays className="h-5 w-5" />
-          {t("selectDates")}
-          {isAdminMode && <Badge variant="secondary">Modo Admin</Badge>}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <StoreHoursNotice t={t} />
+      case "dates":
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarDays className="h-5 w-5" />
+                {t("selectDates")}
+                {isAdminMode && <Badge variant="secondary">Modo Admin</Badge>}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StoreHoursNotice t={t} />
 
-        {/* Aviso de días bloqueados en el mes visible */}
-        {(() => {
-          const closedLabel: Record<string, string> = {
-            es: "Cerrado",
-            en: "Closed",
-            nl: "Gesloten",
-          };
+              {(() => {
+                const closedLabel: Record<string, string> = {
+                  es: "Cerrado",
+                  en: "Closed",
+                  nl: "Gesloten",
+                };
 
-          const closedInLabel: Record<string, string> = {
-            es: "en",
-            en: "at",
-            nl: "bij",
-          };
+                const closedInLabel: Record<string, string> = {
+                  es: "en",
+                  en: "at",
+                  nl: "bij",
+                };
 
-          const titleLabel: Record<string, string> = {
-            es: "Días sin servicio este mes:",
-            en: "Days without service this month:",
-            nl: "Dagen zonder service deze maand:",
-          };
+                const titleLabel: Record<string, string> = {
+                  es: "Días sin servicio este mes:",
+                  en: "Days without service this month:",
+                  nl: "Dagen zonder service deze maand:",
+                };
 
-          const getBlockedLocationLabel = (location?: string) => {
-            if (location === "sucursal_altea") return "Altea Bike Shop";
-            if (location === "sucursal_albir") return "Albir Cycling";
+                const getBlockedLocationLabel = (location?: string) => {
+                  if (location === "sucursal_altea") return "Altea Bike Shop";
+                  if (location === "sucursal_albir") return "Albir Cycling";
 
-            if (language === "nl") return "alle winkels";
-            if (language === "en") return "all stores";
-            return "todas las tiendas";
-          };
+                  if (language === "nl") return "alle winkels";
+                  if (language === "en") return "all stores";
+                  return "todas las tiendas";
+                };
 
-          const monthStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
-          const monthEnd = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0);
+                const monthStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+                const monthEnd = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0);
 
-          const thisMonthBlocked = getBlockedDatesForSelectedStore().filter(
-            b => b.date >= monthStart && b.date <= monthEnd
-          );
+                const thisMonthBlocked = getBlockedDatesForSelectedStore().filter(
+                  b => b.date >= monthStart && b.date <= monthEnd
+                );
 
-          if (thisMonthBlocked.length === 0) return null;
+                if (thisMonthBlocked.length === 0) return null;
 
-          return (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm font-semibold text-red-700 mb-1">
-                🚫 {titleLabel[language] || titleLabel.en}
-              </p>
-              <ul className="space-y-0.5">
-                {thisMonthBlocked.map((item, i) => (
-                  <li key={i} className="text-sm text-red-600">
-                    • {item.date.toLocaleDateString(
-                        language === "es" ? "es-ES" : language === "nl" ? "nl-NL" : "en-GB",
-                        { weekday: "long", day: "numeric", month: "long" }
-                      )} — {closedLabel[language] || closedLabel.en}{" "}
-                      {closedInLabel[language] || closedInLabel.en}{" "}
-                      {getBlockedLocationLabel(item.location)}
-                      {item.reason && item.reason !== "Feriado" && item.reason !== "Cerrado" ? ` (${item.reason})` : ""}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          );
-        })()}
+                return (
+                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-sm font-semibold text-red-700 mb-1">
+                      🚫 {titleLabel[language] || titleLabel.en}
+                    </p>
+                    <ul className="space-y-0.5">
+                      {thisMonthBlocked.map((item, i) => (
+                        <li key={i} className="text-sm text-red-600">
+                          • {item.date.toLocaleDateString(
+                              language === "es" ? "es-ES" : language === "nl" ? "nl-NL" : "en-GB",
+                              { weekday: "long", day: "numeric", month: "long" }
+                            )} — {closedLabel[language] || closedLabel.en}{" "}
+                            {closedInLabel[language] || closedInLabel.en}{" "}
+                            {getBlockedLocationLabel(item.location)}
+                            {item.reason && item.reason !== "Feriado" && item.reason !== "Cerrado" ? ` (${item.reason})` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })()}
 
-        <div className="flex flex-col md:flex-row gap-8 w-full">
-          <div className="w-full md:w-1/2">
-            <Label className="text-sm font-medium mb-2 block">
-              {t("startDate")}
-            </Label>
-            <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
-              <Calendar
-                mode="single"
-                selected={startDate}
-                month={calendarMonth}
-                onMonthChange={(month) => setCalendarMonth(month)}
-                onSelect={(date) => {
-                  if (date) {
-                    const newDate = createLocalDate(date);
-                    if (isSunday(newDate)) return;
-                    setStartDate(newDate);
-                    if (endDate && newDate > endDate) {
-                      setEndDate(newDate);
+              <div className="flex flex-col md:flex-row gap-8 w-full">
+                <div className="w-full md:w-1/2">
+                  <Label className="text-sm font-medium mb-2 block">
+                    {t("startDate")}
+                  </Label>
+                  <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
+                    <Calendar
+                      mode="single"
+                      selected={startDate}
+                      month={calendarMonth}
+                      onMonthChange={(month) => setCalendarMonth(month)}
+                      onSelect={(date) => {
+                        if (date) {
+                          const newDate = createLocalDate(date);
+                          if (isSunday(newDate)) return;
+                          setStartDate(newDate);
+                          if (endDate && newDate > endDate) {
+                            setEndDate(newDate);
+                          }
+                        }
+                      }}
+                      disabled={(date) => {
+                        if (!date) return true;
+                        const today = createLocalDate();
+                        const selectedDate = createLocalDate(date);
+                        if (selectedDate < today && !isSameDay(selectedDate, today)) return true;
+                        if (isSunday(selectedDate)) return true;
+                        if (isBlockedForSelectedStore(selectedDate)) return true;
+                        return false;
+                      }}
+                      modifiers={{ blocked: getBlockedDatesForSelectedStore().map(item => item.date) }}
+                      modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through opacity-60" }}
+                    />
+                  </div>
+                </div>
+                
+                <div className="w-full md:w-1/2">
+                  <Label className="text-sm font-medium mb-2 block">
+                    {t("endDate")}
+                  </Label>
+                  <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
+                    <Calendar
+                      mode="single"
+                      selected={endDate}
+                      month={calendarMonth}
+                      onMonthChange={(month) => setCalendarMonth(month)}
+                      onSelect={(date) => {
+                        if (date) {
+                          const newDate = createLocalDate(date);
+                          if (isSunday(newDate)) return;
+                          setEndDate(newDate);
+                        }
+                      }}
+                      disabled={(date) => {
+                        if (!date) return true;
+                        const today = createLocalDate();
+                        const selectedDate = createLocalDate(date);
+                        if (selectedDate < today && !isSameDay(selectedDate, today)) return true;
+                        if (isSunday(selectedDate)) return true;
+                        if (isBlockedForSelectedStore(selectedDate)) return true;
+                        if (startDate && selectedDate < createLocalDate(startDate)) return true;
+                        return false;
+                      }}
+                      modifiers={{ blocked: getBlockedDatesForSelectedStore().map(item => item.date) }}
+                      modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through opacity-60" }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {startDate && endDate && (
+                <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <Label className="text-sm font-medium mb-2 block">
+                      {t("pickupTime")}
+                    </Label>
+                    <Select
+                      value={pickupTime}
+                      onValueChange={setPickupTime}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {getTimeOptions(isSaturday(startDate)).map(time => (
+                          <SelectItem key={time} value={time}>{time}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium mb-2 block">
+                      {t("returnTime")}
+                    </Label>
+                    <Select
+                      value={returnTime}
+                      onValueChange={setReturnTime}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {getTimeOptions(isSaturday(endDate)).map(time => (
+                          <SelectItem key={time} value={time}>{time}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="md:col-span-2">
+                    <Label className="text-sm font-medium mb-2 block">
+                      Lugar de recogida y retorno
+                    </Label>
+                    <Select
+                      value={pickupLocation}
+                      onValueChange={(value) => {
+                        setPickupLocation(value);
+                        setReturnLocation(value);
+                        setSelectedBikes([]);
+                        setAvailableBikes([]);
+                        setBikeModels([]);
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locationOptions.map(location => (
+                          <SelectItem key={location.value} value={location.value}>
+                            {translateBikeContent(
+                              { 
+                                es: location.label_es, 
+                                en: location.label_en, 
+                                nl: location.label_nl 
+                              }, 
+                              language
+                            )}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {t("pickupReturnSameLocation")}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {startDate && endDate && (
+                <div className="mt-4 p-4 bg-green-50 rounded-lg">
+                  <p className="text-sm text-green-800">
+                    <strong>{t("duration")}:</strong>{" "}
+                    {calculateTotalDays(
+                      new Date(startDate),
+                      new Date(endDate),
+                      pickupTime,
+                      returnTime
+                    )}{" "}
+                    {t("days")}
+                  </p>
+
+                  <p className="text-sm text-green-800">
+                    <strong>{t("from")}:</strong>{" "}
+                    {formatDateForDisplay(startDate, language)} {pickupTime}{" "}
+                    <strong>{t("to")}:</strong>{" "}
+                    {formatDateForDisplay(endDate, language)} {returnTime}
+                  </p>
+
+                  <p className="text-sm text-green-800">
+                    <strong>{t("locationLabel")}:</strong>{" "}
+                    {translateBikeContent(
+                      { 
+                        es: locationOptions.find(loc => loc.value === pickupLocation)?.label_es || "",
+                        en: locationOptions.find(loc => loc.value === pickupLocation)?.label_en || "",
+                        nl: locationOptions.find(loc => loc.value === pickupLocation)?.label_nl || ""
+                      }, 
+                      language
+                    )}
+                  </p>
+
+                  <p className="mt-2 pt-2 text-base font-medium text-green-700 border-t border-green-200">
+                    {t("reservation24hInfo")}
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-6">
+                <Button
+                  onClick={() => {
+                    // Ir al paso correspondiente según el tipo
+                    if (isScooter) {
+                      setCurrentStep("scooters");
+                    } else {
+                      setCurrentStep("bikes");
                     }
-                  }
-                }}
-               disabled={(date) => {
-  if (!date) return true;
-  const today = createLocalDate();
-  const selectedDate = createLocalDate(date);
-  if (selectedDate < today && !isSameDay(selectedDate, today)) return true;
-  if (isSunday(selectedDate)) return true;
-  if (isBlockedForSelectedStore(selectedDate)) return true;
-  return false;
-}}
-              modifiers={{ blocked: getBlockedDatesForSelectedStore().map(item => item.date) }}
-              modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through opacity-60" }}
-              />
-            </div>
-          </div>
-          
-          <div className="w-full md:w-1/2">
-            <Label className="text-sm font-medium mb-2 block">
-              {t("endDate")}
-            </Label>
-            <div className="border rounded-lg p-0 bg-white overflow-hidden min-h-[320px]">
-              <Calendar
-                mode="single"
-                selected={endDate}
-                month={calendarMonth}
-                onMonthChange={(month) => setCalendarMonth(month)}
-                onSelect={(date) => {
-                  if (date) {
-                    const newDate = createLocalDate(date);
-                    if (isSunday(newDate)) return;
-                    setEndDate(newDate);
-                  }
-                }}
-              disabled={(date) => {
-  if (!date) return true;
-  const today = createLocalDate();
-  const selectedDate = createLocalDate(date);
-  if (selectedDate < today && !isSameDay(selectedDate, today)) return true;
-  if (isSunday(selectedDate)) return true;
-  if (isBlockedForSelectedStore(selectedDate)) return true;
-  if (startDate && selectedDate < createLocalDate(startDate)) return true;
-  return false;
-}}
-              modifiers={{ blocked: getBlockedDatesForSelectedStore().map(item => item.date) }}
-              modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through opacity-60" }}
-              />
-            </div>
-          </div>
-        </div>
-
-
-        {startDate && endDate && (
-          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <Label className="text-sm font-medium mb-2 block">
-                {t("pickupTime")}
-              </Label>
-              <Select
-                value={pickupTime}
-                onValueChange={setPickupTime}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {getTimeOptions(isSaturday(startDate)).map(time => (
-                    <SelectItem key={time} value={time}>{time}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-sm font-medium mb-2 block">
-                {t("returnTime")}
-              </Label>
-              <Select
-                value={returnTime}
-                onValueChange={setReturnTime}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {getTimeOptions(isSaturday(endDate)).map(time => (
-                    <SelectItem key={time} value={time}>{time}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            {/* SOLO UN SELECT PARA LA UBICACIÓN (RECOGIDA Y RETORNO SON EL MISMO) */}
-            <div className="md:col-span-2">
-              <Label className="text-sm font-medium mb-2 block">
-                Lugar de recogida y retorno
-              </Label>
-              <Select
-                value={pickupLocation}
-                onValueChange={(value) => {
-                  setPickupLocation(value);
-                  setReturnLocation(value); // Siempre el mismo lugar para recogida y retorno
-                  setSelectedBikes([]);
-                  setAvailableBikes([]);
-                  setBikeModels([]);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {locationOptions.map(location => (
-                    <SelectItem key={location.value} value={location.value}>
-                      {translateBikeContent(
-                        { 
-                          es: location.label_es, 
-                          en: location.label_en, 
-                          nl: location.label_nl 
-                        }, 
-                        language
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-gray-500 mt-1">
-  {t("pickupReturnSameLocation")}
-</p>
-            </div>
-          </div>
-        )}
-
-        {startDate && endDate && (
-          <div className="mt-4 p-4 bg-green-50 rounded-lg">
-  <p className="text-sm text-green-800">
-    <strong>{t("duration")}:</strong>{" "}
-    {calculateTotalDays(
-      new Date(startDate),
-      new Date(endDate),
-      pickupTime,
-      returnTime
-    )}{" "}
-    {t("days")}
-  </p>
-
-  <p className="text-sm text-green-800">
-    <strong>{t("from")}:</strong>{" "}
-    {formatDateForDisplay(startDate, language)} {pickupTime}{" "}
-    <strong>{t("to")}:</strong>{" "}
-    {formatDateForDisplay(endDate, language)} {returnTime}
-  </p>
-
-  <p className="text-sm text-green-800">
-    <strong>{t("locationLabel")}:</strong>{" "}
-    {translateBikeContent(
-      { 
-        es: locationOptions.find(loc => loc.value === pickupLocation)?.label_es || "",
-        en: locationOptions.find(loc => loc.value === pickupLocation)?.label_en || "",
-        nl: locationOptions.find(loc => loc.value === pickupLocation)?.label_nl || ""
-      }, 
-      language
-    )}
-  </p>
-
-  {/* TEXTO INFORMATIVO 24 HS */}
-  <p className="mt-2 pt-2 text-base font-medium text-green-700 border-t border-green-200">
-
-  {t("reservation24hInfo")}
-</p>
-
-</div>
-
-        )}
-
-        <div className="mt-6">
-          <Button
-            onClick={() => setCurrentStep("bikes")}
-            disabled={!startDate || !endDate}
-            className="w-full"
-          >
-            {t("continue")}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
+                  }}
+                  disabled={!startDate || !endDate}
+                  className="w-full"
+                >
+                  {t("continue")}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        );
 
       case "bikes":
-        const groupedModels = bikeModels.reduce(
+        const bikeModelsOnly = bikeModels.filter(
+          model => model.category !== "SCOOTER_MOVILIDAD"
+        );
+        
+        const groupedBikes = bikeModelsOnly.reduce(
           (acc, model) => {
             if (!acc[model.category]) {
               acc[model.category] = [];
@@ -2198,7 +2229,7 @@ const handleSubmitReservation = async () => {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ShoppingCart className="h-5 w-5" />
-                {t("selectBikes")}
+                {getStepTitle("bikes")}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -2229,7 +2260,7 @@ const handleSubmitReservation = async () => {
                 </div>
               ) : (
                 <>
-                  {Object.entries(groupedModels).map(([category, models]) => (
+                  {Object.entries(groupedBikes).map(([category, models]) => (
                     <div key={category} className="mb-8">
                       <h3 className="text-lg font-semibold mb-4">
                         {getCategoryName(category as BikeCategory)}
@@ -2240,106 +2271,103 @@ const handleSubmitReservation = async () => {
                           key={`${model.title_es}-${modelIndex}`}
                           className="mb-6 p-4 border rounded-lg"
                         >
-                         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-  <div className="flex items-start gap-4">
-    {/* Imagen con tap para ampliar en móvil */}
-    <div 
-      className="relative group cursor-pointer lg:cursor-default"
-      onClick={(e) => {
-        // Solo ejecutar en móvil (ancho menor a 1024px)
-        if (window.innerWidth < 1024 && model.imageUrl) {
-          const modal = document.createElement('div');
-          modal.className = 'fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4';
-          modal.onclick = (e) => {
-            if (e.target === modal) modal.remove();
-          };
-          modal.innerHTML = `
-            <div class="relative max-w-[90vw] max-h-[90vh]">
-              <img src="${model.imageUrl}" alt="Bike" class="max-w-full max-h-[90vh] object-contain rounded-lg" />
-              <button class="absolute -top-10 right-0 text-white text-3xl p-2" onclick="this.closest('div.fixed').remove()">✕</button>
-            </div>
-          `;
-          document.body.appendChild(modal);
-        }
-      }}
-    >
-      <div className="w-28 h-28 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden transition-transform duration-300 group-hover:scale-110 active:scale-95 lg:active:scale-100">
-        {model.imageUrl ? (
-          <img 
-            src={model.imageUrl} 
-            alt={translateBikeContent(
-              {
-                es: model.title_es,
-                en: model.title_en,
-                nl: model.title_nl,
-              },
-              language
-            )}
-            className="max-w-full max-h-full object-contain"
-          />
-        ) : (
-          <Bike className="h-14 w-14 text-gray-400" />
-        )}
-      </div>
-      
-      {/* Hover solo para PC */}
-      {model.imageUrl && (
-        <div className="absolute z-50 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all duration-300 bottom-full left-1/2 -translate-x-1/2 mb-2 pointer-events-none">
-          <div className="w-80 h-auto rounded-lg overflow-hidden shadow-2xl border-2 border-white bg-white p-2">
-            <img 
-              src={model.imageUrl} 
-              alt={translateBikeContent(
-                {
-                  es: model.title_es,
-                  en: model.title_en,
-                  nl: model.title_nl,
-                },
-                language
-              )}
-              className="w-full h-auto object-contain"
-            />
-          </div>
-          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-white rotate-45 border-r border-b border-gray-200"></div>
-        </div>
-      )}
-    </div>
-    
-    <div className="flex-1">
-      <h4 className="font-semibold">
-        {translateBikeContent(
-          {
-            es: model.title_es,
-            en: model.title_en,
-            nl: model.title_nl,
-          },
-          language
-        )}
-      </h4>
-      <p className="text-sm text-gray-600">
-        {translateBikeContent(
-          {
-            es: model.subtitle_es,
-            en: model.subtitle_en,
-            nl: model.subtitle_nl,
-          },
-          language
-        )}
-      </p>
-      <p className="text-sm font-medium text-green-600">
-        {calculatePrice(
-          model.category,
-          calculateTotalDays(
-            new Date(startDate!),
-            new Date(endDate!),
-            pickupTime,
-            returnTime
-          )
-        )}
-        {t("euro")}
-        {t("perDay")}
-      </p>
-    </div>
-  </div>
+                          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                            <div className="flex items-start gap-4">
+                              <div 
+                                className="relative group cursor-pointer lg:cursor-default"
+                                onClick={(e) => {
+                                  if (window.innerWidth < 1024 && model.imageUrl) {
+                                    const modal = document.createElement('div');
+                                    modal.className = 'fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4';
+                                    modal.onclick = (e) => {
+                                      if (e.target === modal) modal.remove();
+                                    };
+                                    modal.innerHTML = `
+                                      <div class="relative max-w-[90vw] max-h-[90vh]">
+                                        <img src="${model.imageUrl}" alt="Bike" class="max-w-full max-h-[90vh] object-contain rounded-lg" />
+                                        <button class="absolute -top-10 right-0 text-white text-3xl p-2" onclick="this.closest('div.fixed').remove()">✕</button>
+                                      </div>
+                                    `;
+                                    document.body.appendChild(modal);
+                                  }
+                                }}
+                              >
+                                <div className="w-28 h-28 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden transition-transform duration-300 group-hover:scale-110 active:scale-95 lg:active:scale-100">
+                                  {model.imageUrl ? (
+                                    <img 
+                                      src={model.imageUrl} 
+                                      alt={translateBikeContent(
+                                        {
+                                          es: model.title_es,
+                                          en: model.title_en,
+                                          nl: model.title_nl,
+                                        },
+                                        language
+                                      )}
+                                      className="max-w-full max-h-full object-contain"
+                                    />
+                                  ) : (
+                                    <Bike className="h-14 w-14 text-gray-400" />
+                                  )}
+                                </div>
+                                
+                                {model.imageUrl && (
+                                  <div className="absolute z-50 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all duration-300 bottom-full left-1/2 -translate-x-1/2 mb-2 pointer-events-none">
+                                    <div className="w-80 h-auto rounded-lg overflow-hidden shadow-2xl border-2 border-white bg-white p-2">
+                                      <img 
+                                        src={model.imageUrl} 
+                                        alt={translateBikeContent(
+                                          {
+                                            es: model.title_es,
+                                            en: model.title_en,
+                                            nl: model.title_nl,
+                                          },
+                                          language
+                                        )}
+                                        className="w-full h-auto object-contain"
+                                      />
+                                    </div>
+                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-white rotate-45 border-r border-b border-gray-200"></div>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              <div className="flex-1">
+                                <h4 className="font-semibold">
+                                  {translateBikeContent(
+                                    {
+                                      es: model.title_es,
+                                      en: model.title_en,
+                                      nl: model.title_nl,
+                                    },
+                                    language
+                                  )}
+                                </h4>
+                                <p className="text-sm text-gray-600">
+                                  {translateBikeContent(
+                                    {
+                                      es: model.subtitle_es,
+                                      en: model.subtitle_en,
+                                      nl: model.subtitle_nl,
+                                    },
+                                    language
+                                  )}
+                                </p>
+                                <p className="text-sm font-medium text-green-600">
+                                  {calculatePrice(
+                                    model.category,
+                                    calculateTotalDays(
+                                      new Date(startDate!),
+                                      new Date(endDate!),
+                                      pickupTime,
+                                      returnTime
+                                    )
+                                  )}
+                                  {t("euro")}
+                                  {t("perDay")}
+                                </p>
+                              </div>
+                            </div>
 
                             <div className="lg:col-span-2">
                               <Label className="text-sm font-medium mb-2 block">
@@ -2433,24 +2461,26 @@ const handleSubmitReservation = async () => {
                     </div>
                   ))}
 
-                  {selectedBikes.length > 0 && (
+                  {selectedBikes.filter(b => b.category !== "SCOOTER_MOVILIDAD").length > 0 && (
                     <div className="mt-6 p-4 bg-blue-50 rounded-lg">
                       <h4 className="font-semibold mb-2">
                         {t("selectedBikes")}:
                       </h4>
-                      {selectedBikes.map((bike, index) => (
-                        <p key={index} className="text-sm">
-                          {translateBikeContent(
-                            {
-                              es: bike.title_es,
-                              en: bike.title_en,
-                              nl: bike.title_nl,
-                            },
-                            language
-                          )}{" "}
-                          - {t("size")} {bike.size} x {bike.quantity}
-                        </p>
-                      ))}
+                      {selectedBikes
+                        .filter(b => b.category !== "SCOOTER_MOVILIDAD")
+                        .map((bike, index) => (
+                          <p key={index} className="text-sm">
+                            {translateBikeContent(
+                              {
+                                es: bike.title_es,
+                                en: bike.title_en,
+                                nl: bike.title_nl,
+                              },
+                              language
+                            )}{" "}
+                            - {t("size")} {bike.size} x {bike.quantity}
+                          </p>
+                        ))}
                     </div>
                   )}
 
@@ -2464,7 +2494,201 @@ const handleSubmitReservation = async () => {
                     </Button>
                     <Button
                       onClick={() => setCurrentStep("accessories")}
-                      disabled={selectedBikes.length === 0}
+                      disabled={selectedBikes.filter(b => b.category !== "SCOOTER_MOVILIDAD").length === 0}
+                      className="w-full sm:w-auto"
+                    >
+                      {t("continue")}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        );
+
+      case "scooters":
+        const scooterModels = bikeModels.filter(
+          model => model.category === "SCOOTER_MOVILIDAD"
+        );
+
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShoppingCart className="h-5 w-5" />
+                {getStepTitle("bikes")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StoreHoursNotice t={t} />
+              
+              {isLoadingBikes ? (
+                <div className="space-y-4">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="animate-pulse p-4 border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="w-16 h-16 bg-gray-200 rounded-lg"></div>
+                        <div className="space-y-2 flex-1">
+                          <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                          <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  {scooterModels.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-gray-500">{t("noScootersAvailable")}</p>
+                    </div>
+                  ) : (
+                    scooterModels.map((model) => {
+                      const totalAvailable = model.availableSizes.reduce(
+                        (sum, s) => sum + s.count, 0
+                      );
+                      const selectedScooter = selectedBikes.find(
+                        (b) => b.title_es === model.title_es && b.category === "SCOOTER_MOVILIDAD"
+                      );
+                      const currentQuantity = selectedScooter?.quantity || 0;
+
+                      return (
+                        <div key={model.title_es} className="mb-6 p-4 border rounded-lg">
+                          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                            <div className="flex items-start gap-4">
+                              <div className="w-28 h-28 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                {model.imageUrl ? (
+                                  <img 
+                                    src={model.imageUrl} 
+                                    alt={translateBikeContent(
+                                      { es: model.title_es, en: model.title_en, nl: model.title_nl },
+                                      language
+                                    )}
+                                    className="max-w-full max-h-full object-contain"
+                                  />
+                                ) : (
+                                  <Bike className="h-14 w-14 text-gray-400" />
+                                )}
+                              </div>
+                              <div className="flex-1">
+                                <h4 className="font-semibold">
+                                  {translateBikeContent(
+                                    { es: model.title_es, en: model.title_en, nl: model.title_nl },
+                                    language
+                                  )}
+                                </h4>
+                                <p className="text-sm text-gray-600">
+                                  {translateBikeContent(
+                                    { es: model.subtitle_es, en: model.subtitle_en, nl: model.subtitle_nl },
+                                    language
+                                  )}
+                                </p>
+                                <p className="text-sm font-medium text-green-600">
+                                  {calculatePrice(
+                                    model.category,
+                                    calculateTotalDays(
+                                      new Date(startDate!),
+                                      new Date(endDate!),
+                                      pickupTime,
+                                      returnTime
+                                    )
+                                  )}
+                                  {t("euro")}
+                                  {t("perDay")}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {t("available")}: {totalAvailable} {t("units")}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="lg:col-span-2">
+                              <Label className="text-sm font-medium mb-2 block">
+                                {t("quantity")}
+                              </Label>
+                              <div className="flex items-center gap-4">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    if (currentQuantity > 0) {
+                                      handleScooterSelection(model, currentQuantity - 1);
+                                    }
+                                  }}
+                                  disabled={currentQuantity === 0}
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </Button>
+
+                                <span className="w-8 text-center font-medium">
+                                  {currentQuantity}
+                                </span>
+
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    if (currentQuantity < totalAvailable) {
+                                      handleScooterSelection(model, currentQuantity + 1);
+                                    }
+                                  }}
+                                  disabled={currentQuantity >= totalAvailable}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </Button>
+                              </div>
+
+                              {currentQuantity > 0 && (
+                                <div className="mt-2 text-xs text-green-600">
+                                  {t("total")}:{" "}
+                                  {calculatePrice(
+                                    model.category,
+                                    calculateTotalDays(
+                                      new Date(startDate!),
+                                      new Date(endDate!),
+                                      pickupTime,
+                                      returnTime
+                                    )
+                                  ) * currentQuantity}
+                                  {t("euro")}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+
+                  {selectedBikes.filter(b => b.category === "SCOOTER_MOVILIDAD").length > 0 && (
+                    <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                      <h4 className="font-semibold mb-2">{t("selectedScooters")}:</h4>
+                      {selectedBikes
+                        .filter(b => b.category === "SCOOTER_MOVILIDAD")
+                        .map((scooter, index) => (
+                          <p key={index} className="text-sm">
+                            {translateBikeContent(
+                              { es: scooter.title_es, en: scooter.title_en, nl: scooter.title_nl },
+                              language
+                            )} x {scooter.quantity}
+                          </p>
+                        ))}
+                    </div>
+                  )}
+
+                  <div className="mt-6 flex flex-col gap-4 sm:flex-row">
+                    <Button
+                      variant="outline"
+                      onClick={() => setCurrentStep("dates")}
+                      className="w-full sm:w-auto"
+                    >
+                      {t("back")}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setCurrentStep("customer");
+                      }}
+                      disabled={selectedBikes.filter(b => b.category === "SCOOTER_MOVILIDAD").length === 0}
                       className="w-full sm:w-auto"
                     >
                       {t("continue")}
@@ -2477,6 +2701,16 @@ const handleSubmitReservation = async () => {
         );
 
       case "accessories":
+        if (isScooter) {
+          setTimeout(() => setCurrentStep("customer"), 100);
+          return (
+            <div className="flex items-center justify-center p-8">
+              <Loader2 className="animate-spin h-8 w-8 text-blue-500" />
+              <span className="ml-2">{t("redirecting")}...</span>
+            </div>
+          );
+        }
+
         const rentalDays = calculateTotalDays(
           new Date(startDate!),
           new Date(endDate!),
@@ -2485,17 +2719,17 @@ const handleSubmitReservation = async () => {
         );
 
         const bikeSubtotal = selectedBikes.reduce(
-  (total, bike) => {
-    const pricePerDay = calculatePrice(bike.category, rentalDays);
-    return total + (pricePerDay * rentalDays * bike.quantity);
-  },
-  0
-);
+          (total, bike) => {
+            const pricePerDay = calculatePrice(bike.category, rentalDays);
+            return total + (pricePerDay * rentalDays * bike.quantity);
+          },
+          0
+        );
 
         const accessoriesSubtotal = selectedAccessories.reduce(
-  (total, acc) => total + (acc.price ?? 0), // Maneja null como 0
-  0
-);
+          (total, acc) => total + (acc.price ?? 0),
+          0
+        );
 
         const insuranceSubtotal = hasInsurance
           ? Math.min(
@@ -2505,21 +2739,20 @@ const handleSubmitReservation = async () => {
           : 0;
 
         const depositTotal = selectedBikes.reduce((total, bike) => {
-  const deposit = Number(calculateDeposit(bike.category));
-  const quantity = Number(bike.quantity);
-  const subtotal = Number.isFinite(deposit) && Number.isFinite(quantity)
-    ? deposit * quantity
-    : 0;
-  return total + subtotal;
-}, 0);
-
+          const deposit = Number(calculateDeposit(bike.category));
+          const quantity = Number(bike.quantity);
+          const subtotal = Number.isFinite(deposit) && Number.isFinite(quantity)
+            ? deposit * quantity
+            : 0;
+          return total + subtotal;
+        }, 0);
 
         const orderTotal = bikeSubtotal + accessoriesSubtotal + insuranceSubtotal;
 
         return (
           <Card>
             <CardHeader>
-              <CardTitle>{t("accessoriesInsurance")}</CardTitle>
+              <CardTitle>{getStepTitle("accessories")}</CardTitle>
             </CardHeader>
             <CardContent>
               <StoreHoursNotice t={t} />
@@ -2558,10 +2791,10 @@ const handleSubmitReservation = async () => {
                                 language
                               )}
                             </Label>
-                           <p className="text-sm text-gray-600">
-  {accessory.price ?? 0} {/* Esto maneja el caso null como 0 */}
-  {t("euro")}
-</p>
+                            <p className="text-sm text-gray-600">
+                              {accessory.price ?? 0}
+                              {t("euro")}
+                            </p>
                           </div>
                         </div>
                       ))}
@@ -2652,10 +2885,12 @@ const handleSubmitReservation = async () => {
         );
 
       case "customer":
+        const isScooterCustomer = isScooterReservation();
+        
         return (
           <Card>
             <CardHeader>
-              <CardTitle>{t("customerData")}</CardTitle>
+              <CardTitle>{getStepTitle("customer")}</CardTitle>
             </CardHeader>
             <CardContent>
               <StoreHoursNotice t={t} />
@@ -2767,223 +3002,230 @@ const handleSubmitReservation = async () => {
               />
 
               <div className="mt-6 flex flex-col gap-4 sm:flex-row">
-  <Button
-    variant="outline"
-    onClick={() => setCurrentStep("accessories")}
-    className="w-full sm:w-auto"
-  >
-    {t("back")}
-  </Button>
-  <Button
-    onClick={handleSubmitReservation}
-    className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
-    disabled={isSubmitting}
-    data-button="submit-reservation"
-  >
-    {isSubmitting ? (
-      <>
-        <Loader2 className="animate-spin h-4 w-4 mr-2" />
-        Creando pago seguro...
-      </>
-    ) : isAdminMode ? (
-      t("continue")
-    ) : (
-      <>
-        <CreditCard className="h-4 w-4 mr-2" />
-        Pagar ahora 
-      </>
-    )}
-  </Button>
-</div>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (isScooterCustomer) {
+                      setCurrentStep("scooters");
+                    } else {
+                      setCurrentStep("accessories");
+                    }
+                  }}
+                  className="w-full sm:w-auto"
+                >
+                  {t("back")}
+                </Button>
+                <Button
+                  onClick={handleSubmitReservation}
+                  className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+                  disabled={isSubmitting}
+                  data-button="submit-reservation"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="animate-spin h-4 w-4 mr-2" />
+                      Creando pago seguro...
+                    </>
+                  ) : isAdminMode ? (
+                    t("continue")
+                  ) : (
+                    <>
+                      <CreditCard className="h-4 w-4 mr-2" />
+                      Pagar ahora 
+                    </>
+                  )}
+                </Button>
+              </div>
 
-{isSubmitting && (
-  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-    <p className="text-sm text-blue-700 flex items-center">
-      <Loader2 className="animate-spin h-3 w-3 mr-2" />
-      <strong>Procesando tu pago...</strong> Por favor no cierres esta ventana ni hagas clic nuevamente.
-    </p>
-  </div>
-)}
+              {isSubmitting && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-700 flex items-center">
+                    <Loader2 className="animate-spin h-3 w-3 mr-2" />
+                    <strong>Procesando tu pago...</strong> Por favor no cierres esta ventana ni hagas clic nuevamente.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         );
+
       case "payment":
-  if (isAdminMode) {
-    return null;
-  }
+        if (isAdminMode) {
+          return null;
+        }
 
-  // 🔒 Cálculo seguro de días de alquiler
-  const days = calculateTotalDays(
-    new Date(startDate),
-    new Date(endDate),
-    pickupTime,
-    returnTime
-  );
+        const isScooterPayment = isScooterReservation();
+        const days = calculateTotalDays(
+          new Date(startDate),
+          new Date(endDate),
+          pickupTime,
+          returnTime
+        );
 
-  // Validación importante para evitar NaN/undefined
-  if (!Number.isFinite(days) || days <= 0) {
-    console.error("❌ Días de alquiler inválidos:", days, {
-      startDate,
-      endDate,
-      pickupTime,
-      returnTime
-    });
-    return (
-      <div className="text-red-500 p-4 border border-red-200 bg-red-50 rounded-lg">
-        Error: La duración del alquiler no es válida. Por favor, selecciona fechas válidas.
-      </div>
-    );
-  }
-
-  // Cálculo correcto del precio por días reales
-  const bikeSubtotalPayment = selectedBikes.reduce((total, bike) => {
-    const pricePerDay = calculatePrice(bike.category, days);
-    return total + (pricePerDay * days * bike.quantity);
-  }, 0);
-
-  const accessoriesSubtotalPayment = selectedAccessories.reduce(
-    (total, acc) => total + (acc.price ?? 0), // Maneja null como 0
-    0
-  );
-
-  const insuranceSubtotalPayment = hasInsurance
-    ? calculateInsurance(days) * selectedBikes.reduce((t, b) => t + b.quantity, 0)
-    : 0;
-
-  const orderTotalPayment = bikeSubtotalPayment + accessoriesSubtotalPayment + insuranceSubtotalPayment;
-
-  // Validación adicional del monto
-  if (orderTotalPayment <= 0) {
-    console.error("❌ Monto total inválido:", orderTotalPayment);
-    return (
-      <div className="text-red-500 p-4 border border-red-200 bg-red-50 rounded-lg">
-        Error: El monto total debe ser mayor a 0. Por favor, verifica tu selección.
-      </div>
-    );
-  }
-
-  const depositTotalPayment = selectedBikes.reduce(
-    (total, bike) => total + calculateDeposit(bike.category) * bike.quantity,
-    0
-  );
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CreditCard className="h-5 w-5" />
-          {t("paymentDetails")}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <StoreHoursNotice t={t} />
-        
-        <div className="bg-gray-50 p-4 rounded-lg mb-6">
-          <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
-          <div className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span>
-                {t("bikes")} (
-                {selectedBikes.reduce((total, bike) => total + bike.quantity, 0)}
-                )
-              </span>
-              <span>
-                {bikeSubtotalPayment.toFixed(2)}
-                {t("euro")}
-              </span>
+        if (!Number.isFinite(days) || days <= 0) {
+          console.error("❌ Días de alquiler inválidos:", days, {
+            startDate,
+            endDate,
+            pickupTime,
+            returnTime
+          });
+          return (
+            <div className="text-red-500 p-4 border border-red-200 bg-red-50 rounded-lg">
+              Error: La duración del alquiler no es válida. Por favor, selecciona fechas válidas.
             </div>
+          );
+        }
 
-            {selectedAccessories.length > 0 && (
-              <div className="flex justify-between">
-                <span>{t("accessories")}</span>
-                <span>
-                  {accessoriesSubtotalPayment.toFixed(2)}
-                  {t("euro")}
-                </span>
+        const bikeSubtotalPayment = selectedBikes.reduce((total, bike) => {
+          const pricePerDay = calculatePrice(bike.category, days);
+          return total + (pricePerDay * days * bike.quantity);
+        }, 0);
+
+        const accessoriesSubtotalPayment = selectedAccessories.reduce(
+          (total, acc) => total + (acc.price ?? 0),
+          0
+        );
+
+        const insuranceSubtotalPayment = (!isScooterPayment && hasInsurance)
+          ? calculateInsurance(days) * selectedBikes.reduce((t, b) => t + b.quantity, 0)
+          : 0;
+
+        const orderTotalPayment = bikeSubtotalPayment + accessoriesSubtotalPayment + insuranceSubtotalPayment;
+
+        if (orderTotalPayment <= 0) {
+          console.error("❌ Monto total inválido:", orderTotalPayment);
+          return (
+            <div className="text-red-500 p-4 border border-red-200 bg-red-50 rounded-lg">
+              Error: El monto total debe ser mayor a 0. Por favor, verifica tu selección.
+            </div>
+          );
+        }
+
+        const depositTotalPayment = selectedBikes.reduce(
+          (total, bike) => total + calculateDeposit(bike.category) * bike.quantity,
+          0
+        );
+
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5" />
+                {getStepTitle("payment")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StoreHoursNotice t={t} />
+              
+              <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span>
+                      {isScooterPayment ? t("scooters") : t("bikes")} (
+                      {selectedBikes.reduce((total, bike) => total + bike.quantity, 0)}
+                      )
+                    </span>
+                    <span>
+                      {bikeSubtotalPayment.toFixed(2)}
+                      {t("euro")}
+                    </span>
+                  </div>
+
+                  {!isScooterPayment && selectedAccessories.length > 0 && (
+                    <div className="flex justify-between">
+                      <span>{t("accessories")}</span>
+                      <span>
+                        {accessoriesSubtotalPayment.toFixed(2)}
+                        {t("euro")}
+                      </span>
+                    </div>
+                  )}
+
+                  {!isScooterPayment && hasInsurance && (
+                    <div className="flex justify-between">
+                      <span>{t("insurance")}</span>
+                      <span>
+                        {insuranceSubtotalPayment.toFixed(2)}
+                        {t("euro")}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="border-t pt-1 flex justify-between font-semibold">
+                    <span>{t("total")}</span>
+                    <span>
+                      {orderTotalPayment.toFixed(2)}
+                      {t("euro")}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between text-orange-600">
+                    <span>{t("depositCash")}</span>
+                    <span>
+                      {depositTotalPayment.toFixed(2)}
+                      {t("euro")}
+                    </span>
+                  </div>
+                </div>
               </div>
-            )}
 
-            {hasInsurance && (
-              <div className="flex justify-between">
-                <span>{t("insurance")}</span>
-                <span>
-                  {insuranceSubtotalPayment.toFixed(2)}
-                  {t("euro")}
-                </span>
-              </div>
-            )}
+              <Elements 
+                stripe={stripePromise}
+                options={{
+                  clientSecret: clientSecret || '',
+                  locale: language === 'es' ? 'es' : language === 'nl' ? 'nl' : 'en',
+                  appearance: {
+                    theme: 'stripe',
+                    variables: {
+                      colorPrimary: '#4f46e5',
+                      colorBackground: '#ffffff',
+                      colorText: '#30313d',
+                      fontFamily: 'Inter, system-ui, sans-serif',
+                    }
+                  }
+                }}
+              >
+                <StripePaymentForm 
+                  clientSecret={clientSecret!}
+                  customerData={customerData}
+                  calculateTotal={() => orderTotalPayment}
+                  setCurrentStep={setCurrentStep}
+                  setPaymentError={setPaymentError}
+                  sendConfirmationEmail={sendConfirmationEmail}
+                  setSelectedBikes={setSelectedBikes}
+                  setClientSecret={setClientSecret}
+                  language={language}
+                  selectedBikes={selectedBikes}
+                  selectedAccessories={selectedAccessories}
+                  hasInsurance={hasInsurance}
+                  startDate={startDate}
+                  endDate={endDate}
+                  pickupTime={pickupTime}
+                  returnTime={returnTime}
+                  t={t}
+                  reservationType={reservationType}
+                />
+              </Elements>
 
-            <div className="border-t pt-1 flex justify-between font-semibold">
-              <span>{t("total")}</span>
-              <span>
-                {orderTotalPayment.toFixed(2)}
-                {t("euro")}
-              </span>
-            </div>
-
-            <div className="flex justify-between text-orange-600">
-              <span>{t("depositCash")}</span>
-              <span>
-                {depositTotalPayment.toFixed(2)}
-                {t("euro")}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <Elements 
-          stripe={stripePromise}
-          options={{
-            clientSecret: clientSecret || '',
-            locale: language === 'es' ? 'es' : language === 'nl' ? 'nl' : 'en',
-            appearance: {
-              theme: 'stripe',
-              variables: {
-                colorPrimary: '#4f46e5',
-                colorBackground: '#ffffff',
-                colorText: '#30313d',
-                fontFamily: 'Inter, system-ui, sans-serif',
-              }
-            }
-          }}
-        >
-          <StripePaymentForm 
-            clientSecret={clientSecret!}
-            customerData={customerData}
-            calculateTotal={() => orderTotalPayment}
-            setCurrentStep={setCurrentStep}
-            setPaymentError={setPaymentError}
-            sendConfirmationEmail={sendConfirmationEmail}
-            setSelectedBikes={setSelectedBikes}
-            setClientSecret={setClientSecret}
-            language={language}
-            selectedBikes={selectedBikes}
-            selectedAccessories={selectedAccessories}
-            hasInsurance={hasInsurance}
-            startDate={startDate}
-            endDate={endDate}
-            pickupTime={pickupTime}
-            returnTime={returnTime}
-            t={t}
-          />
-        </Elements>
-
-        {paymentError && (
-          <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg">
-            {paymentError}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+              {paymentError && (
+                <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg">
+                  {paymentError}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
 
       case "confirmation":
+        const isScooterConfirmation = isScooterReservation();
+        
         return (
           <Card>
             <CardHeader>
               <CardTitle className={`flex items-center gap-2 ${paymentError ? 'text-red-600' : 'text-green-600'}`}>
                 <CheckCircle className="h-5 w-5" />
-                {paymentError ? t("paymentFailed") : t("reservationConfirmed")}
+                {paymentError ? t("paymentFailed") : getStepTitle("confirmation")}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -3050,15 +3292,19 @@ const handleSubmitReservation = async () => {
       <div className="max-w-4xl mx-auto px-2 sm:px-4 md:px-6 lg:px-8">
         <div className="mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4">
-            {t("reserve")}{" "}
+          
+{isScooterReservation() ? `🛴 ${t("scooters")}` : `🚲 ${t("reserveBikes")}`}
             {isAdminMode && <Badge variant="secondary">Modo Admin</Badge>}
           </h1>
 
           <div className="flex items-center flex-nowrap gap-2 md:gap-4 mb-8 overflow-x-auto sm:overflow-x-visible sm:justify-between pb-2">
             {[
               { key: "dates", label: t("dates"), icon: CalendarDays },
-              { key: "bikes", label: t("bikes"), icon: ShoppingCart },
-              { key: "accessories", label: t("accessories"), icon: ShoppingCart },
+              ...(isScooterReservation() ? 
+                [{ key: "scooters", label: t("scooters"), icon: ShoppingCart }] :
+                [{ key: "bikes", label: t("bikes"), icon: ShoppingCart }]
+              ),
+              ...(!isScooterReservation() ? [{ key: "accessories", label: t("accessories"), icon: ShoppingCart }] : []),
               { key: "customer", label: t("customerData"), icon: CreditCard },
               ...(isAdminMode
                 ? []

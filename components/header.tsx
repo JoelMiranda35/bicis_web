@@ -14,55 +14,74 @@ export function Header() {
 
   return (
     <header className="bg-white shadow-sm sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-24">
-          <div className="flex items-center">
-            {/* Altea Bike Shop con link */}
-            <Link href="https://alteabikeshop.com" target="_blank" className="flex items-center">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
+        <div className="flex justify-between items-center h-16 md:h-20">
+          {/* Logos - Nombres completos visibles */}
+          <div className="flex items-center flex-1 min-w-0 gap-1 md:gap-2">
+            <Link href="https://alteabikeshop.com" target="_blank" className="flex items-center flex-shrink-0">
               <Image 
                 src="/images/logo.jpg" 
                 alt="Altea Bike Shop" 
-                width={50} 
-                height={50} 
-                className="rounded-full" 
+                width={32} 
+                height={32} 
+                className="rounded-full md:w-10 md:h-10 object-cover" 
               />
-              <span className="ml-2 text-xl font-bold text-gray-900">Altea Bike Shop</span>
+              <span className="ml-1.5 text-xs md:text-base font-bold text-gray-900 whitespace-nowrap">
+                Altea Bike Shop
+              </span>
             </Link>
             
-            {/* Separador */}
-            <span className="mx-4 text-gray-300 text-xl">|</span>
+            <span className="mx-1 md:mx-2 text-gray-300 text-sm md:text-lg">|</span>
             
-            {/* Albir Cycling con link - Texto al costado en desktop, debajo en móvil */}
-            <Link href="https://albir-cycling.com" target="_blank" className="flex flex-col items-center md:flex-row md:items-center">
+            <Link href="https://albir-cycling.com" target="_blank" className="flex items-center flex-shrink-0">
               <Image 
                 src="/images/albir-cycling-logo.jpeg" 
                 alt="Albir Cycling" 
-                width={200} 
-                height={200} 
-                className="rounded-full" 
+                width={60} 
+                height={30} 
+                className="md:w-20 md:h-10 object-contain" 
+                style={{ width: 'auto', height: '28px' }}
               />
-              <span className="mt-2 md:mt-0 md:ml-3 text-xl font-bold text-gray-900">Albir Cycling</span>
+              <span className="ml-1 md:ml-2 text-xs md:text-base font-bold text-gray-900 whitespace-nowrap">
+                Albir Cycling
+              </span>
             </Link>
           </div>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center space-x-8">
-            <Link href="/" className="text-gray-700 hover:text-green-600 transition-colors">
+          <nav className="hidden md:flex items-center space-x-2 lg:space-x-3">
+            <Link href="/" className="text-gray-700 hover:text-green-600 transition-colors text-xs lg:text-sm whitespace-nowrap">
               {t("home")}
             </Link>
-            <Link href="/catalog" className="text-gray-700 hover:text-green-600 transition-colors">
+            <Link href="/catalog" className="text-gray-700 hover:text-green-600 transition-colors text-xs lg:text-sm whitespace-nowrap">
               {t("catalog")}
             </Link>
-            <Link href="/reserve" className="text-gray-700 hover:text-green-600 transition-colors">
-              {t("reserve")}
+            
+            {/* ✅ BOTONES PEQUEÑOS SIN ICONOS */}
+            <Link href="/reserve?type=bikes">
+              <Button 
+                variant="default"
+                className="bg-green-600 hover:bg-green-700 text-white text-[10px] lg:text-xs h-6 lg:h-7 px-2 lg:px-2.5 whitespace-nowrap"
+              >
+                {t("reserveBikes")}
+              </Button>
             </Link>
+            <Link href="/reserve?type=scooters">
+              <Button 
+                variant="default"
+                className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] lg:text-xs h-6 lg:h-7 px-2 lg:px-2.5 whitespace-nowrap"
+              >
+                {t("reserveScooters")}
+              </Button>
+            </Link>
+            
             <LanguageSelector />
           </nav>
 
-          {/* Mobile menu button - Solo el botón del menú */}
+          {/* Mobile menu button */}
           <div className="md:hidden flex items-center">
-            <Button variant="ghost" size="icon" onClick={() => setIsMenuOpen(!isMenuOpen)}>
-              {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            <Button variant="ghost" size="icon" onClick={() => setIsMenuOpen(!isMenuOpen)} className="h-8 w-8">
+              {isMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
             </Button>
           </div>
         </div>
@@ -70,31 +89,49 @@ export function Header() {
         {/* Mobile Navigation */}
         {isMenuOpen && (
           <div className="md:hidden">
-            <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 bg-white border-t">
+            <div className="px-3 pt-2 pb-3 space-y-1.5 bg-white border-t">
               <Link
                 href="/"
-                className="block px-3 py-2 text-gray-700 hover:text-green-600 transition-colors"
+                className="block px-3 py-2 text-gray-700 hover:text-green-600 hover:bg-gray-50 rounded-lg transition-colors text-sm"
                 onClick={() => setIsMenuOpen(false)}
               >
                 {t("home")}
               </Link>
               <Link
                 href="/catalog"
-                className="block px-3 py-2 text-gray-700 hover:text-green-600 transition-colors"
+                className="block px-3 py-2 text-gray-700 hover:text-green-600 hover:bg-gray-50 rounded-lg transition-colors text-sm"
                 onClick={() => setIsMenuOpen(false)}
               >
                 {t("catalog")}
               </Link>
+              
+              {/* ✅ BOTONES EN MÓVIL */}
               <Link
-                href="/reserve"
-                className="block px-3 py-2 text-gray-700 hover:text-green-600 transition-colors"
+                href="/reserve?type=bikes"
+                className="block px-3 py-1"
                 onClick={() => setIsMenuOpen(false)}
               >
-                {t("reserve")}
+                <Button 
+                  variant="default"
+                  className="w-full bg-green-600 hover:bg-green-700 text-white text-sm h-8"
+                >
+                  {t("reserveBikes")}
+                </Button>
+              </Link>
+              <Link
+                href="/reserve?type=scooters"
+                className="block px-3 py-1"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                <Button 
+                  variant="default"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm h-8"
+                >
+                  {t("reserveScooters")}
+                </Button>
               </Link>
               
-              {/* Language Selector en el menú móvil */}
-              <div className="px-3 py-2">
+              <div className="px-3 pt-1">
                 <LanguageSelector />
               </div>
             </div>

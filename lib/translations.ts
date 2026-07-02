@@ -53,7 +53,19 @@ export type TranslationKey =
   | 'alteaLocationDesc1' | 'viewOnGoogleMaps'
   | 'albirCyclingTitle' | 'albirCyclingSubtitle' | 'albirHowToGetHere'
   | 'reservation24hInfo'
-  | 'albirLocationDesc1' ;
+  | 'albirLocationDesc1'
+  // ✅ NUEVAS TRADUCCIONES PARA SCOOTER MOVILIDAD
+  | 'reserveBikes'
+  | 'reserveScooters'
+  | 'selectScooters'
+  | 'selectedScooters'
+  | 'noScootersAvailable'
+  | 'scooterReservationConfirmed'
+  | 'customerDataScooter'
+  | 'paymentDetailsScooter'
+  | 'scooters'
+  | 'units'
+  | 'redirecting';
 
 interface AmountParams {
   amount: number;
@@ -220,7 +232,6 @@ const translations = {
     pay: "Pay",
     goBack: "Go Back",
     payOnline: "Pay",
-    // Nuevas traducciones agregadas
     pickupReturnLocation: "Pickup and return location",
     pickupReturnSameLocation: "Pickup and return must be at the same location",
     locationAltea: "Altea Bike Shop",
@@ -243,7 +254,6 @@ const translations = {
     albirLocationTitle: "Albir Cycling", 
     albirLocationDesc: "Our location in L'Alfàs del Pi",
     locationLabel: "Location",
-    // Nuevas traducciones para page.tsx
     alteaBikeShopTitle: "Altea Bike Shop",
     alteaBikeShopSubtitle: "Our main location in the heart of Altea",
     alteaHowToGetHere: "How to get to Altea Bike Shop",
@@ -253,8 +263,19 @@ const translations = {
     albirCyclingSubtitle: "Our location in L'Alfàs del Pi",
     albirHowToGetHere: "How to get to Albir Cycling",
     albirLocationDesc1: "Our location is on Avenida l'Albir opposite the Lidl supermarket, close to the beautiful Albir beach and promenade.",
-    reservation24hInfo:"For reservations made less than 24 hours in advance, the earliest pickup time is 11:00.",
-
+    reservation24hInfo: "For reservations made less than 24 hours in advance, the earliest pickup time is 11:00.",
+    // ✅ NUEVAS TRADUCCIONES PARA SCOOTER MOVILIDAD
+    reserveBikes: "Reserve Bikes",
+    reserveScooters: "Reserve Mobility Scooter",
+    selectScooters: "Select Mobility Scooter",
+    selectedScooters: "Mobility Scooter Selected",
+    noScootersAvailable: "No mobility scooters available on these dates",
+    scooterReservationConfirmed: "Mobility Scooter Reservation Confirmed!",
+    customerDataScooter: "Customer Data - Mobility Scooter",
+    paymentDetailsScooter: "Payment Details - Mobility Scooter",
+    scooters: "Mobility Scooter",
+    units: "units",
+    redirecting: "Redirecting..."
   },
   es: {
     home: "Inicio",
@@ -403,7 +424,6 @@ const translations = {
     pay: "Pagar",
     goBack: "Volver Atrás",
     payOnline: "Pagar",
-    // Nuevas traducciones agregadas
     pickupReturnLocation: "Lugar de recogida y retorno",
     pickupReturnSameLocation: "El lugar de recogida y retorno debe ser el mismo",
     locationAltea: "Altea Bike Shop",
@@ -426,7 +446,6 @@ const translations = {
     albirLocationTitle: "Albir Cycling",
     albirLocationDesc: "Nuestra ubicación en L'Alfàs del Pi",
     locationLabel: "Ubicación",
-    // Nuevas traducciones para page.tsx
     alteaBikeShopTitle: "Altea Bike Shop",
     alteaBikeShopSubtitle: "Nuestra ubicación principal en el corazón de Altea",
     alteaHowToGetHere: "Cómo llegar a Altea Bike Shop",
@@ -436,8 +455,19 @@ const translations = {
     albirCyclingSubtitle: "Nuestra ubicación en L'Alfàs del Pi",
     albirHowToGetHere: "Cómo llegar a Albir Cycling",
     albirLocationDesc1: "Nuestra ubicacion es sobre la avenida del albir frente al supermercado lidl, cerca de la bonita playa de Albir y el paseo marítimo.",
-     reservation24hInfo:"Para las reservas realizadas con menos de 24 hrs de anticipación, el horario mínimo de recogida es 11:00.",
-
+    reservation24hInfo: "Para las reservas realizadas con menos de 24 hrs de anticipación, el horario mínimo de recogida es 11:00.",
+    // ✅ NUEVAS TRADUCCIONES PARA SCOOTER MOVILIDAD
+    reserveBikes: "Reservar Bicicletas",
+    reserveScooters: "Reservar Scooter Movilidad",
+    selectScooters: "Seleccionar Scooter Movilidad",
+    selectedScooters: "Scooter Movilidad seleccionados",
+    noScootersAvailable: "No hay scooters de movilidad disponibles en estas fechas",
+    scooterReservationConfirmed: "¡Reserva de Scooter Movilidad Confirmada!",
+    customerDataScooter: "Datos del Cliente - Scooter Movilidad",
+    paymentDetailsScooter: "Detalles de Pago - Scooter Movilidad",
+    scooters: "Scooter Movilidad",
+    units: "unidades",
+    redirecting: "Redirigiendo..."
   },
   nl: {
     home: "Home",
@@ -586,7 +616,6 @@ const translations = {
     pay: "Betalen",
     goBack: "Teruggaan",
     payOnline: "Betalen",
-    // Nuevas traducciones agregadas
     pickupReturnLocation: "Ophaal- en retouradres",
     pickupReturnSameLocation: "Ophaal- en retouradres moeten hetzelfde zijn",
     locationAltea: "Altea Bike Shop",
@@ -609,7 +638,6 @@ const translations = {
     albirLocationTitle: "Albir Cycling",
     albirLocationDesc: "Onze locatie in L'Alfàs del Pi",
     locationLabel: "Locatie",
-    // Nuevas traducciones para page.tsx
     alteaBikeShopTitle: "Altea Bike Shop",
     alteaBikeShopSubtitle: "Onze hoofdlocatie in het hart van Altea",
     alteaHowToGetHere: "Hoe kom ik bij Altea Bike Shop",
@@ -619,12 +647,21 @@ const translations = {
     albirCyclingSubtitle: "Onze locatie in L'Alfàs del Pi",
     albirHowToGetHere: "Hoe kom ik bij Albir Cycling",
     albirLocationDesc1: "Onze locatie bevindt zich aan de Avenida L'Albir tegenover de Lidl supermarkt, dicht bij het prachtige Albir strand en de promenade.",
-    reservation24hInfo:"Voor reserveringen die minder dan 24 uur van tevoren worden gemaakt, is de vroegste ophaaltijd 11:00.",
-
+    reservation24hInfo: "Voor reserveringen die minder dan 24 uur van tevoren worden gemaakt, is de vroegste ophaaltijd 11:00.",
+    // ✅ NUEVAS TRADUCCIONES PARA SCOOTER MOVILIDAD
+    reserveBikes: "Fietsen Reserveren",
+    reserveScooters: "Mobiliteitsscooter Reserveren",
+    selectScooters: "Selecteer Mobiliteitsscooter",
+    selectedScooters: "Mobiliteitsscooter Geselecteerd",
+    noScootersAvailable: "Geen mobiliteitsscooters beschikbaar op deze datums",
+    scooterReservationConfirmed: "Mobiliteitsscooter Reservering Bevestigd!",
+    customerDataScooter: "Klantgegevens - Mobiliteitsscooter",
+    paymentDetailsScooter: "Betalingsgegevens - Mobiliteitsscooter",
+    scooters: "Mobiliteitsscooter",
+    units: "eenheden",
+    redirecting: "Doorverwijzen..."
   }
 } as const;
-
-
 
 export const getTranslation = (language: Language) => {
   return (key: TranslationKey, params?: Record<string, any>): string => {

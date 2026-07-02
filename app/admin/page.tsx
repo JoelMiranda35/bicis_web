@@ -190,12 +190,14 @@ export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [credentials, setCredentials] = useState({ username: "", password: "" })
   const [bikes, setBikes] = useState<any[]>([])
+  const [scooters, setScooters] = useState<any[]>([]) // ✅ NUEVO: Estado para scooters
   const [accessories, setAccessories] = useState<any[]>([])
   const [reservations, setReservations] = useState<any[]>([])
   const [filteredReservations, setFilteredReservations] = useState<any[]>([])
   const [editingBike, setEditingBike] = useState<any>(null)
+  const [editingScooter, setEditingScooter] = useState<any>(null) // ✅ NUEVO
   const [editingAccessory, setEditingAccessory] = useState<any>(null)
-  const [isCreatingReservation, setIsCreatingReservation] = useState(false); // <-- NUEVO
+  const [isCreatingReservation, setIsCreatingReservation] = useState(false);
   const [newReservation, setNewReservation] = useState<any>({
   customer_name: "",
   customer_email: "",
@@ -205,7 +207,7 @@ export default function AdminPage() {
   end_date: createLocalDate(),
   pickup_time: "10:00",
   return_time: "18:00",
- pickup_location: "sucursal_altea", // ← Cambiado para coincidir con la BD
+ pickup_location: "sucursal_altea",
   return_location: "sucursal_altea",
   bikes: [],
   accessories: [],
@@ -252,20 +254,16 @@ export default function AdminPage() {
       return isWithinInterval(resDate, { start: selectedStart, end: selectedEnd })
     })
 
-    // Filtro por estado
     if (statusFilter !== "all") {
       filtered = filtered.filter(res => res.status === statusFilter)
     }
 
-    // Filtro por ubicación
 if (locationFilter !== "all") {
   filtered = filtered.filter(
     res => res.pickup_location === locationFilter
   )
 }
 
-
-    // Filtro por búsqueda
     if (searchTerm.trim() !== "") {
       const term = searchTerm.toLowerCase().trim()
       filtered = filtered.filter(res => 
@@ -323,9 +321,7 @@ if (locationFilter !== "all") {
     if (accessoriesRes.error) throw accessoriesRes.error
     if (reservationsRes.error) throw reservationsRes.error
 
-    // CORRECCIÓN: Asegurar que las fechas se parsean correctamente
     const formattedReservations = (reservationsRes.data || []).map(res => {
-      // Verificar que las fechas existan antes de parsear
       const startDate = res.start_date ? parseDateFromDB(res.start_date) : createLocalDate();
       const endDate = res.end_date ? parseDateFromDB(res.end_date) : createLocalDate();
       
@@ -336,7 +332,13 @@ if (locationFilter !== "all") {
       };
     });
 
-    setBikes(bikesRes.data || [])
+    // ✅ FILTRAR: Bicicletas (excluyendo scooters) y Scooters
+    const allBikes = bikesRes.data || [];
+    const bikesOnly = allBikes.filter(bike => bike.category !== "SCOOTER_MOVILIDAD");
+    const scootersOnly = allBikes.filter(bike => bike.category === "SCOOTER_MOVILIDAD");
+
+    setBikes(bikesOnly);
+    setScooters(scootersOnly);
     setAccessories(accessoriesRes.data || [])
     setReservations(formattedReservations)
     await fetchBlockedDates()
@@ -434,7 +436,6 @@ const toggleBlockedDate = async (date: Date, locationParam?: string) => {
 
 const deleteCancelledReservationsOfMonth = async () => {
   try {
-    // Confirmar acción
     const confirmDelete = window.confirm(
       `¿Estás seguro de que quieres BORRAR todas las reservas CANCELADAS del mes ${format(selectedMonth, 'MMMM yyyy', { locale: es })}?\n\n` +
       `Esta acción NO se puede deshacer.`
@@ -442,7 +443,6 @@ const deleteCancelledReservationsOfMonth = async () => {
     
     if (!confirmDelete) return;
 
-    // Calcular inicio y fin del mes seleccionado
     const monthStart = startOfMonth(selectedMonth);
     const monthEnd = endOfMonth(selectedMonth);
 
@@ -452,7 +452,6 @@ const deleteCancelledReservationsOfMonth = async () => {
       hasta: monthEnd
     });
 
-    // Buscar reservas canceladas del mes
     const { data: cancelledReservations, error: fetchError } = await supabase
       .from('reservations')
       .select('id, customer_name, start_date')
@@ -480,7 +479,6 @@ const deleteCancelledReservationsOfMonth = async () => {
 
     console.log(`📋 Encontradas ${cancelledReservations.length} reservas canceladas para borrar`);
 
-    // Confirmar cantidad
     const confirmCount = window.confirm(
       `Se encontraron ${cancelledReservations.length} reserva(s) cancelada(s).\n\n` +
       `¿Confirmas que quieres borrarlas TODAS?`
@@ -488,16 +486,14 @@ const deleteCancelledReservationsOfMonth = async () => {
 
     if (!confirmCount) return;
 
-    // Borrar todas
     const idsToDelete = cancelledReservations.map(r => r.id);
     
-    // 🔒 PROTECCIÓN: Doble verificación - SOLO borra si status='cancelled'
     const { data: deletedData, error: deleteError } = await supabase
       .from('reservations')
       .delete()
       .in('id', idsToDelete)
-      .eq('status', 'cancelled')  // ✅ CRÍTICO: Doble verificación de seguridad
-      .select();  // Devolver las reservas borradas para verificar
+      .eq('status', 'cancelled')
+      .select();
 
     if (deleteError) {
       console.error('Error borrando reservas:', deleteError);
@@ -509,7 +505,6 @@ const deleteCancelledReservationsOfMonth = async () => {
       return;
     }
 
-    // ✅ VERIFICACIÓN: Comparar cuántas se encontraron vs cuántas se borraron
     const actualDeleted = deletedData?.length || 0;
     
     if (actualDeleted < cancelledReservations.length) {
@@ -526,7 +521,6 @@ const deleteCancelledReservationsOfMonth = async () => {
       description: `Se borraron ${actualDeleted} reserva(s) cancelada(s) de ${format(selectedMonth, 'MMMM yyyy', { locale: es })}`,
     });
 
-    // Recargar datos
     fetchData();
 
   } catch (error) {
@@ -541,7 +535,6 @@ const deleteCancelledReservationsOfMonth = async () => {
 
 // ============================================
 // 🔧 fetchAvailableBikes - VERSIÓN CORREGIDA
-//    Reemplazar COMPLETAMENTE la función
 // ============================================
 
 const fetchAvailableBikes = async () => {
@@ -550,7 +543,6 @@ const fetchAvailableBikes = async () => {
   try {
     setIsLoadingBikes(true);
 
-    // 1️⃣ Traer TODAS las bicis DISPONIBLES
     const { data: allBikes, error: bikesError } = await supabase
       .from("bikes")
       .select("*")
@@ -562,7 +554,6 @@ const fetchAvailableBikes = async () => {
       return;
     }
 
-    // ✅ CORREGIDO: Usar forceSpainDate en lugar de convertToMadridTime
     const selStart = forceSpainDate(
       new Date(newReservation.start_date), 
       newReservation.pickup_time
@@ -580,7 +571,6 @@ const fetchAvailableBikes = async () => {
       finEspaña: selEnd.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })
     });
 
-    // 3️⃣ Traer TODAS las reservas CONFIRMADAS o EN PROCESO
     const { data: reservations, error: resError } = await supabase
       .from("reservations")
       .select("bikes, start_date, end_date, pickup_time, return_time, status")
@@ -588,11 +578,9 @@ const fetchAvailableBikes = async () => {
 
     if (resError) throw resError;
 
-    // 4️⃣ 🔥 CRÍTICO: Extraer TODOS los bike_ids de TODAS las reservas que SOLAPAN
     const reservedBikeIds = new Set<string>();
 
     (reservations || []).forEach(res => {
-      // ✅ CORREGIDO: Usar forceSpainDate para cada reserva
       const resStart = forceSpainDate(
         new Date(res.start_date), 
         res.pickup_time
@@ -603,7 +591,6 @@ const fetchAvailableBikes = async () => {
         res.return_time
       );
 
-      // ✅ Verificar SOLAPAMIENTO REAL
       const overlap = selStart < resEnd && selEnd > resStart;
 
       if (overlap) {
@@ -629,7 +616,6 @@ const fetchAvailableBikes = async () => {
       }
     });
 
-    // 5️⃣ Excluir bicis de esta reserva (si es edición)
     if (newReservation.id) {
       newReservation.bikes.forEach((bike: any) => {
         if (bike.all_ids && Array.isArray(bike.all_ids)) {
@@ -640,10 +626,8 @@ const fetchAvailableBikes = async () => {
       });
     }
 
-    // 6️⃣ Filtrar bicis NO reservadas
     const availableIndividualBikes = allBikes.filter(b => !reservedBikeIds.has(b.id.trim()));
 
-    // 7️⃣ Agrupar por modelo y talla
     const groupedBikesMap = new Map();
     
     availableIndividualBikes.forEach(bike => {
@@ -673,7 +657,6 @@ const fetchAvailableBikes = async () => {
 
     const availableGroups = Array.from(groupedBikesMap.values());
 
-    // 8️⃣ LOGS PARA DEPURACIÓN
     console.log("=== 🟢 DISPONIBILIDAD ADMIN CORREGIDA ===");
     console.log("📅 Fechas:", newReservation.start_date, "-", newReservation.end_date);
     console.log("⏰ Horas:", newReservation.pickup_time, "-", newReservation.return_time);
@@ -840,6 +823,99 @@ const fetchAvailableBikes = async () => {
     }
   }
 
+  // ✅ NUEVO: Guardar Scooter
+  const saveScooter = async (scooterData: any, imageFile?: File) => {
+    try {
+      setError(null)
+      let imageUrl = scooterData.image_url
+
+      if (imageFile) {
+        const uploadedUrl = await handleImageUpload(
+          imageFile,
+          scooterData.id || Date.now().toString(),
+          "bike"
+        )
+        if (uploadedUrl) {
+          imageUrl = uploadedUrl
+        } else {
+          return
+        }
+      }
+
+      // Asegurar que la categoría sea SCOOTER_MOVILIDAD
+      const dataToSave = {
+        ...scooterData,
+        category: "SCOOTER_MOVILIDAD",
+        image_url: imageUrl,
+      }
+
+      let result
+      if (scooterData.id) {
+        result = await supabase
+          .from("bikes")
+          .update(dataToSave)
+          .eq("id", scooterData.id)
+          .select()
+      } else {
+        result = await supabase
+          .from("bikes")
+          .insert([dataToSave])
+          .select()
+      }
+
+      if (result.error) throw result.error
+
+      await fetchData()
+      setEditingScooter(null)
+      
+      toast({
+        title: "Scooter guardado",
+        description: scooterData.id ? "Scooter actualizado correctamente" : "Scooter creado correctamente",
+        variant: "default",
+        action: <CheckCircle className="h-5 w-5 text-green-500" />,
+      })
+    } catch (error: any) {
+      setError(`Error al guardar el scooter: ${error.message}`)
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+        action: <AlertCircle className="h-5 w-5 text-red-500" />,
+      })
+    }
+  }
+
+  // ✅ NUEVO: Eliminar Scooter
+  const deleteScooter = async (id: string) => {
+    if (confirm("¿Estás seguro de eliminar este scooter?")) {
+      try {
+        setError(null)
+        const { error } = await supabase
+          .from("bikes")
+          .delete()
+          .eq("id", id)
+
+        if (error) throw error
+
+        await fetchData()
+        toast({
+          title: "Scooter eliminado",
+          description: "El scooter se ha eliminado correctamente",
+          variant: "default",
+          action: <CheckCircle className="h-5 w-5 text-green-500" />,
+        })
+      } catch (error: any) {
+        setError(`Error al eliminar el scooter: ${error.message}`)
+        toast({
+          title: "Error",
+          description: error.message,
+          variant: "destructive",
+          action: <AlertCircle className="h-5 w-5 text-red-500" />,
+        })
+      }
+    }
+  }
+
   const deleteBike = async (id: string) => {
     if (confirm("¿Estás seguro de eliminar esta bicicleta?")) {
       try {
@@ -963,38 +1039,9 @@ const fetchAvailableBikes = async () => {
       }
     }
   }
-<div className="flex items-center gap-2 mb-4">
-  <Label className="mr-2">Idioma:</Label>
-  <div className="flex gap-2">
-    <Button
-      type="button"
-      size="sm"
-      variant={newReservation.locale === "es" ? "default" : "outline"}
-      onClick={() => setNewReservation({ ...newReservation, locale: "es" })}
-    >
-      ES
-    </Button>
-    <Button
-      type="button"
-      size="sm"
-      variant={newReservation.locale === "en" ? "default" : "outline"}
-      onClick={() => setNewReservation({ ...newReservation, locale: "en" })}
-    >
-      EN
-    </Button>
-    <Button
-      type="button"
-      size="sm"
-      variant={newReservation.locale === "nl" ? "default" : "outline"}
-      onClick={() => setNewReservation({ ...newReservation, locale: "nl" })}
-    >
-      NL
-    </Button>
-  </div>
-</div>
+
 // ============================================
 // ✅ CREATE RESERVATION - VERSIÓN DEFINITIVA
-//    Reemplazar COMPLETAMENTE en admin/page.tsx
 // ============================================
 
 const createReservation = async () => {
@@ -1010,9 +1057,6 @@ const createReservation = async () => {
     setIsCreatingReservation(true);
     console.log("DEBUG: Estado actual de newReservation:", newReservation);
 
-    // ===============================
-    // CÁLCULO DE DÍAS (CORREGIDO CON forceSpainDate)
-    // ===============================
     console.log("DEBUG: Calculando días totales...");
     const days = calculateTotalDays(
       new Date(newReservation.start_date),
@@ -1022,9 +1066,6 @@ const createReservation = async () => {
     );
     console.log("DEBUG: Días calculados:", days);
 
-    // ===============================
-    // ARMAR BICIS PARA DB
-    // ===============================
     console.log("DEBUG: Preparando bicis para BD...");
     const bikesForDB = newReservation.bikes.map((bike: any) => {
       const pricePerDay = calculatePrice(bike.category, days);
@@ -1046,9 +1087,6 @@ const createReservation = async () => {
     });
     console.log("DEBUG: Bicis para BD:", bikesForDB);
 
-    // ===============================
-    // TOTALES
-    // ===============================
     console.log("DEBUG: Calculando totales...");
     let totalAmount = 0;
     let depositAmount = 0;
@@ -1080,12 +1118,8 @@ const createReservation = async () => {
 
     console.log("DEBUG: Total final:", totalAmount);
 
-    // ===============================
-    // 🔥 VALIDACIÓN DE SOLAPAMIENTO CORREGIDA CON forceSpainDate
-    // ===============================
     console.log("DEBUG: Validando solapamiento de fechas...");
     
-    // ✅ USAR forceSpainDate PARA AMBAS FECHAS
     const startSpain = forceSpainDate(newReservation.start_date, newReservation.pickup_time);
     const endSpain = forceSpainDate(newReservation.end_date, newReservation.return_time);
 
@@ -1094,7 +1128,6 @@ const createReservation = async () => {
       endSpain: endSpain.toISOString()
     });
 
-    // Buscar TODAS las reservas confirmadas o en proceso
     const { data: overlappingReservations, error: overlapError } = await supabase
       .from("reservations")
       .select("start_date, end_date, pickup_time, return_time, bikes, status")
@@ -1107,7 +1140,6 @@ const createReservation = async () => {
 
     console.log("DEBUG: Total reservas activas en sistema:", overlappingReservations?.length || 0);
 
-    // Extraer TODOS los IDs de bicis seleccionadas
     const selectedBikeIds = newReservation.bikes.flatMap((bike: any) => 
       bike.all_ids || [bike.id]
     );
@@ -1118,13 +1150,10 @@ const createReservation = async () => {
     let conflictingBikes: string[] = [];
     let reservasConConflicto: string[] = [];
     
-    // Revisar cada reserva existente
     overlappingReservations?.forEach((res: any) => {
-      // ✅ USAR forceSpainDate PARA CADA RESERVA
       const resStart = forceSpainDate(new Date(res.start_date), res.pickup_time);
       const resEnd = forceSpainDate(new Date(res.end_date), res.return_time);
       
-      // Verificar solapamiento REAL
       const overlaps = resStart < endSpain && resEnd > startSpain;
       
       if (overlaps) {
@@ -1134,7 +1163,6 @@ const createReservation = async () => {
           bikesData.forEach((bikeGroup: any) => {
             const reservedBikeIds = bikeGroup.bike_ids || [];
             
-            // Verificar si alguna bici seleccionada está en esta reserva
             const duplicateBikes = selectedBikeIds.filter((id: string) => 
               reservedBikeIds.includes(id)
             );
@@ -1169,9 +1197,6 @@ const createReservation = async () => {
       console.log("DEBUG: ✅ No hay conflictos de bicis específicas");
     }
 
-    // ===============================
-    // INSERT FINAL
-    // ===============================
     console.log("DEBUG: Preparando datos para insertar en BD...");
     
     const dataToSave = {
@@ -1219,9 +1244,6 @@ const createReservation = async () => {
       description: "La reserva se creó correctamente.",
     });
 
-    // ===============================
-    // RESETEAR FORMULARIO
-    // ===============================
     console.log("DEBUG: Reseteando formulario...");
     
     setNewReservation({
@@ -1312,17 +1334,13 @@ const createReservation = async () => {
     }
   };
 const toggleBikeSelection = (bikeGroup: any) => {
-  // Verificar si ya está seleccionado
   const index = newReservation.bikes.findIndex((b: any) => b.key === bikeGroup.key);
 
   if (index >= 0) {
-    // Si ya existe, lo quitamos (toggle simple)
     const newBikes = [...newReservation.bikes];
     newBikes.splice(index, 1);
     setNewReservation({ ...newReservation, bikes: newBikes });
   } else {
-    // Si no existe, lo agregamos (cantidad 1)
-    // CORRECCIÓN: Aseguramos capturar el ID de la primera bici física del grupo
     const firstRealBikeId = bikeGroup.bikes && bikeGroup.bikes.length > 0
       ? bikeGroup.bikes[0].id
       : bikeGroup.id;
@@ -1333,8 +1351,8 @@ const toggleBikeSelection = (bikeGroup: any) => {
         ...newReservation.bikes,
         {
           key: bikeGroup.key,
-          id: bikeGroup.id, // ID representativo para mostrar info
-          all_ids: [firstRealBikeId], // <--- IMPORTANTE: Guardamos el ID único físico
+          id: bikeGroup.id,
+          all_ids: [firstRealBikeId],
           title: bikeGroup.title_es,
           size: bikeGroup.size,
           category: bikeGroup.category,
@@ -1369,19 +1387,7 @@ const toggleBikeSelection = (bikeGroup: any) => {
   }
   
 // ============================================
-// ✅ BLOQUE 1 - CORREGIR CÁLCULO DE DÍAS
-//    Reemplazar en admin/page.tsx
-// ============================================
-
-// ============================================
-// ✅ BLOQUE 1 - CORREGIR CÁLCULO DE DÍAS
-//    Reemplazar función calculateTotalDays COMPLETA
-//    Ubicación: admin/page.tsx (línea ~100)
-// ============================================
-
-// ============================================
 // ✅ CALCULATE TOTAL DAYS - VERSIÓN DEFINITIVA
-//    Reemplazar COMPLETAMENTE en admin/page.tsx
 // ============================================
 
 const calculateTotalDays = (
@@ -1391,7 +1397,6 @@ const calculateTotalDays = (
   returnTime: string
 ): number => {
   try {
-    // ✅ USAR forceSpainDate PARA AMBAS FECHAS
     const startSpain = forceSpainDate(startDate, pickupTime);
     const endSpain = forceSpainDate(endDate, returnTime);
     
@@ -1404,24 +1409,21 @@ const calculateTotalDays = (
       endSpain: endSpain.toISOString()
     });
     
-    // Si es el mismo día, retornar 1
     if (startSpain.toDateString() === endSpain.toDateString()) {
       console.log("DEBUG [calculateTotalDays]: Mismo día = 1");
       return 1;
     }
     
-    // Calcular diferencia en días (redondear hacia arriba)
     const diffTime = endSpain.getTime() - startSpain.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
     console.log("DEBUG [calculateTotalDays]: Días calculados =", diffDays);
     
-    // Mínimo 1 día, máximo 30 días
     return Math.max(1, Math.min(diffDays, 30));
     
   } catch (error) {
     console.error("❌ Error en calculateTotalDays:", error);
-    return 1; // Valor por defecto seguro
+    return 1;
   }
 };
 
@@ -1446,18 +1448,15 @@ const calculateTotalPrice = () => {
 
   let total = 0;
 
-  // Bicis (precio por día x días x cantidad)
   newReservation.bikes.forEach((bike: any) => {
     const pricePerDay = calculatePrice(bike.category, days);
     total += pricePerDay * days * (bike.quantity || 1);
   });
 
-  // Accesorios (precio fijo)
   newReservation.accessories.forEach((acc: any) => {
     total += acc.price || 0;
   });
 
-  // Seguro (si aplica)
   if (newReservation.insurance) {
     total +=
       calculateInsurance(days) *
@@ -1561,7 +1560,8 @@ const calculateTotalPrice = () => {
 
         <Tabs defaultValue="reservations" className="space-y-6">
           <TabsList>
-            <TabsTrigger value="bikes">Bicicletas</TabsTrigger>
+            <TabsTrigger value="bikes">🚲 Bicicletas</TabsTrigger>
+            <TabsTrigger value="scooters">🛴 Scooters</TabsTrigger> {/* ✅ NUEVO */}
             <TabsTrigger value="accessories">Accesorios</TabsTrigger>
             <TabsTrigger value="reservations">Reservas</TabsTrigger>
             <TabsTrigger value="create-reservation">Nueva Reserva</TabsTrigger>
@@ -1646,6 +1646,94 @@ const calculateTotalPrice = () => {
                           <Edit className="h-3 w-3" />
                         </Button>
                         <Button size="sm" variant="destructive" onClick={() => deleteBike(bike.id)}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ✅ NUEVA PESTAÑA: SCOOTERS */}
+          <TabsContent value="scooters">
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle>Gestión de Scooters</CardTitle>
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button
+                        onClick={() =>
+                          setEditingScooter({
+                            title_es: "",
+                            title_en: "",
+                            title_nl: "",
+                            subtitle_es: "",
+                            subtitle_en: "",
+                            subtitle_nl: "",
+                            category: "SCOOTER_MOVILIDAD",
+                            size: "M", // Los scooters no usan talla pero lo mantenemos
+                            available: true,
+                            image_url: "",
+                          })
+                        }
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Nuevo Scooter
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>{editingScooter?.id ? "Editar" : "Nuevo"} Scooter</DialogTitle>
+                      </DialogHeader>
+                      <ScooterForm scooter={editingScooter} onSave={saveScooter} onCancel={() => setEditingScooter(null)} />
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {scooters.map((scooter) => (
+                    <div key={scooter.id} className="border rounded-lg p-4">
+                      <div className="aspect-video bg-gray-100 rounded mb-3 relative">
+                        {scooter.image_url ? (
+                          <img
+                            src={scooter.image_url}
+                            alt={scooter.title_es || scooter.title || ""}
+                            className="w-full h-full object-cover rounded"
+                            onError={(e) => {
+                              const target = e.currentTarget
+                              target.style.display = "none"
+                              const fallback = target.parentElement?.querySelector(".fallback-icon")
+                              if (fallback) {
+                                (fallback as HTMLElement).style.display = "flex"
+                              }
+                            }}
+                          />
+                        ) : null}
+                        <div
+                          className={`absolute inset-0 flex items-center justify-center fallback-icon ${
+                            scooter.image_url ? "hidden" : "flex"
+                          }`}
+                        >
+                          <Bike className="h-8 w-8 text-gray-400" />
+                        </div>
+                      </div>
+                      <h3 className="font-semibold">{scooter.title_es || scooter.title}</h3>
+                      <p className="text-sm text-gray-600">{scooter.subtitle_es || scooter.subtitle}</p>
+                      <div className="flex gap-2 mt-2">
+                        <Badge className="bg-blue-100 text-blue-700">🛴 Scooter</Badge>
+                        <Badge variant={scooter.available ? "default" : "destructive"}>
+                          {scooter.available ? "Disponible" : "No disponible"}
+                        </Badge>
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <Button size="sm" variant="outline" onClick={() => setEditingScooter(scooter)}>
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => deleteScooter(scooter.id)}>
                           <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>
@@ -1755,6 +1843,7 @@ const calculateTotalPrice = () => {
             </Card>
           </TabsContent>
 
+          {/* Resto del código de reservas, create-reservation y blocked-dates permanece igual */}
           <TabsContent value="reservations">
   <Card>
     <CardHeader>
@@ -1762,7 +1851,6 @@ const calculateTotalPrice = () => {
     <CardTitle>Gestión de Reservas</CardTitle>
     
     <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
-      {/* Buscador */}
       <div className="relative">
         <Input
           placeholder="Buscar por nombre y apellido"
@@ -1772,7 +1860,6 @@ const calculateTotalPrice = () => {
         />
       </div>
 
-      {/* Filtro por estado */}
       <Select value={statusFilter} onValueChange={setStatusFilter}>
         <SelectTrigger className="w-full md:w-40">
           <SelectValue placeholder="Estado" />
@@ -1786,27 +1873,21 @@ const calculateTotalPrice = () => {
         </SelectContent>
       </Select>
 
-      {/* Filtro por ubicación */}
 <Select value={locationFilter} onValueChange={setLocationFilter}>
   <SelectTrigger className="w-full md:w-64">
     <SelectValue placeholder="Ubicación" />
   </SelectTrigger>
   <SelectContent>
     <SelectItem value="all">Todas las ubicaciones</SelectItem>
-
     <SelectItem value="sucursal_altea">
       Altea Bike Shop - Calle la Tella 2, Altea
     </SelectItem>
-
     <SelectItem value="sucursal_albir">
       Albir Cycling - Av del Albir 159, El Albir
     </SelectItem>
   </SelectContent>
 </Select>
 
-
-      {/* Selector de mes (corregido para incluir meses futuros) */}
-{/* Selector de mes (automático desde primer mes con reservas) */}
 <Select 
   value={selectedMonth.toISOString()} 
   onValueChange={(value) => setSelectedMonth(new Date(value))}
@@ -1821,15 +1902,13 @@ const calculateTotalPrice = () => {
       const options = [];
       const today = new Date();
       
-      // Encontrar el mes más antiguo con reservas, o usar fecha fija si no hay
       const oldestReservation = reservations.length > 0 
         ? new Date(Math.min(...reservations.map(r => new Date(r.start_date).getTime())))
-        : new Date(2024, 0, 1); // Fecha por defecto si no hay reservas
+        : new Date(2024, 0, 1);
       
       const startDate = new Date(oldestReservation.getFullYear(), oldestReservation.getMonth(), 1);
       const endDate = new Date(today.getFullYear(), today.getMonth() + 12, 1);
       
-      // Agregar todos los meses
       let current = new Date(startDate);
       while (current <= endDate) {
         options.push(new Date(current));
@@ -1847,7 +1926,6 @@ const calculateTotalPrice = () => {
     </div>
   </div>
 
-  {/* 🗑️ BOTÓN PARA BORRAR CANCELADAS DEL MES */}
   <div className="mt-4 flex justify-end">
     <Button
       variant="outline"
@@ -1915,11 +1993,11 @@ const calculateTotalPrice = () => {
                     <Badge
   className={
     reservation.status === "confirmed"
-      ? "bg-black text-white hover:bg-gray-800 border-black" // ← NEGRO para confirmadas
+      ? "bg-black text-white hover:bg-gray-800 border-black"
       : reservation.status === "in_process"
       ? "bg-blue-500 text-white hover:bg-blue-600 border-blue-600"
       : reservation.status === "completed"
-      ? "bg-green-500 text-white hover:bg-green-600 border-green-600" // ← VERDE para completadas
+      ? "bg-green-500 text-white hover:bg-green-600 border-green-600"
       : reservation.status === "cancelled"
       ? "bg-red-500 text-white hover:bg-red-600 border-red-600"
       : "bg-gray-500 text-white hover:bg-gray-600 border-gray-600"
@@ -1954,7 +2032,6 @@ const calculateTotalPrice = () => {
                   <div>
   <h4 className="font-medium mb-2">Bicicletas:</h4>
   {(() => {
-    // Agrupar bicicletas duplicadas por modelo y talla
     const groupedBikes = reservation.bikes?.reduce((acc: any[], bike: any) => {
       const bikeName = bike.title_es || bike.title || bike.model;
       const key = `${bikeName}-${bike.size}`;
@@ -1998,8 +2075,7 @@ const calculateTotalPrice = () => {
           ))
         )}
       </div>
-     {/* Indicador de resultados filtrados */}
-{(statusFilter !== "all" || searchTerm.trim() !== "" || locationFilter !== "all") && (
+     {(statusFilter !== "all" || searchTerm.trim() !== "" || locationFilter !== "all") && (
   <div className="mt-4 p-3 bg-blue-50 rounded-lg">
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="font-medium">Filtros aplicados:</span>
@@ -2137,7 +2213,6 @@ const calculateTotalPrice = () => {
                 setNewReservation({
                   ...newReservation,
                   start_date: newDate,
-                  // Si la fecha de fin es anterior a la nueva fecha de inicio, actualizarla
                   end_date: newReservation.end_date && newDate > newReservation.end_date ? newDate : newReservation.end_date,
                   pickup_time: isSaturday ? "10:00" : "10:00",
                   return_time: isSaturday ? "14:00" : "18:00",
@@ -2190,13 +2265,9 @@ const calculateTotalPrice = () => {
                   return;
                 }
 
-                // CORRECCIÓN COMPLETA: Permitir cualquier fecha válida
-                // Si selecciona una fecha anterior al inicio, mostrar advertencia pero permitirlo
                 if (newReservation.start_date && newDate < newReservation.start_date) {
-                  // En lugar de bloquear, mostramos advertencia pero permitimos la selección
                   setError("Advertencia: La fecha de fin es anterior a la fecha de inicio. Se ajustará automáticamente.");
                   
-                  // Ajustamos automáticamente la fecha de inicio
                   setNewReservation({
                     ...newReservation,
                     start_date: newDate,
@@ -2205,7 +2276,6 @@ const calculateTotalPrice = () => {
                     return_time: isSaturday(newDate) ? "14:00" : "18:00",
                   });
                 } else {
-                  // Fecha normal - igual o posterior al inicio
                   const isSaturday = newDate.getDay() === 6;
                   setNewReservation({
                     ...newReservation,
@@ -2221,18 +2291,14 @@ const calculateTotalPrice = () => {
                 const today = createLocalDate();
                 const selectedDate = date ? createLocalDate(date) : new Date();
                 
-                // No permitir fechas pasadas (excepto si es el día actual)
                 if (selectedDate < today && !isSameDay(selectedDate, today)) {
                   return true;
                 }
                 
-                // No permitir domingos
                 if (isSunday(selectedDate)) return true;
 
-                // No permitir días bloqueados
                 if (blockedDates.some((item) => isSameDay(item.date, selectedDate) && (item.location === "all" || item.location === newReservation.pickup_location))) return true;
                 
-                // PERMITIR TODAS LAS FECHAS VÁLIDAS - sin restricción por fecha de inicio
                 return false;
               }}
               modifiers={{ blocked: blockedDates.filter(item => item.location === "all" || item.location === newReservation.pickup_location).map(item => item.date) }}
@@ -2287,7 +2353,6 @@ const calculateTotalPrice = () => {
   </div>
 </div>
 
-{/* NUEVO: Selector de ubicación */}
 <div className="md:col-span-2">
   <Label>Lugar de recogida y retorno*</Label>
   <Select
@@ -2296,7 +2361,7 @@ const calculateTotalPrice = () => {
       setNewReservation({
         ...newReservation,
         pickup_location: value,
-        return_location: value // Siempre el mismo lugar para recogida y retorno
+        return_location: value
       });
     }}
   >
@@ -2386,7 +2451,6 @@ const calculateTotalPrice = () => {
 
 {reservationStep === "bikes" && (
   <>
-    {/* RESUMEN CORRECTO (ÚNICO) */}
     {newReservation.start_date && newReservation.end_date && (
       <div className="p-4 bg-gray-50 rounded-lg mt-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2498,7 +2562,6 @@ const calculateTotalPrice = () => {
                     </p>
                   </div>
                   
-                  {/* CONTADOR CON BOTONES +/- - NUEVO */}
                   <div className="flex flex-col items-center">
                     <div className="flex items-center gap-2 mb-2">
                       <Button
@@ -2516,7 +2579,6 @@ const calculateTotalPrice = () => {
 
                             if (updatedBike.quantity > 1) {
                               updatedBike.quantity--;
-                              // Eliminar el último ID
                               if (updatedBike.all_ids && updatedBike.all_ids.length > 0) {
                                 const newIds = [...updatedBike.all_ids];
                                 newIds.pop();
@@ -2524,7 +2586,6 @@ const calculateTotalPrice = () => {
                               }
                               newBikes[idx] = updatedBike;
                             } else {
-                              // Eliminar completamente
                               newBikes.splice(idx, 1);
                             }
                             
@@ -2556,7 +2617,6 @@ const calculateTotalPrice = () => {
                               const updatedBike = { ...newBikes[idx] };
                               updatedBike.quantity++;
                               
-                              // Agregar ID de la siguiente bici disponible
                               const nextIndex = updatedBike.quantity - 1;
                               const nextBike = bikeGroup.bikes[nextIndex];
 
@@ -2573,7 +2633,6 @@ const calculateTotalPrice = () => {
                                 bikes: newBikes,
                               });
                             } else {
-                              // Primera selección
                               const firstRealBikeId = bikeGroup.bikes && bikeGroup.bikes.length > 0
                                 ? bikeGroup.bikes[0].id
                                 : bikeGroup.id;
@@ -2639,7 +2698,6 @@ const calculateTotalPrice = () => {
                   </div>
                 </div>
 
-                {/* Indicador visual de cantidad seleccionada */}
                 {selectedCount > 0 && (
                   <div className="mt-2 pt-2 border-t">
                     <p className="text-xs text-green-600 text-center">
@@ -2906,8 +2964,7 @@ const calculateTotalPrice = () => {
               customer_email: e.target.value,
             })
           }
-          required
-        />
+          required        />
       </div>
       <div>
         <Label htmlFor="customer_phone">Teléfono*</Label>
@@ -2943,7 +3000,6 @@ const calculateTotalPrice = () => {
       <Button 
         variant="outline" 
         onClick={() => {
-          // LOG: Botón "Volver a Accesorios" funciona
           console.log("DEBUG: Botón Volver a Accesorios clickeado");
           setReservationStep("accessories");
         }}
@@ -2952,12 +3008,10 @@ const calculateTotalPrice = () => {
       </Button>
       <Button 
         onClick={() => {
-          // LOG: Verificar que el botón se está ejecutando
           console.log("DEBUG: Botón Confirmar Reserva clickeado");
           console.log("DEBUG: Datos de reserva:", newReservation);
           console.log("DEBUG: isCreatingReservation estado:", isCreatingReservation);
           
-          // LOG: Verificar si el botón está deshabilitado
           const isDisabled = !newReservation.customer_name || 
             !newReservation.customer_email || 
             !newReservation.customer_phone || 
@@ -3011,11 +3065,9 @@ const calculateTotalPrice = () => {
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
 
-                  {/* Columna izquierda: Calendario interactivo */}
                   <div>
                     <h3 className="font-semibold mb-3 text-sm text-gray-700">Seleccioná los días a bloquear</h3>
 
-                    {/* Leyenda */}
                     <div className="flex flex-wrap gap-4 mb-4 text-sm">
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 rounded-full bg-red-500"></div>
@@ -3031,7 +3083,6 @@ const calculateTotalPrice = () => {
                       </div>
                     </div>
 
-                    {/* Tienda a bloquear */}
                     <div className="mb-4">
                       <Label className="text-sm">Aplicar cierre a</Label>
                       <Select value={blockedLocation} onValueChange={setBlockedLocation}>
@@ -3047,7 +3098,6 @@ const calculateTotalPrice = () => {
                       <p className="text-xs text-gray-500 mt-1">Se aplicará al siguiente día que bloquees</p>
                     </div>
 
-                    {/* Razón opcional */}
                     <div className="mb-4">
                       <Label className="text-sm">Razón del bloqueo (opcional)</Label>
                       <Input
@@ -3107,7 +3157,6 @@ const calculateTotalPrice = () => {
                       }}
                     />
 
-                    {/* Tooltip flotante para razón del bloqueo */}
                     {hoveredBlockedReason && (
                       <div
                         className="fixed z-50 pointer-events-none"
@@ -3125,7 +3174,6 @@ const calculateTotalPrice = () => {
                     </p>
                   </div>
 
-                  {/* Columna derecha: Lista de días bloqueados */}
                   <div>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-semibold text-sm text-gray-700">
@@ -3217,6 +3265,18 @@ const calculateTotalPrice = () => {
           </Dialog>
         )}
 
+        {/* ✅ NUEVO: Dialog para editar Scooter */}
+        {editingScooter && (
+          <Dialog open={!!editingScooter} onOpenChange={() => setEditingScooter(null)}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>{editingScooter?.id ? "Editar" : "Nuevo"} Scooter</DialogTitle>
+              </DialogHeader>
+              <ScooterForm scooter={editingScooter} onSave={saveScooter} onCancel={() => setEditingScooter(null)} />
+            </DialogContent>
+          </Dialog>
+        )}
+
         {editingAccessory && (
           <Dialog open={!!editingAccessory} onOpenChange={() => setEditingAccessory(null)}>
             <DialogContent className="max-w-md">
@@ -3235,6 +3295,236 @@ const calculateTotalPrice = () => {
     </div>
   )
 }
+
+// ✅ NUEVO: ScooterForm - Formulario para Scooters (sin talla)
+// ✅ NUEVO: ScooterForm MEJORADO - Formulario para Scooters (sin talla)
+function ScooterForm({ scooter, onSave, onCancel }: any) {
+  const [formData, setFormData] = useState({
+    title_es: scooter?.title_es || "",
+    title_en: scooter?.title_en || "",
+    title_nl: scooter?.title_nl || "",
+    subtitle_es: scooter?.subtitle_es || "",
+    subtitle_en: scooter?.subtitle_en || "",
+    subtitle_nl: scooter?.subtitle_nl || "",
+    category: "SCOOTER_MOVILIDAD",
+    size: "M",
+    available: scooter?.available ?? true,
+    image_url: scooter?.image_url || "",
+  })
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(scooter?.image_url || null)
+  const [isUploading, setIsUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null
+    setImageFile(file)
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    } else {
+      setImagePreview(null)
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsUploading(true)
+    setError(null)
+    try {
+      if (!formData.title_es || !formData.subtitle_es) {
+        throw new Error("Los campos en español son obligatorios")
+      }
+      await onSave({ ...scooter, ...formData }, imageFile)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+          {error}
+        </div>
+      )}
+
+      {/* Header con ícono y descripción */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+        <div className="text-2xl">🛴</div>
+        <div>
+          <h3 className="font-semibold text-blue-800 text-sm">Scooter de Movilidad</h3>
+          <p className="text-sm text-blue-600">
+            Los scooters no tienen talla. Solo necesitas el nombre, descripción e imagen.
+          </p>
+        </div>
+      </div>
+
+      {/* Grid de 2 columnas para títulos */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="title_es" className="text-sm font-medium">
+            Título (ES) <span className="text-red-500">*</span>
+          </Label>
+          <Input
+            id="title_es"
+            value={formData.title_es}
+            onChange={(e) => setFormData({ ...formData, title_es: e.target.value })}
+            placeholder="Ej: Scooter Eléctrico"
+            className="mt-1.5"
+            required
+          />
+        </div>
+        <div>
+          <Label htmlFor="title_en" className="text-sm font-medium">
+            Título (EN)
+          </Label>
+          <Input
+            id="title_en"
+            value={formData.title_en}
+            onChange={(e) => setFormData({ ...formData, title_en: e.target.value })}
+            placeholder="Ej: Electric Scooter"
+            className="mt-1.5"
+          />
+        </div>
+        <div>
+          <Label htmlFor="title_nl" className="text-sm font-medium">
+            Título (NL)
+          </Label>
+          <Input
+            id="title_nl"
+            value={formData.title_nl}
+            onChange={(e) => setFormData({ ...formData, title_nl: e.target.value })}
+            placeholder="Ej: Elektrische Scooter"
+            className="mt-1.5"
+          />
+        </div>
+      </div>
+
+      {/* Grid de 2 columnas para subtítulos */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="subtitle_es" className="text-sm font-medium">
+            Subtítulo (ES) <span className="text-red-500">*</span>
+          </Label>
+          <Input
+            id="subtitle_es"
+            value={formData.subtitle_es}
+            onChange={(e) => setFormData({ ...formData, subtitle_es: e.target.value })}
+            placeholder="Ej: Perfecto para movilidad urbana"
+            className="mt-1.5"
+            required
+          />
+        </div>
+        <div>
+          <Label htmlFor="subtitle_en" className="text-sm font-medium">
+            Subtítulo (EN)
+          </Label>
+          <Input
+            id="subtitle_en"
+            value={formData.subtitle_en}
+            onChange={(e) => setFormData({ ...formData, subtitle_en: e.target.value })}
+            placeholder="Ej: Perfect for urban mobility"
+            className="mt-1.5"
+          />
+        </div>
+        <div>
+          <Label htmlFor="subtitle_nl" className="text-sm font-medium">
+            Subtítulo (NL)
+          </Label>
+          <Input
+            id="subtitle_nl"
+            value={formData.subtitle_nl}
+            onChange={(e) => setFormData({ ...formData, subtitle_nl: e.target.value })}
+            placeholder="Ej: Perfect voor stedelijke mobiliteit"
+            className="mt-1.5"
+          />
+        </div>
+      </div>
+
+      {/* Disponible e Imagen en grid de 2 columnas */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="flex items-center space-x-3 pt-2">
+          <input
+            id="available"
+            type="checkbox"
+            checked={formData.available}
+            onChange={(e) => setFormData({ ...formData, available: e.target.checked })}
+            className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <Label htmlFor="available" className="text-sm font-medium cursor-pointer">
+            Disponible para alquiler
+          </Label>
+        </div>
+
+        <div>
+          <Label htmlFor="image" className="text-sm font-medium">
+            Imagen del Scooter
+          </Label>
+          <div className="mt-1.5 flex items-center gap-4">
+            <Input
+              id="image"
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              className="flex-1 text-sm"
+            />
+            {imagePreview && (
+              <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200 flex-shrink-0">
+                <img
+                  src={imagePreview}
+                  alt="Vista previa"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+          </div>
+          {formData.image_url && !imagePreview && (
+            <p className="text-xs text-gray-500 mt-1">
+              Imagen actual: {formData.image_url.split("/").pop()}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Botones */}
+      <div className="flex gap-4 pt-4 border-t border-gray-100">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          disabled={isUploading}
+          className="flex-1"
+        >
+          Cancelar
+        </Button>
+        <Button
+          type="submit"
+          disabled={isUploading}
+          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+        >
+          {isUploading ? (
+            <>
+              <span className="animate-spin mr-2">⏳</span>
+              Guardando...
+            </>
+          ) : (
+            <>
+              💾 Guardar Scooter
+            </>
+          )}
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+
 
 function BikeForm({ bike, onSave, onCancel }: any) {
   const [formData, setFormData] = useState({
@@ -3340,7 +3630,7 @@ function BikeForm({ bike, onSave, onCancel }: any) {
             <SelectItem value="CITY_BIKE">Ciudad</SelectItem>
             <SelectItem value="E_CITY_BIKE">E-Ciudad</SelectItem>
             <SelectItem value="E_MTB">E-MTB</SelectItem>
-            <SelectItem value="SCOOTER_MOVILIDAD">Scooter movilidad</SelectItem>
+            {/* Los scooters se gestionan en la pestaña separada */}
           </SelectContent>
         </Select>
       </div>
