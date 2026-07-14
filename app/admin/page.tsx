@@ -28,7 +28,6 @@ import {
   Edit,
   Trash2,
   Bike,
-  ExternalLink,
   Package,
   Calendar as CalendarIcon,
   Clock,
@@ -36,137 +35,504 @@ import {
   ChevronRight,
   CheckCircle,
   AlertCircle,
+  X,
+  Split,
+  Store,
+  Save,
 } from "lucide-react"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isWithinInterval, isSunday, isSaturday, addDays, parseISO, addMonths, isSameDay } from "date-fns"
+import { format, startOfMonth, endOfMonth, isWithinInterval, isSunday, isSaturday, isSameDay, getDay } from "date-fns"
 import { es } from "date-fns/locale"
 import { calculatePrice, calculateDeposit, calculateInsurance, isValidCategory } from "@/lib/pricing"
 import { toast } from "@/components/ui/use-toast"
 
-
-
 // ============================================
-// ✅ FORZAR FECHA EN ESPAÑA (SOLUCIÓN DEFINITIVA)
-//    Agregar después de los imports
-// ============================================
-
-// ============================================
-// ✅ FORCE SPAIN DATE - VERSIÓN CORREGIDA DEFINITIVA
-//    Reemplazar COMPLETAMENTE en admin/page.tsx
+// ✅ FORCE SPAIN DATE
 // ============================================
 
 const forceSpainDate = (date: Date, time: string): Date => {
-  // Extraer año, mes, día
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  
-  // Extraer hora y minuto
   const [hours, minutes] = time.split(':').map(Number);
-  
-  // 🔥 CORREGIDO: España en INVIERNO es GMT+1 (ESTE ES EL ERROR)
-  // Octubre a Marzo: +01:00
-  // Marzo a Octubre: +02:00
   const isWinter = (date.getMonth() + 1) <= 3 || (date.getMonth() + 1) >= 11;
   const offset = isWinter ? '+01:00' : '+02:00';
-  
-  console.log("DEBUG [forceSpainDate]:", {
-    fecha: `${year}-${month}-${day}`,
-    hora: `${hours}:${minutes}`,
-    mes: date.getMonth() + 1,
-    isWinter,
-    offset,
-    resultado: `${year}-${month}-${day}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00.000${offset}`
-  });
-  
-  // Crear string ISO con offset español CORRECTO
   const spainString = `${year}-${month}-${day}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00.000${offset}`;
-  
   return new Date(spainString);
 };
 
 // ============================================
-// 🔧 BLOQUE ÚNICO - REEMPLAZAR FUNCIONES DE FECHAS
-//    Buscar y reemplazar TODO este bloque
+// 🔧 FUNCIONES DE FECHAS
 // ============================================
 
-// Función SIMPLIFICADA para crear fechas
 const createLocalDate = (date?: Date): Date => {
   if (!date) {
-    // Fecha actual a medianoche en Madrid
     const now = new Date();
     const madridNow = convertToMadridTime(now);
     return new Date(madridNow.getFullYear(), madridNow.getMonth(), madridNow.getDate());
   }
-  
-  // Crear fecha sin hora (solo día)
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 };
 
-// ✅ CORREGIDO: Guardar SOLO la fecha a medianoche UTC
 const formatDateForDB = (date: Date): string => {
   if (!date) return new Date().toISOString();
-  
-  // Extraer año, mes, día de la fecha seleccionada (en hora local)
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  
-  // 👉 GUARDAR SIEMPRE A LAS 00:00:00 UTC
-  // Esto hace que en España sea:
-  // - Invierno: 01:00
-  // - Verano: 02:00
-  return `${year}-${month}-${day}T00:00:00.000Z`;
+  return `${year}-${month}-${day}`;
 };
 
-// ✅ CORREGIDO: Parsear desde BD - extraer SOLO la fecha
 const parseDateFromDB = (dateString: string): Date => {
   if (!dateString) return createLocalDate();
-  
-  // Extraer solo YYYY-MM-DD
   const datePart = dateString.split('T')[0];
   const [year, month, day] = datePart.split('-').map(Number);
-  
-  // Crear fecha en ESPAÑA a las 00:00:00
   return new Date(year, month - 1, day, 0, 0, 0);
 };
 
-// ✅ CORREGIDO: Conversión a Madrid
 const convertToMadridTime = (date: Date): Date => {
   if (!date) return new Date();
   const madridString = date.toLocaleString("en-US", { timeZone: "Europe/Madrid" });
   return new Date(madridString);
 };
 
+// ============================================
+// 📅 FUNCIONES DE HORARIOS
+// ============================================
 
-
-const isDateDisabled = (date: Date, isStartDate: boolean = true, currentSelectedDate?: Date, blocked: {date: Date, reason: string, location?: string}[] = []): boolean => {
-  const today = createLocalDate();
-  const checkDate = createLocalDate(date);
+/**
+ * Genera todas las horas entre openTime y closeTime (inclusive)
+ * SOLO genera horas ENTERAS (ej: 10:00, 11:00, 12:00)
+ */
+const generateHoursBetween = (openTime: string | null, closeTime: string | null): string[] => {
+  if (!openTime || !closeTime) return [];
   
-  // No permitir fechas pasadas
-  if (checkDate < today) {
-    return true;
+  const hours: string[] = [];
+  const [openHour] = openTime.split(':').map(Number);
+  const [closeHour] = closeTime.split(':').map(Number);
+  
+  // Si la hora de apertura es mayor o igual que la de cierre, no generamos nada
+  if (openHour >= closeHour) {
+    return hours;
   }
   
-  // No permitir domingos
-  if (isSunday(checkDate)) return true;
-
-  // No permitir días bloqueados
-  if (blocked.some((item) => isSameDay(item.date, checkDate))) return true;
-  
-  return false;
-};
-
-const getTimeOptions = (isSaturday: boolean) => {
-  if (isSaturday) {
-    return ["10:00", "11:00", "12:00", "13:00", "14:00"];
+  // Generamos todas las horas enteras desde openHour hasta closeHour
+  for (let hour = openHour; hour <= closeHour; hour++) {
+    hours.push(`${String(hour).padStart(2, '0')}:00`);
   }
-  return ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
+  
+  return hours;
 };
 
-// ================== DEFINICIONES DE TIPOS Y CONSTANTES ==================
+const DAYS_OF_WEEK = [
+  { value: 0, label: "Domingo" },
+  { value: 1, label: "Lunes" },
+  { value: 2, label: "Martes" },
+  { value: 3, label: "Miércoles" },
+  { value: 4, label: "Jueves" },
+  { value: 5, label: "Viernes" },
+  { value: 6, label: "Sábado" },
+];
+
+const locationOptions = [
+  { value: "sucursal_altea", label: "Altea Bike Shop" },
+  { value: "sucursal_albir", label: "Albir Cycling" }
+];
+
+// ============================================
+// 🏪 COMPONENTE DE GESTIÓN DE HORARIOS
+// ============================================
+
+function StoreHoursManager() {
+  const [selectedLocation, setSelectedLocation] = useState("sucursal_altea");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  const [weekdayData, setWeekdayData] = useState({
+    open_time: "10:00",
+    close_time: "12:00",
+    split_schedule: true,
+    open_time_2: "15:00" as string | null,
+    close_time_2: "18:00" as string | null,
+  });
+  
+  const [saturdayData, setSaturdayData] = useState({
+    open_time: "10:00",
+    close_time: "14:00",
+    split_schedule: false,
+    open_time_2: null as string | null,
+    close_time_2: null as string | null,
+  });
+
+  const loadHours = async (location: string) => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("store_hours")
+        .select("*")
+        .eq("location", location)
+        .in("day_of_week", [1, 2, 3, 4, 5, 6]);
+
+      if (error) throw error;
+
+      console.log("📊 Datos cargados de store_hours:", data);
+
+      const weekdays = data?.filter(h => h.day_of_week >= 1 && h.day_of_week <= 5) || [];
+      const saturday = data?.find(h => h.day_of_week === 6);
+
+      if (weekdays.length > 0) {
+        const first = weekdays[0];
+        setWeekdayData({
+          open_time: first.open_time || "10:00",
+          close_time: first.close_time || "12:00",
+          split_schedule: first.split_schedule !== undefined ? first.split_schedule : true,
+          open_time_2: first.open_time_2 || "15:00",
+          close_time_2: first.close_time_2 || "18:00",
+        });
+      }
+
+      if (saturday) {
+        setSaturdayData({
+          open_time: saturday.open_time || "10:00",
+          close_time: saturday.close_time || "14:00",
+          split_schedule: saturday.split_schedule || false,
+          open_time_2: saturday.open_time_2 || null,
+          close_time_2: saturday.close_time_2 || null,
+        });
+      }
+
+    } catch (error) {
+      console.error("Error loading hours:", error);
+      toast({ title: "Error", description: "No se pudieron cargar los horarios", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadHours(selectedLocation);
+  }, [selectedLocation]);
+
+  const saveHours = async () => {
+    setIsSaving(true);
+    try {
+      // Guardar Lunes a Viernes
+      for (let day = 1; day <= 5; day++) {
+        const data = {
+          location: selectedLocation,
+          day_of_week: day,
+          open_time: weekdayData.open_time,
+          close_time: weekdayData.close_time,
+          split_schedule: weekdayData.split_schedule || false,
+          open_time_2: weekdayData.split_schedule ? weekdayData.open_time_2 : null,
+          close_time_2: weekdayData.split_schedule ? weekdayData.close_time_2 : null,
+          use_global: false,
+        };
+
+        const { error } = await supabase
+          .from("store_hours")
+          .upsert(data, { onConflict: "location, day_of_week" });
+
+        if (error) throw error;
+      }
+
+      // Guardar Sábado
+      const saturdayDataToSave = {
+        location: selectedLocation,
+        day_of_week: 6,
+        open_time: saturdayData.open_time,
+        close_time: saturdayData.close_time,
+        split_schedule: saturdayData.split_schedule || false,
+        open_time_2: saturdayData.split_schedule ? saturdayData.open_time_2 : null,
+        close_time_2: saturdayData.split_schedule ? saturdayData.close_time_2 : null,
+        use_global: false,
+      };
+
+      const { error: satError } = await supabase
+        .from("store_hours")
+        .upsert(saturdayDataToSave, { onConflict: "location, day_of_week" });
+
+      if (satError) throw satError;
+
+      // Guardar Domingo (cerrado)
+      const { error: sunError } = await supabase
+        .from("store_hours")
+        .upsert({
+          location: selectedLocation,
+          day_of_week: 0,
+          open_time: "00:00",
+          close_time: "00:00",
+          split_schedule: false,
+          open_time_2: null,
+          close_time_2: null,
+          use_global: true,
+        }, { onConflict: "location, day_of_week" });
+
+      if (sunError) throw sunError;
+
+      toast({
+        title: "✅ Horarios guardados",
+        description: `Horarios de ${locationOptions.find(l => l.value === selectedLocation)?.label} actualizados`,
+      });
+
+      await loadHours(selectedLocation);
+
+    } catch (error: any) {
+      console.error("Error saving hours:", error);
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const getHoursDisplay = () => {
+    let result = "";
+    if (weekdayData.split_schedule) {
+      result += `Lun-Vie: ${weekdayData.open_time} - ${weekdayData.close_time} y ${weekdayData.open_time_2} - ${weekdayData.close_time_2}`;
+    } else {
+      result += `Lun-Vie: ${weekdayData.open_time} - ${weekdayData.close_time}`;
+    }
+    result += " | ";
+    if (saturdayData.split_schedule) {
+      result += `Sáb: ${saturdayData.open_time} - ${saturdayData.close_time} y ${saturdayData.open_time_2} - ${saturdayData.close_time_2}`;
+    } else {
+      result += `Sáb: ${saturdayData.open_time} - ${saturdayData.close_time}`;
+    }
+    result += " | Dom: Cerrado";
+    return result;
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2">
+          <Store className="h-5 w-5 text-gray-500" />
+          <Label className="font-medium">Tienda:</Label>
+          <Select 
+            value={selectedLocation} 
+            onValueChange={(v) => { 
+              setSelectedLocation(v); 
+              loadHours(v);
+            }}
+          >
+            <SelectTrigger className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {locationOptions.map(loc => (
+                <SelectItem key={loc.value} value={loc.value}>{loc.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => loadHours(selectedLocation)} disabled={isLoading}>
+          {isLoading ? "Cargando..." : "Recargar"}
+        </Button>
+      </div>
+
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <p className="text-sm text-blue-700">
+          <strong>Horario actual:</strong> {getHoursDisplay()}
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">LUNES A VIERNES</span>
+            <Badge variant={weekdayData.split_schedule ? "default" : "secondary"}>
+              {weekdayData.split_schedule ? "Partido" : "Normal"}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="weekdaySplit"
+                checked={weekdayData.split_schedule}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setWeekdayData({
+                    ...weekdayData,
+                    split_schedule: checked,
+                    open_time_2: checked ? weekdayData.open_time_2 || "15:00" : null,
+                    close_time_2: checked ? weekdayData.close_time_2 || "18:00" : null,
+                  });
+                }}
+                className="h-4 w-4"
+              />
+              <Label htmlFor="weekdaySplit" className="font-medium cursor-pointer">
+                <Split className="h-4 w-4 inline mr-1" />
+                Horario partido (mañana y tarde)
+              </Label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm">Apertura (mañana)</Label>
+                <Input
+                  type="time"
+                  value={weekdayData.open_time}
+                  onChange={(e) => setWeekdayData({ ...weekdayData, open_time: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label className="text-sm">Cierre (mañana)</Label>
+                <Input
+                  type="time"
+                  value={weekdayData.close_time}
+                  onChange={(e) => setWeekdayData({ ...weekdayData, close_time: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {weekdayData.split_schedule && (
+              <div className="border-t pt-4 mt-2">
+                <p className="text-sm font-medium text-blue-600 mb-2">📌 Bloque de tarde</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm">Apertura (tarde)</Label>
+                    <Input
+                      type="time"
+                      value={weekdayData.open_time_2 || "15:00"}
+                      onChange={(e) => setWeekdayData({ ...weekdayData, open_time_2: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm">Cierre (tarde)</Label>
+                    <Input
+                      type="time"
+                      value={weekdayData.close_time_2 || "18:00"}
+                      onChange={(e) => setWeekdayData({ ...weekdayData, close_time_2: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs font-bold">SÁBADO</span>
+            <Badge variant={saturdayData.split_schedule ? "default" : "secondary"}>
+              {saturdayData.split_schedule ? "Partido" : "Normal"}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="saturdaySplit"
+                checked={saturdayData.split_schedule}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setSaturdayData({
+                    ...saturdayData,
+                    split_schedule: checked,
+                    open_time_2: checked ? saturdayData.open_time_2 || "15:00" : null,
+                    close_time_2: checked ? saturdayData.close_time_2 || "17:00" : null,
+                  });
+                }}
+                className="h-4 w-4"
+              />
+              <Label htmlFor="saturdaySplit" className="font-medium cursor-pointer">
+                <Split className="h-4 w-4 inline mr-1" />
+                Horario partido (mañana y tarde)
+              </Label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm">Apertura</Label>
+                <Input
+                  type="time"
+                  value={saturdayData.open_time}
+                  onChange={(e) => setSaturdayData({ ...saturdayData, open_time: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label className="text-sm">Cierre</Label>
+                <Input
+                  type="time"
+                  value={saturdayData.close_time}
+                  onChange={(e) => setSaturdayData({ ...saturdayData, close_time: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {saturdayData.split_schedule && (
+              <div className="border-t pt-4 mt-2">
+                <p className="text-sm font-medium text-purple-600 mb-2">📌 Bloque de tarde</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm">Apertura (tarde)</Label>
+                    <Input
+                      type="time"
+                      value={saturdayData.open_time_2 || "15:00"}
+                      onChange={(e) => setSaturdayData({ ...saturdayData, open_time_2: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm">Cierre (tarde)</Label>
+                    <Input
+                      type="time"
+                      value={saturdayData.close_time_2 || "17:00"}
+                      onChange={(e) => setSaturdayData({ ...saturdayData, close_time_2: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🚫</span>
+          <div>
+            <p className="font-medium text-gray-700">Domingo</p>
+            <p className="text-sm text-gray-500">Siempre cerrado</p>
+          </div>
+        </div>
+      </div>
+
+      <Button onClick={saveHours} disabled={isSaving} className="w-full bg-green-600 hover:bg-green-700 text-white">
+        {isSaving ? (
+          <>⏳ Guardando horarios...</>
+        ) : (
+          <>
+            <Save className="h-4 w-4 mr-2" />
+            Guardar horarios para {locationOptions.find(l => l.value === selectedLocation)?.label}
+          </>
+        )}
+      </Button>
+
+      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-700">
+        <p className="font-medium">ℹ️ Importante:</p>
+        <ul className="list-disc list-inside mt-1 space-y-0.5">
+          <li>Los cambios aplican a <strong>todos los días de Lunes a Viernes</strong> con el mismo horario</li>
+          <li>El Sábado tiene <strong>horario independiente</strong></li>
+          <li>El Domingo <strong>siempre está cerrado</strong></li>
+          <li>Cada tienda tiene sus propios horarios</li>
+          <li>Activá "Horario partido" para tener mañana y tarde</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// ✅ ADMIN PAGE - PRINCIPAL
+// ============================================
+
 type BikeCategory = "ROAD" | "ROAD_PREMIUM" | "MTB" | "CITY_BIKE" | "E_CITY_BIKE" | "E_MTB" | "SCOOTER_MOVILIDAD";
 
 const CATEGORY_NAMES: Record<BikeCategory, string> = {
@@ -179,42 +545,35 @@ const CATEGORY_NAMES: Record<BikeCategory, string> = {
   SCOOTER_MOVILIDAD: "Scooter movilidad"
 };
 
-const locationOptions = [
-  { value: "sucursal_altea", label: "Altea Bike Shop - Calle la Tella 2, Altea" },
-  { value: "sucursal_albir", label: "Albir Cycling - Av del Albir 159, El Albir" }
-];
-// ========================================================================
-
-
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [credentials, setCredentials] = useState({ username: "", password: "" })
   const [bikes, setBikes] = useState<any[]>([])
-  const [scooters, setScooters] = useState<any[]>([]) // ✅ NUEVO: Estado para scooters
+  const [scooters, setScooters] = useState<any[]>([])
   const [accessories, setAccessories] = useState<any[]>([])
   const [reservations, setReservations] = useState<any[]>([])
   const [filteredReservations, setFilteredReservations] = useState<any[]>([])
   const [editingBike, setEditingBike] = useState<any>(null)
-  const [editingScooter, setEditingScooter] = useState<any>(null) // ✅ NUEVO
+  const [editingScooter, setEditingScooter] = useState<any>(null)
   const [editingAccessory, setEditingAccessory] = useState<any>(null)
   const [isCreatingReservation, setIsCreatingReservation] = useState(false);
   const [newReservation, setNewReservation] = useState<any>({
-  customer_name: "",
-  customer_email: "",
-  customer_phone: "",
-  customer_dni: "",
-  start_date: createLocalDate(),
-  end_date: createLocalDate(),
-  pickup_time: "10:00",
-  return_time: "18:00",
- pickup_location: "sucursal_altea",
-  return_location: "sucursal_altea",
-  bikes: [],
-  accessories: [],
-  insurance: false,
-  status: "confirmed",
-  locale: "es",
-})
+    customer_name: "",
+    customer_email: "",
+    customer_phone: "",
+    customer_dni: "",
+    start_date: createLocalDate(),
+    end_date: createLocalDate(),
+    pickup_time: "10:00",
+    return_time: "18:00",
+    pickup_location: "sucursal_altea",
+    return_location: "sucursal_altea",
+    bikes: [],
+    accessories: [],
+    insurance: false,
+    status: "confirmed",
+    locale: "es",
+  })
   const [error, setError] = useState<string | null>(null)
   const [stats, setStats] = useState({
     totalBikes: 0,
@@ -236,6 +595,85 @@ export default function AdminPage() {
   const [calendarMonth, setCalendarMonth] = useState<Date>(createLocalDate())
   const [hoveredBlockedReason, setHoveredBlockedReason] = useState<{text: string, x: number, y: number} | null>(null)
 
+  // ========== ESTADO PARA HORARIOS DISPONIBLES EN CREAR RESERVA ==========
+  const [availableHours, setAvailableHours] = useState<string[]>([])
+  const [isLoadingTimes, setIsLoadingTimes] = useState(false)
+
+  // ============================================
+  // ✅ FUNCIÓN PARA OBTENER TODAS LAS HORAS DISPONIBLES - VERSIÓN CORREGIDA
+  // ============================================
+
+  const loadAvailableHours = async (date: Date, location: string) => {
+    if (!date || !location) return;
+    
+    const dateStr = formatDateForDB(date);
+    const dayOfWeek = date.getDay();
+    console.log(`🔄 Admin - Cargando horas para: ${location} - ${dateStr} - Día ${dayOfWeek}`);
+    setIsLoadingTimes(true);
+    
+    try {
+      // CONSULTA DIRECTA a la tabla store_hours
+      const { data: weeklyHours, error } = await supabase
+        .from("store_hours")
+        .select("*")
+        .eq("location", location)
+        .eq("day_of_week", dayOfWeek)
+        .maybeSingle();
+      
+      console.log("📌 Datos directos de store_hours:", weeklyHours);
+      
+      let allHours: string[] = [];
+      
+      // Si hay horario semanal y NO usa global
+      if (weeklyHours && !weeklyHours.use_global) {
+        console.log(`📌 Horario encontrado: ${weeklyHours.open_time} - ${weeklyHours.close_time}`);
+        
+        // Primer bloque
+        const hours1 = generateHoursBetween(weeklyHours.open_time, weeklyHours.close_time);
+        allHours.push(...hours1);
+        
+        // Segundo bloque (si existe y está activado)
+        if (weeklyHours.split_schedule && weeklyHours.open_time_2 && weeklyHours.close_time_2) {
+          const hours2 = generateHoursBetween(weeklyHours.open_time_2, weeklyHours.close_time_2);
+          allHours.push(...hours2);
+        }
+      } else {
+        // FALLBACK: No hay horario configurado
+        console.log("⚠️ No hay horario, usando fallback");
+        const isSaturday = dayOfWeek === 6;
+        const fallbackHours = isSaturday 
+          ? generateHoursBetween("10:00", "14:00")
+          : generateHoursBetween("10:00", "18:00");
+        allHours = fallbackHours;
+      }
+      
+      // Eliminar duplicados y ordenar
+      const uniqueHours = [...new Set(allHours)].sort();
+      console.log(`✅ Horas finales: ${uniqueHours.join(', ')}`);
+      setAvailableHours(uniqueHours);
+      
+      // Si la hora actual no está disponible, seleccionar la primera/última
+      if (uniqueHours.length > 0) {
+        const currentPickup = newReservation.pickup_time;
+        const currentReturn = newReservation.return_time;
+        
+        if (!uniqueHours.includes(currentPickup)) {
+          setNewReservation({ ...newReservation, pickup_time: uniqueHours[0] });
+        }
+        if (!uniqueHours.includes(currentReturn)) {
+          setNewReservation({ ...newReservation, return_time: uniqueHours[uniqueHours.length - 1] });
+        }
+      }
+    } catch (error) {
+      console.error("Error loading available hours:", error);
+    } finally {
+      setIsLoadingTimes(false);
+    }
+  };
+
+  // ============================================
+  // ✅ EFECTOS
+  // ============================================
 
   useEffect(() => {
     const savedAuth = localStorage.getItem('adminAuthenticated')
@@ -246,39 +684,36 @@ export default function AdminPage() {
   }, [])
 
   useEffect(() => {
-  if (reservations.length > 0) {
-    let filtered = reservations.filter(res => {
-      const resDate = new Date(res.start_date)
-      const selectedStart = startOfMonth(selectedMonth)
-      const selectedEnd = endOfMonth(selectedMonth)
-      return isWithinInterval(resDate, { start: selectedStart, end: selectedEnd })
-    })
+    if (reservations.length > 0) {
+      let filtered = reservations.filter(res => {
+        const resDate = new Date(res.start_date)
+        const selectedStart = startOfMonth(selectedMonth)
+        const selectedEnd = endOfMonth(selectedMonth)
+        return isWithinInterval(resDate, { start: selectedStart, end: selectedEnd })
+      })
 
-    if (statusFilter !== "all") {
-      filtered = filtered.filter(res => res.status === statusFilter)
+      if (statusFilter !== "all") {
+        filtered = filtered.filter(res => res.status === statusFilter)
+      }
+
+      if (locationFilter !== "all") {
+        filtered = filtered.filter(res => res.pickup_location === locationFilter)
+      }
+
+      if (searchTerm.trim() !== "") {
+        const term = searchTerm.toLowerCase().trim()
+        filtered = filtered.filter(res => 
+          res.customer_name.toLowerCase().includes(term) ||
+          res.customer_email.toLowerCase().includes(term) ||
+          res.customer_phone.includes(term) ||
+          res.customer_dni.includes(term)
+        )
+      }
+
+      setFilteredReservations(filtered)
+      calculateStats(filtered)
     }
-
-if (locationFilter !== "all") {
-  filtered = filtered.filter(
-    res => res.pickup_location === locationFilter
-  )
-}
-
-    if (searchTerm.trim() !== "") {
-      const term = searchTerm.toLowerCase().trim()
-      filtered = filtered.filter(res => 
-        res.customer_name.toLowerCase().includes(term) ||
-        res.customer_email.toLowerCase().includes(term) ||
-        res.customer_phone.includes(term) ||
-        res.customer_dni.includes(term)
-      )
-    }
-
-    setFilteredReservations(filtered)
-    calculateStats(filtered)
-  }
-}, [reservations, selectedMonth, statusFilter, searchTerm, locationFilter])
-
+  }, [reservations, selectedMonth, statusFilter, searchTerm, locationFilter])
 
   useEffect(() => {
     if (newReservation.start_date && newReservation.end_date) {
@@ -286,400 +721,368 @@ if (locationFilter !== "all") {
     }
   }, [newReservation.start_date, newReservation.end_date])
 
- const fetchData = async () => {
-  try {
-    setError(null)
-    const [bikesRes, accessoriesRes, reservationsRes] = await Promise.all([
-      supabase.from("bikes").select("*").order("created_at", { ascending: false }),
-      supabase.from("accessories").select("*").order("created_at", { ascending: false }),
-      supabase.from("reservations")
-        .select(`
-          id,
-          customer_name,
-          customer_email,
-          customer_phone,
-          customer_dni,
-          start_date,
-          end_date,
-          pickup_time,
-          return_time,
-          pickup_location,   
-          return_location,
-          total_days,
-          total_amount,
-          deposit_amount,
-          status,
-          bikes,
-          accessories,
-          insurance,
-          created_at
-        `)
-        .order("start_date", { ascending: false })
-    ])
-    
-    if (bikesRes.error) throw bikesRes.error
-    if (accessoriesRes.error) throw accessoriesRes.error
-    if (reservationsRes.error) throw reservationsRes.error
+  useEffect(() => {
+    if (newReservation.start_date && newReservation.pickup_location) {
+      loadAvailableHours(newReservation.start_date, newReservation.pickup_location);
+    }
+  }, [newReservation.start_date, newReservation.pickup_location]);
 
-    const formattedReservations = (reservationsRes.data || []).map(res => {
-      const startDate = res.start_date ? parseDateFromDB(res.start_date) : createLocalDate();
-      const endDate = res.end_date ? parseDateFromDB(res.end_date) : createLocalDate();
+  // ============================================
+  // ✅ FETCH DATA
+  // ============================================
+
+  const fetchData = async () => {
+    try {
+      setError(null)
+      const [bikesRes, accessoriesRes, reservationsRes] = await Promise.all([
+        supabase.from("bikes").select("*").order("created_at", { ascending: false }),
+        supabase.from("accessories").select("*").order("created_at", { ascending: false }),
+        supabase.from("reservations")
+          .select(`
+            id,
+            customer_name,
+            customer_email,
+            customer_phone,
+            customer_dni,
+            start_date,
+            end_date,
+            pickup_time,
+            return_time,
+            pickup_location,
+            return_location,
+            total_days,
+            total_amount,
+            deposit_amount,
+            status,
+            bikes,
+            accessories,
+            insurance,
+            created_at
+          `)
+          .order("start_date", { ascending: false })
+      ])
       
-      return {
-        ...res,
-        start_date: startDate,
-        end_date: endDate
-      };
-    });
+      if (bikesRes.error) throw bikesRes.error
+      if (accessoriesRes.error) throw accessoriesRes.error
+      if (reservationsRes.error) throw reservationsRes.error
 
-    // ✅ FILTRAR: Bicicletas (excluyendo scooters) y Scooters
-    const allBikes = bikesRes.data || [];
-    const bikesOnly = allBikes.filter(bike => bike.category !== "SCOOTER_MOVILIDAD");
-    const scootersOnly = allBikes.filter(bike => bike.category === "SCOOTER_MOVILIDAD");
-
-    setBikes(bikesOnly);
-    setScooters(scootersOnly);
-    setAccessories(accessoriesRes.data || [])
-    setReservations(formattedReservations)
-    await fetchBlockedDates()
-    
-    console.log("Datos cargados - Total reservas:", formattedReservations.length);
-  } catch (error: any) {
-    setError(error.message || "Error al cargar los datos")
-    console.error("Error fetching data:", error)
-  }
-}
-
-// ========================================
-// 📅 GESTIÓN DE DÍAS BLOQUEADOS (FERIADOS)
-// ========================================
-
-const fetchBlockedDates = async () => {
-  try {
-    const { data, error } = await supabase
-      .from("blocked_dates")
-      .select("*")
-      .order("date", { ascending: true });
-
-    if (error) throw error;
-
-    if (data) {
-      setBlockedDates(data.map(d => {
-        const [year, month, day] = d.date.split('-').map(Number);
+      const formattedReservations = (reservationsRes.data || []).map(res => {
+        const startDate = res.start_date ? parseDateFromDB(res.start_date) : createLocalDate();
+        const endDate = res.end_date ? parseDateFromDB(res.end_date) : createLocalDate();
         return {
-          date: new Date(year, month - 1, day),
-          reason: d.reason || "Feriado",
-          location: d.location || "all",
+          ...res,
+          start_date: startDate,
+          end_date: endDate
         };
-      }));
+      });
+
+      const allBikes = bikesRes.data || [];
+      const bikesOnly = allBikes.filter(bike => bike.category !== "SCOOTER_MOVILIDAD");
+      const scootersOnly = allBikes.filter(bike => bike.category === "SCOOTER_MOVILIDAD");
+
+      setBikes(bikesOnly);
+      setScooters(scootersOnly);
+      setAccessories(accessoriesRes.data || [])
+      setReservations(formattedReservations)
+      await fetchBlockedDates()
+      
+      console.log("Datos cargados - Total reservas:", formattedReservations.length);
+    } catch (error: any) {
+      setError(error.message || "Error al cargar los datos")
+      console.error("Error fetching data:", error)
     }
-  } catch (error) {
-    console.error("Error fetching blocked dates:", error);
   }
-};
 
-const getLocationLabel = (location: string) => {
-  if (location === "sucursal_altea") return "Altea Bike Shop";
-  if (location === "sucursal_albir") return "Albir Cycling";
-  return "Todas las tiendas";
-};
+  // ============================================
+  // 📅 GESTIÓN DE DÍAS BLOQUEADOS (FERIADOS)
+  // ============================================
 
-const toggleBlockedDate = async (date: Date, locationParam?: string) => {
-  const locationToUse = locationParam || blockedLocation;
-  const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-
-  const isBlocked = blockedDates.some((item) =>
-    isSameDay(item.date, date) && item.location === locationToUse
-  );
-
-  try {
-    if (isBlocked) {
-      const { error } = await supabase
+  const fetchBlockedDates = async () => {
+    try {
+      const { data, error } = await supabase
         .from("blocked_dates")
-        .delete()
-        .eq("date", dateStr)
-        .eq("location", locationToUse);
+        .select("*")
+        .order("date", { ascending: true });
 
       if (error) throw error;
 
-      toast({
-        title: "✅ Día desbloqueado",
-        description: `${format(date, "PPP", { locale: es })} disponible para ${getLocationLabel(locationToUse)}`,
-      });
-    } else {
-      const { error } = await supabase
-        .from("blocked_dates")
-        .insert([{
-          date: dateStr,
-          reason: blockReason || "Feriado",
-          created_by: "admin",
-          location: locationToUse,
-        }]);
-
-      if (error) throw error;
-
-      toast({
-        title: "🚫 Día bloqueado",
-        description: `${format(date, "PPP", { locale: es })} bloqueado para ${getLocationLabel(locationToUse)}`,
-      });
+      if (data) {
+        setBlockedDates(data.map(d => {
+          const [year, month, day] = d.date.split('-').map(Number);
+          return {
+            date: new Date(year, month - 1, day),
+            reason: d.reason || "Feriado",
+            location: d.location || "all",
+          };
+        }));
+      }
+    } catch (error) {
+      console.error("Error fetching blocked dates:", error);
     }
+  };
 
-    await fetchBlockedDates();
-  } catch (error: any) {
-    toast({ title: "Error", description: error.message, variant: "destructive" });
-  }
-};
+  const getLocationLabel = (location: string) => {
+    if (location === "sucursal_altea") return "Altea Bike Shop";
+    if (location === "sucursal_albir") return "Albir Cycling";
+    return "Todas las tiendas";
+  };
 
-// ========================================
-// 🗑️ FUNCIÓN PARA BORRAR CANCELADAS DEL MES
-// ========================================
+  const toggleBlockedDate = async (date: Date, locationParam?: string) => {
+    const locationToUse = locationParam || blockedLocation;
+    const dateStr = formatDateForDB(date);
 
-const deleteCancelledReservationsOfMonth = async () => {
-  try {
-    const confirmDelete = window.confirm(
-      `¿Estás seguro de que quieres BORRAR todas las reservas CANCELADAS del mes ${format(selectedMonth, 'MMMM yyyy', { locale: es })}?\n\n` +
-      `Esta acción NO se puede deshacer.`
+    const isBlocked = blockedDates.some((item) =>
+      formatDateForDB(item.date) === dateStr && item.location === locationToUse
     );
-    
-    if (!confirmDelete) return;
 
-    const monthStart = startOfMonth(selectedMonth);
-    const monthEnd = endOfMonth(selectedMonth);
+    try {
+      if (isBlocked) {
+        const { error } = await supabase
+          .from("blocked_dates")
+          .delete()
+          .eq("date", dateStr)
+          .eq("location", locationToUse);
 
-    console.log('🗑️ Borrando canceladas del mes:', {
-      mes: format(selectedMonth, 'MMMM yyyy', { locale: es }),
-      desde: monthStart,
-      hasta: monthEnd
-    });
+        if (error) throw error;
 
-    const { data: cancelledReservations, error: fetchError } = await supabase
-      .from('reservations')
-      .select('id, customer_name, start_date')
-      .eq('status', 'cancelled')
-      .gte('start_date', monthStart.toISOString())
-      .lte('start_date', monthEnd.toISOString());
+        toast({
+          title: "✅ Día desbloqueado",
+          description: `${format(date, "PPP", { locale: es })} disponible para ${getLocationLabel(locationToUse)}`,
+        });
+      } else {
+        const { error } = await supabase
+          .from("blocked_dates")
+          .insert([{
+            date: dateStr,
+            reason: blockReason || "Feriado",
+            created_by: "admin",
+            location: locationToUse,
+          }]);
 
-    if (fetchError) {
-      console.error('Error buscando canceladas:', fetchError);
+        if (error) throw error;
+
+        toast({
+          title: "🚫 Día bloqueado",
+          description: `${format(date, "PPP", { locale: es })} bloqueado para ${getLocationLabel(locationToUse)}`,
+        });
+      }
+
+      await fetchBlockedDates();
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  // ============================================
+  // 🗑️ FUNCIÓN PARA BORRAR CANCELADAS DEL MES
+  // ============================================
+
+  const deleteCancelledReservationsOfMonth = async () => {
+    try {
+      const confirmDelete = window.confirm(
+        `¿Estás seguro de que quieres BORRAR todas las reservas CANCELADAS del mes ${format(selectedMonth, 'MMMM yyyy', { locale: es })}?\n\n` +
+        `Esta acción NO se puede deshacer.`
+      );
+      
+      if (!confirmDelete) return;
+
+      const monthStart = startOfMonth(selectedMonth);
+      const monthEnd = endOfMonth(selectedMonth);
+
+      const { data: cancelledReservations, error: fetchError } = await supabase
+        .from('reservations')
+        .select('id, customer_name, start_date')
+        .eq('status', 'cancelled')
+        .gte('start_date', monthStart.toISOString())
+        .lte('start_date', monthEnd.toISOString());
+
+      if (fetchError) {
+        toast({
+          title: "Error",
+          description: "No se pudieron buscar las reservas canceladas",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!cancelledReservations || cancelledReservations.length === 0) {
+        toast({
+          title: "Sin reservas",
+          description: `No hay reservas canceladas en ${format(selectedMonth, 'MMMM yyyy', { locale: es })}`,
+        });
+        return;
+      }
+
+      const confirmCount = window.confirm(
+        `Se encontraron ${cancelledReservations.length} reserva(s) cancelada(s).\n\n` +
+        `¿Confirmas que quieres borrarlas TODAS?`
+      );
+
+      if (!confirmCount) return;
+
+      const idsToDelete = cancelledReservations.map(r => r.id);
+      
+      const { data: deletedData, error: deleteError } = await supabase
+        .from('reservations')
+        .delete()
+        .in('id', idsToDelete)
+        .eq('status', 'cancelled')
+        .select();
+
+      if (deleteError) {
+        toast({
+          title: "Error al borrar",
+          description: deleteError.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const actualDeleted = deletedData?.length || 0;
+
+      toast({
+        title: "✅ Reservas borradas",
+        description: `Se borraron ${actualDeleted} reserva(s) cancelada(s) de ${format(selectedMonth, 'MMMM yyyy', { locale: es })}`,
+      });
+
+      fetchData();
+
+    } catch (error) {
+      console.error('Error en deleteCancelledReservationsOfMonth:', error);
       toast({
         title: "Error",
-        description: "No se pudieron buscar las reservas canceladas",
+        description: "Ocurrió un error al borrar las reservas",
         variant: "destructive",
       });
-      return;
     }
+  };
 
-    if (!cancelledReservations || cancelledReservations.length === 0) {
-      toast({
-        title: "Sin reservas",
-        description: `No hay reservas canceladas en ${format(selectedMonth, 'MMMM yyyy', { locale: es })}`,
-      });
-      return;
-    }
+  // ============================================
+  // 🔧 fetchAvailableBikes
+  // ============================================
 
-    console.log(`📋 Encontradas ${cancelledReservations.length} reservas canceladas para borrar`);
+  const fetchAvailableBikes = async () => {
+    if (!newReservation.start_date || !newReservation.end_date) return;
 
-    const confirmCount = window.confirm(
-      `Se encontraron ${cancelledReservations.length} reserva(s) cancelada(s).\n\n` +
-      `¿Confirmas que quieres borrarlas TODAS?`
-    );
+    try {
+      setIsLoadingBikes(true);
 
-    if (!confirmCount) return;
+      const { data: allBikes, error: bikesError } = await supabase
+        .from("bikes")
+        .select("*")
+        .eq("available", true);
 
-    const idsToDelete = cancelledReservations.map(r => r.id);
-    
-    const { data: deletedData, error: deleteError } = await supabase
-      .from('reservations')
-      .delete()
-      .in('id', idsToDelete)
-      .eq('status', 'cancelled')
-      .select();
+      if (bikesError) throw bikesError;
+      if (!allBikes) {
+        setAvailableBikes([]);
+        return;
+      }
 
-    if (deleteError) {
-      console.error('Error borrando reservas:', deleteError);
-      toast({
-        title: "Error al borrar",
-        description: deleteError.message,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const actualDeleted = deletedData?.length || 0;
-    
-    if (actualDeleted < cancelledReservations.length) {
-      console.warn('⚠️ ADVERTENCIA: Se borraron menos reservas de las esperadas', {
-        esperadas: cancelledReservations.length,
-        borradas: actualDeleted
-      });
-    }
-
-    console.log(`✅ ${actualDeleted} reservas canceladas borradas exitosamente`);
-
-    toast({
-      title: "✅ Reservas borradas",
-      description: `Se borraron ${actualDeleted} reserva(s) cancelada(s) de ${format(selectedMonth, 'MMMM yyyy', { locale: es })}`,
-    });
-
-    fetchData();
-
-  } catch (error) {
-    console.error('Error en deleteCancelledReservationsOfMonth:', error);
-    toast({
-      title: "Error",
-      description: "Ocurrió un error al borrar las reservas",
-      variant: "destructive",
-    });
-  }
-};
-
-// ============================================
-// 🔧 fetchAvailableBikes - VERSIÓN CORREGIDA
-// ============================================
-
-const fetchAvailableBikes = async () => {
-  if (!newReservation.start_date || !newReservation.end_date) return;
-
-  try {
-    setIsLoadingBikes(true);
-
-    const { data: allBikes, error: bikesError } = await supabase
-      .from("bikes")
-      .select("*")
-      .eq("available", true);
-
-    if (bikesError) throw bikesError;
-    if (!allBikes) {
-      setAvailableBikes([]);
-      return;
-    }
-
-    const selStart = forceSpainDate(
-      new Date(newReservation.start_date), 
-      newReservation.pickup_time
-    );
-    
-    const selEnd = forceSpainDate(
-      new Date(newReservation.end_date), 
-      newReservation.return_time
-    );
-
-    console.log("DEBUG [fetchAvailableBikes] Fechas corregidas:", {
-      selStart: selStart.toISOString(),
-      selEnd: selEnd.toISOString(),
-      inicioEspaña: selStart.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),
-      finEspaña: selEnd.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })
-    });
-
-    const { data: reservations, error: resError } = await supabase
-      .from("reservations")
-      .select("bikes, start_date, end_date, pickup_time, return_time, status")
-      .in("status", ["confirmed", "in_process"]);
-
-    if (resError) throw resError;
-
-    const reservedBikeIds = new Set<string>();
-
-    (reservations || []).forEach(res => {
-      const resStart = forceSpainDate(
-        new Date(res.start_date), 
-        res.pickup_time
+      const selStart = forceSpainDate(
+        new Date(newReservation.start_date), 
+        newReservation.pickup_time
       );
       
-      const resEnd = forceSpainDate(
-        new Date(res.end_date), 
-        res.return_time
+      const selEnd = forceSpainDate(
+        new Date(newReservation.end_date), 
+        newReservation.return_time
       );
 
-      const overlap = selStart < resEnd && selEnd > resStart;
+      const { data: reservations, error: resError } = await supabase
+        .from("reservations")
+        .select("bikes, start_date, end_date, pickup_time, return_time, status")
+        .in("status", ["confirmed", "in_process"]);
 
-      if (overlap) {
-        try {
-          const bikesData = typeof res.bikes === 'string' 
-            ? JSON.parse(res.bikes) 
-            : res.bikes;
-          
-          if (Array.isArray(bikesData)) {
-            bikesData.forEach((bikeGroup: any) => {
-              if (bikeGroup.bike_ids && Array.isArray(bikeGroup.bike_ids)) {
-                bikeGroup.bike_ids.forEach((id: string | number) => {
-                  if (id) reservedBikeIds.add(id.toString().trim());
-                });
-              } else if (bikeGroup.id) {
-                reservedBikeIds.add(bikeGroup.id.toString().trim());
-              }
+      if (resError) throw resError;
+
+      const reservedBikeIds = new Set<string>();
+
+      (reservations || []).forEach(res => {
+        const resStart = forceSpainDate(
+          new Date(res.start_date), 
+          res.pickup_time
+        );
+        
+        const resEnd = forceSpainDate(
+          new Date(res.end_date), 
+          res.return_time
+        );
+
+        const overlap = selStart < resEnd && selEnd > resStart;
+
+        if (overlap) {
+          try {
+            const bikesData = typeof res.bikes === 'string' 
+              ? JSON.parse(res.bikes) 
+              : res.bikes;
+            
+            if (Array.isArray(bikesData)) {
+              bikesData.forEach((bikeGroup: any) => {
+                if (bikeGroup.bike_ids && Array.isArray(bikeGroup.bike_ids)) {
+                  bikeGroup.bike_ids.forEach((id: string | number) => {
+                    if (id) reservedBikeIds.add(id.toString().trim());
+                  });
+                } else if (bikeGroup.id) {
+                  reservedBikeIds.add(bikeGroup.id.toString().trim());
+                }
+              });
+            }
+          } catch (error) {
+            console.error("Error parseando bikes de reserva:", error);
+          }
+        }
+      });
+
+      if (newReservation.id) {
+        newReservation.bikes.forEach((bike: any) => {
+          if (bike.all_ids && Array.isArray(bike.all_ids)) {
+            bike.all_ids.forEach((id: string) => {
+              reservedBikeIds.delete(id.toString().trim());
             });
           }
-        } catch (error) {
-          console.error("Error parseando bikes de reserva:", error);
-        }
+        });
       }
-    });
 
-    if (newReservation.id) {
-      newReservation.bikes.forEach((bike: any) => {
-        if (bike.all_ids && Array.isArray(bike.all_ids)) {
-          bike.all_ids.forEach((id: string) => {
-            reservedBikeIds.delete(id.toString().trim());
+      const availableIndividualBikes = allBikes.filter(b => !reservedBikeIds.has(b.id.trim()));
+
+      const groupedBikesMap = new Map();
+      
+      availableIndividualBikes.forEach(bike => {
+        const key = `${bike.title_es}-${bike.category}-${bike.size}`;
+        
+        if (groupedBikesMap.has(key)) {
+          const existing = groupedBikesMap.get(key);
+          existing.quantity += 1;
+          existing.bikes.push(bike);
+        } else {
+          groupedBikesMap.set(key, {
+            key,
+            id: bike.id,
+            title_es: bike.title_es,
+            title_en: bike.title_en || '',
+            title_nl: bike.title_nl || '',
+            subtitle_es: bike.subtitle_es || '',
+            subtitle_en: bike.subtitle_en || '',
+            subtitle_nl: bike.subtitle_nl || '',
+            category: bike.category,
+            size: bike.size,
+            quantity: 1,
+            bikes: [bike]
           });
         }
       });
+
+      const availableGroups = Array.from(groupedBikesMap.values());
+
+      setAvailableBikes(availableGroups);
+
+    } catch (error) {
+      console.error("❌ Error calculando disponibilidad:", error);
+      setAvailableBikes([]);
+    } finally {
+      setIsLoadingBikes(false);
     }
-
-    const availableIndividualBikes = allBikes.filter(b => !reservedBikeIds.has(b.id.trim()));
-
-    const groupedBikesMap = new Map();
-    
-    availableIndividualBikes.forEach(bike => {
-      const key = `${bike.title_es}-${bike.category}-${bike.size}`;
-      
-      if (groupedBikesMap.has(key)) {
-        const existing = groupedBikesMap.get(key);
-        existing.quantity += 1;
-        existing.bikes.push(bike);
-      } else {
-        groupedBikesMap.set(key, {
-          key,
-          id: bike.id,
-          title_es: bike.title_es,
-          title_en: bike.title_en || '',
-          title_nl: bike.title_nl || '',
-          subtitle_es: bike.subtitle_es || '',
-          subtitle_en: bike.subtitle_en || '',
-          subtitle_nl: bike.subtitle_nl || '',
-          category: bike.category,
-          size: bike.size,
-          quantity: 1,
-          bikes: [bike]
-        });
-      }
-    });
-
-    const availableGroups = Array.from(groupedBikesMap.values());
-
-    console.log("=== 🟢 DISPONIBILIDAD ADMIN CORREGIDA ===");
-    console.log("📅 Fechas:", newReservation.start_date, "-", newReservation.end_date);
-    console.log("⏰ Horas:", newReservation.pickup_time, "-", newReservation.return_time);
-    console.log("🌍 Horas España:", {
-      inicio: selStart.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }),
-      fin: selEnd.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })
-    });
-    console.log("🚲 Bicis individuales totales:", allBikes.length);
-    console.log("🔒 Bicis reservadas en estas fechas:", reservedBikeIds.size);
-    console.log("🆔 IDs reservados:", Array.from(reservedBikeIds));
-    console.log("✅ Bicis disponibles individuales:", availableIndividualBikes.length);
-    console.log("📦 Grupos disponibles:", availableGroups.length);
-    console.log("=========================================");
-
-    setAvailableBikes(availableGroups);
-
-  } catch (error) {
-    console.error("❌ Error calculando disponibilidad:", error);
-    setAvailableBikes([]);
-  } finally {
-    setIsLoadingBikes(false);
-  }
-};
+  };
 
   const calculateStats = (reservations: any[]) => {
     const totalBikes = bikes.length
@@ -700,17 +1103,17 @@ const fetchAvailableBikes = async () => {
   }
 
   const handleLogin = () => {
-  if (
-    credentials.username === process.env.NEXT_PUBLIC_ADMIN_USERNAME &&
-    credentials.password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD
-  ) {
-    setIsAuthenticated(true);
-    localStorage.setItem('adminAuthenticated', 'true');
-    fetchData();
-  } else {
-    setError("Credenciales incorrectas");
-  }
-};
+    if (
+      credentials.username === process.env.NEXT_PUBLIC_ADMIN_USERNAME &&
+      credentials.password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD
+    ) {
+      setIsAuthenticated(true);
+      localStorage.setItem('adminAuthenticated', 'true');
+      fetchData();
+    } else {
+      setError("Credenciales incorrectas");
+    }
+  };
 
   const handleLogout = () => {
     setIsAuthenticated(false)
@@ -810,7 +1213,6 @@ const fetchAvailableBikes = async () => {
         title: "Bicicleta guardada",
         description: bikeData.id ? "Bicicleta actualizada correctamente" : "Bicicleta creada correctamente",
         variant: "default",
-        action: <CheckCircle className="h-5 w-5 text-green-500" />,
       })
     } catch (error: any) {
       setError(`Error al guardar la bicicleta: ${error.message}`)
@@ -818,12 +1220,10 @@ const fetchAvailableBikes = async () => {
         title: "Error",
         description: error.message,
         variant: "destructive",
-        action: <AlertCircle className="h-5 w-5 text-red-500" />,
       })
     }
   }
 
-  // ✅ NUEVO: Guardar Scooter
   const saveScooter = async (scooterData: any, imageFile?: File) => {
     try {
       setError(null)
@@ -842,7 +1242,6 @@ const fetchAvailableBikes = async () => {
         }
       }
 
-      // Asegurar que la categoría sea SCOOTER_MOVILIDAD
       const dataToSave = {
         ...scooterData,
         category: "SCOOTER_MOVILIDAD",
@@ -872,7 +1271,6 @@ const fetchAvailableBikes = async () => {
         title: "Scooter guardado",
         description: scooterData.id ? "Scooter actualizado correctamente" : "Scooter creado correctamente",
         variant: "default",
-        action: <CheckCircle className="h-5 w-5 text-green-500" />,
       })
     } catch (error: any) {
       setError(`Error al guardar el scooter: ${error.message}`)
@@ -880,12 +1278,10 @@ const fetchAvailableBikes = async () => {
         title: "Error",
         description: error.message,
         variant: "destructive",
-        action: <AlertCircle className="h-5 w-5 text-red-500" />,
       })
     }
   }
 
-  // ✅ NUEVO: Eliminar Scooter
   const deleteScooter = async (id: string) => {
     if (confirm("¿Estás seguro de eliminar este scooter?")) {
       try {
@@ -902,7 +1298,6 @@ const fetchAvailableBikes = async () => {
           title: "Scooter eliminado",
           description: "El scooter se ha eliminado correctamente",
           variant: "default",
-          action: <CheckCircle className="h-5 w-5 text-green-500" />,
         })
       } catch (error: any) {
         setError(`Error al eliminar el scooter: ${error.message}`)
@@ -910,7 +1305,6 @@ const fetchAvailableBikes = async () => {
           title: "Error",
           description: error.message,
           variant: "destructive",
-          action: <AlertCircle className="h-5 w-5 text-red-500" />,
         })
       }
     }
@@ -932,7 +1326,6 @@ const fetchAvailableBikes = async () => {
           title: "Bicicleta eliminada",
           description: "La bicicleta se ha eliminado correctamente",
           variant: "default",
-          action: <CheckCircle className="h-5 w-5 text-green-500" />,
         })
       } catch (error: any) {
         setError(`Error al eliminar la bicicleta: ${error.message}`)
@@ -940,76 +1333,74 @@ const fetchAvailableBikes = async () => {
           title: "Error",
           description: error.message,
           variant: "destructive",
-          action: <AlertCircle className="h-5 w-5 text-red-500" />,
         })
       }
     }
   }
 
- const saveAccessory = async (accessoryData: any, imageFile?: File) => {
-  try {
-    setError(null)
-    let imageUrl = accessoryData.image_url
+  const saveAccessory = async (accessoryData: any, imageFile?: File) => {
+    try {
+      setError(null)
+      let imageUrl = accessoryData.image_url
 
-    if (imageFile) {
-      const uploadedUrl = await handleImageUpload(
-        imageFile,
-        accessoryData.id || Date.now().toString(),
-        "accessory"
-      )
-      if (uploadedUrl) {
-        imageUrl = uploadedUrl
-      } else {
-        return
+      if (imageFile) {
+        const uploadedUrl = await handleImageUpload(
+          imageFile,
+          accessoryData.id || Date.now().toString(),
+          "accessory"
+        )
+        if (uploadedUrl) {
+          imageUrl = uploadedUrl
+        } else {
+          return
+        }
       }
+
+      const dataToSave = {
+        ...accessoryData,
+        image_url: imageUrl,
+        name: {
+          es: accessoryData.name_es || '',
+          en: accessoryData.name_en || '',
+          nl: accessoryData.name_nl || ''
+        },
+        price: Number(accessoryData.price) || 0
+      }
+
+      let result
+      if (accessoryData.id) {
+        result = await supabase
+          .from("accessories")
+          .update(dataToSave)
+          .eq("id", accessoryData.id)
+          .select()
+      } else {
+        result = await supabase
+          .from("accessories")
+          .insert([dataToSave])
+          .select()
+      }
+
+      if (result.error) throw result.error
+
+      await fetchData()
+      setEditingAccessory(null)
+      
+      toast({
+        title: "Accesorio guardado",
+        description: accessoryData.id ? "Accesorio actualizado correctamente" : "Accesorio creado correctamente",
+        variant: "default",
+      })
+    } catch (error: any) {
+      setError(`Error al guardar el accesorio: ${error.message}`)
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      })
     }
-
-    const dataToSave = {
-      ...accessoryData,
-      image_url: imageUrl,
-      name: {
-        es: accessoryData.name_es || '',
-        en: accessoryData.name_en || '',
-        nl: accessoryData.name_nl || ''
-      },
-      price: Number(accessoryData.price) || 0
-    }
-
-    let result
-    if (accessoryData.id) {
-      result = await supabase
-        .from("accessories")
-        .update(dataToSave)
-        .eq("id", accessoryData.id)
-        .select()
-    } else {
-      result = await supabase
-        .from("accessories")
-        .insert([dataToSave])
-        .select()
-    }
-
-    if (result.error) throw result.error
-
-    await fetchData()
-    setEditingAccessory(null)
-    
-    toast({
-      title: "Accesorio guardado",
-      description: accessoryData.id ? "Accesorio actualizado correctamente" : "Accesorio creado correctamente",
-      variant: "default",
-      action: <CheckCircle className="h-5 w-5 text-green-500" />,
-    })
-  } catch (error: any) {
-    setError(`Error al guardar el accesorio: ${error.message}`)
-    toast({
-      title: "Error",
-      description: error.message,
-      variant: "destructive",
-      action: <AlertCircle className="h-5 w-5 text-red-500" />,
-    })
   }
-}
+
   const deleteAccessory = async (id: string) => {
     if (confirm("¿Estás seguro de eliminar este accesorio?")) {
       try {
@@ -1026,7 +1417,6 @@ const fetchAvailableBikes = async () => {
           title: "Accesorio eliminado",
           description: "El accesorio se ha eliminado correctamente",
           variant: "default",
-          action: <CheckCircle className="h-5 w-5 text-green-500" />,
         })
       } catch (error: any) {
         setError(`Error al eliminar el accesorio: ${error.message}`)
@@ -1034,255 +1424,192 @@ const fetchAvailableBikes = async () => {
           title: "Error",
           description: error.message,
           variant: "destructive",
-          action: <AlertCircle className="h-5 w-5 text-red-500" />,
         })
       }
     }
   }
 
-// ============================================
-// ✅ CREATE RESERVATION - VERSIÓN DEFINITIVA
-// ============================================
+  // ============================================
+  // ✅ CREATE RESERVATION
+  // ============================================
 
-const createReservation = async () => {
-  console.log("DEBUG: createReservation iniciada");
-  
-  if (isCreatingReservation) {
-    console.log("DEBUG: Ya está en proceso, abortando");
-    return;
-  }
+  const createReservation = async () => {
+    if (isCreatingReservation) return;
 
-  try {
-    console.log("DEBUG: Configurando isCreatingReservation = true");
-    setIsCreatingReservation(true);
-    console.log("DEBUG: Estado actual de newReservation:", newReservation);
+    try {
+      setIsCreatingReservation(true);
 
-    console.log("DEBUG: Calculando días totales...");
-    const days = calculateTotalDays(
-      new Date(newReservation.start_date),
-      new Date(newReservation.end_date),
-      newReservation.pickup_time,
-      newReservation.return_time
-    );
-    console.log("DEBUG: Días calculados:", days);
-
-    console.log("DEBUG: Preparando bicis para BD...");
-    const bikesForDB = newReservation.bikes.map((bike: any) => {
-      const pricePerDay = calculatePrice(bike.category, days);
-      
-      let bike_ids = bike.all_ids && bike.all_ids.length > 0 
-        ? bike.all_ids 
-        : [bike.id];
-
-      return {
-        id: bike.id,
-        title_es: bike.title_es || bike.title,
-        size: bike.size,
-        category: bike.category,
-        bike_ids: bike_ids,
-        quantity: bike.quantity || 1,
-        price_per_day: pricePerDay,
-        total_price: pricePerDay * days * (bike.quantity || 1),
-      };
-    });
-    console.log("DEBUG: Bicis para BD:", bikesForDB);
-
-    console.log("DEBUG: Calculando totales...");
-    let totalAmount = 0;
-    let depositAmount = 0;
-
-    bikesForDB.forEach((bike: any) => {
-      if (isValidCategory(bike.category)) {
-        totalAmount += bike.total_price;
-        depositAmount += calculateDeposit(bike.category) * (bike.quantity || 1);
-      }
-    });
-
-    console.log("DEBUG: Total bicis:", totalAmount);
-    console.log("DEBUG: Depósito bicis:", depositAmount);
-
-    newReservation.accessories.forEach((acc: any) => {
-      console.log("DEBUG: Accesorio:", acc.name, "precio:", acc.price);
-      totalAmount += acc.price || 0;
-    });
-
-    if (newReservation.insurance) {
-      const insuranceTotal = calculateInsurance(days) *
-        newReservation.bikes.reduce(
-          (sum: number, b: any) => sum + (b.quantity || 1),
-          0
-        );
-      console.log("DEBUG: Seguro total:", insuranceTotal);
-      totalAmount += insuranceTotal;
-    }
-
-    console.log("DEBUG: Total final:", totalAmount);
-
-    console.log("DEBUG: Validando solapamiento de fechas...");
-    
-    const startSpain = forceSpainDate(newReservation.start_date, newReservation.pickup_time);
-    const endSpain = forceSpainDate(newReservation.end_date, newReservation.return_time);
-
-    console.log("DEBUG: Fechas para validación:", {
-      startSpain: startSpain.toISOString(),
-      endSpain: endSpain.toISOString()
-    });
-
-    const { data: overlappingReservations, error: overlapError } = await supabase
-      .from("reservations")
-      .select("start_date, end_date, pickup_time, return_time, bikes, status")
-      .in("status", ["confirmed", "in_process"]);
-
-    if (overlapError) {
-      console.error("DEBUG: Error al buscar solapamientos:", overlapError);
-      throw overlapError;
-    }
-
-    console.log("DEBUG: Total reservas activas en sistema:", overlappingReservations?.length || 0);
-
-    const selectedBikeIds = newReservation.bikes.flatMap((bike: any) => 
-      bike.all_ids || [bike.id]
-    );
-    
-    console.log("DEBUG: IDs de bicis seleccionadas:", selectedBikeIds);
-    
-    let hasConflict = false;
-    let conflictingBikes: string[] = [];
-    let reservasConConflicto: string[] = [];
-    
-    overlappingReservations?.forEach((res: any) => {
-      const resStart = forceSpainDate(new Date(res.start_date), res.pickup_time);
-      const resEnd = forceSpainDate(new Date(res.end_date), res.return_time);
-      
-      const overlaps = resStart < endSpain && resEnd > startSpain;
-      
-      if (overlaps) {
-        try {
-          const bikesData = typeof res.bikes === 'string' ? JSON.parse(res.bikes) : res.bikes;
-          
-          bikesData.forEach((bikeGroup: any) => {
-            const reservedBikeIds = bikeGroup.bike_ids || [];
-            
-            const duplicateBikes = selectedBikeIds.filter((id: string) => 
-              reservedBikeIds.includes(id)
-            );
-            
-            if (duplicateBikes.length > 0) {
-              hasConflict = true;
-              conflictingBikes = [...conflictingBikes, ...duplicateBikes];
-              reservasConConflicto = [...reservasConConflicto, res.id];
-              console.log("DEBUG: 🔴 Conflicto encontrado - Reserva:", res.id, "Bicis:", duplicateBikes);
-            }
-          });
-        } catch (error) {
-          console.error("Error parseando bikes de reserva existente:", error);
-        }
-      }
-    });
-    
-    if (hasConflict) {
-      const uniqueConflicts = [...new Set(conflictingBikes)];
-      const uniqueReservas = [...new Set(reservasConConflicto)];
-      
-      console.log("DEBUG: Conflictos únicos:", uniqueConflicts);
-      console.log("DEBUG: Reservas con conflicto:", uniqueReservas);
-      
-      throw new Error(
-        `❌ NO se puede crear la reserva. ${uniqueConflicts.length} bici(s) ya están reservadas en ese horario.\n` +
-        `IDs: ${uniqueConflicts.join(', ')}\n` +
-        `Reservas conflictivas: ${uniqueReservas.length}\n` +
-        `Por favor, selecciona otras bicis o cambia las fechas.`
+      const days = calculateTotalDays(
+        new Date(newReservation.start_date),
+        new Date(newReservation.end_date),
+        newReservation.pickup_time,
+        newReservation.return_time
       );
-    } else {
-      console.log("DEBUG: ✅ No hay conflictos de bicis específicas");
+
+      const bikesForDB = newReservation.bikes.map((bike: any) => {
+        const pricePerDay = calculatePrice(bike.category, days);
+        let bike_ids = bike.all_ids && bike.all_ids.length > 0 
+          ? bike.all_ids 
+          : [bike.id];
+
+        return {
+          id: bike.id,
+          title_es: bike.title_es || bike.title,
+          size: bike.size,
+          category: bike.category,
+          bike_ids: bike_ids,
+          quantity: bike.quantity || 1,
+          price_per_day: pricePerDay,
+          total_price: pricePerDay * days * (bike.quantity || 1),
+        };
+      });
+
+      let totalAmount = 0;
+      let depositAmount = 0;
+
+      bikesForDB.forEach((bike: any) => {
+        if (isValidCategory(bike.category)) {
+          totalAmount += bike.total_price;
+          depositAmount += calculateDeposit(bike.category) * (bike.quantity || 1);
+        }
+      });
+
+      newReservation.accessories.forEach((acc: any) => {
+        totalAmount += acc.price || 0;
+      });
+
+      if (newReservation.insurance) {
+        const insuranceTotal = calculateInsurance(days) *
+          newReservation.bikes.reduce(
+            (sum: number, b: any) => sum + (b.quantity || 1),
+            0
+          );
+        totalAmount += insuranceTotal;
+      }
+
+      const startSpain = forceSpainDate(newReservation.start_date, newReservation.pickup_time);
+      const endSpain = forceSpainDate(newReservation.end_date, newReservation.return_time);
+
+      const { data: overlappingReservations, error: overlapError } = await supabase
+        .from("reservations")
+        .select("start_date, end_date, pickup_time, return_time, bikes, status")
+        .in("status", ["confirmed", "in_process"]);
+
+      if (overlapError) throw overlapError;
+
+      const selectedBikeIds = newReservation.bikes.flatMap((bike: any) => 
+        bike.all_ids || [bike.id]
+      );
+      
+      let hasConflict = false;
+      let conflictingBikes: string[] = [];
+      
+      overlappingReservations?.forEach((res: any) => {
+        const resStart = forceSpainDate(new Date(res.start_date), res.pickup_time);
+        const resEnd = forceSpainDate(new Date(res.end_date), res.return_time);
+        
+        const overlaps = resStart < endSpain && resEnd > startSpain;
+        
+        if (overlaps) {
+          try {
+            const bikesData = typeof res.bikes === 'string' ? JSON.parse(res.bikes) : res.bikes;
+            
+            bikesData.forEach((bikeGroup: any) => {
+              const reservedBikeIds = bikeGroup.bike_ids || [];
+              
+              const duplicateBikes = selectedBikeIds.filter((id: string) => 
+                reservedBikeIds.includes(id)
+              );
+              
+              if (duplicateBikes.length > 0) {
+                hasConflict = true;
+                conflictingBikes = [...conflictingBikes, ...duplicateBikes];
+              }
+            });
+          } catch (error) {
+            console.error("Error parseando bikes de reserva existente:", error);
+          }
+        }
+      });
+      
+      if (hasConflict) {
+        const uniqueConflicts = [...new Set(conflictingBikes)];
+        throw new Error(
+          `❌ NO se puede crear la reserva. ${uniqueConflicts.length} bici(s) ya están reservadas en ese horario.\n` +
+          `IDs: ${uniqueConflicts.join(', ')}\n` +
+          `Por favor, selecciona otras bicis o cambia las fechas.`
+        );
+      }
+
+      const dataToSave = {
+        customer_name: newReservation.customer_name,
+        customer_email: newReservation.customer_email,
+        customer_phone: newReservation.customer_phone,
+        customer_dni: newReservation.customer_dni,
+        start_date: formatDateForDB(newReservation.start_date),
+        end_date: formatDateForDB(newReservation.end_date),
+        pickup_time: newReservation.pickup_time,
+        return_time: newReservation.return_time,
+        pickup_location: newReservation.pickup_location,
+        return_location: newReservation.return_location,
+        bikes: bikesForDB,
+        accessories: newReservation.accessories.map((acc: any) => ({
+          id: acc.id,
+          name: acc.name,
+          price: acc.price
+        })),
+        insurance: newReservation.insurance,
+        total_days: days,
+        total_amount: totalAmount,
+        deposit_amount: depositAmount,
+        status: "confirmed",
+        locale: newReservation.locale || "es",
+        created_at: new Date().toISOString()
+      };
+
+      const { error: insertError } = await supabase
+        .from("reservations")
+        .insert([dataToSave]);
+
+      if (insertError) throw insertError;
+      
+      toast({
+        title: "✅ Reserva creada",
+        description: "La reserva se creó correctamente.",
+      });
+      
+      setNewReservation({
+        customer_name: "",
+        customer_email: "",
+        customer_phone: "",
+        customer_dni: "",
+        start_date: createLocalDate(),
+        end_date: createLocalDate(),
+        pickup_time: "10:00",
+        return_time: "18:00",
+        pickup_location: "sucursal_altea",
+        return_location: "sucursal_altea",
+        bikes: [],
+        accessories: [],
+        insurance: false,
+        status: "confirmed",
+        locale: "es"
+      });
+      
+      setReservationStep("dates");
+      await fetchData();
+
+    } catch (err: any) {
+      toast({
+        title: "❌ Error",
+        description: err.message || "No se pudo crear la reserva.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreatingReservation(false);
     }
+  };
 
-    console.log("DEBUG: Preparando datos para insertar en BD...");
-    
-    const dataToSave = {
-      customer_name: newReservation.customer_name,
-      customer_email: newReservation.customer_email,
-      customer_phone: newReservation.customer_phone,
-      customer_dni: newReservation.customer_dni,
-      start_date: formatDateForDB(newReservation.start_date),
-      end_date: formatDateForDB(newReservation.end_date),
-      pickup_time: newReservation.pickup_time,
-      return_time: newReservation.return_time,
-      pickup_location: newReservation.pickup_location,
-      return_location: newReservation.return_location,
-      bikes: bikesForDB,
-      accessories: newReservation.accessories.map((acc: any) => ({
-        id: acc.id,
-        name: acc.name,
-        price: acc.price
-      })),
-      insurance: newReservation.insurance,
-      total_days: days,
-      total_amount: totalAmount,
-      deposit_amount: depositAmount,
-      status: "confirmed",
-      locale: newReservation.locale || "es",
-      created_at: new Date().toISOString()
-    };
-
-    console.log("DEBUG: Datos a guardar en BD:", dataToSave);
-    console.log("DEBUG: Intentando insertar en BD...");
-    
-    const { error: insertError } = await supabase
-      .from("reservations")
-      .insert([dataToSave]);
-
-    if (insertError) {
-      console.error("DEBUG: Error al insertar en BD:", insertError);
-      throw insertError;
-    }
-
-    console.log("DEBUG: ✅ Reserva insertada exitosamente en BD");
-    
-    toast({
-      title: "✅ Reserva creada",
-      description: "La reserva se creó correctamente.",
-    });
-
-    console.log("DEBUG: Reseteando formulario...");
-    
-    setNewReservation({
-      customer_name: "",
-      customer_email: "",
-      customer_phone: "",
-      customer_dni: "",
-      start_date: createLocalDate(),
-      end_date: createLocalDate(),
-      pickup_time: "10:00",
-      return_time: "18:00",
-      pickup_location: "sucursal_altea",
-      return_location: "sucursal_altea",
-      bikes: [],
-      accessories: [],
-      insurance: false,
-      status: "confirmed",
-      locale: "es"
-    });
-    
-    setReservationStep("dates");
-    
-    console.log("DEBUG: Actualizando datos...");
-    await fetchData();
-
-  } catch (err: any) {
-    console.error("❌ Error en createReservation:", err);
-    console.error("❌ Mensaje de error:", err.message);
-    
-    toast({
-      title: "❌ Error",
-      description: err.message || "No se pudo crear la reserva.",
-      variant: "destructive",
-    });
-  } finally {
-    console.log("DEBUG: Configurando isCreatingReservation = false");
-    setIsCreatingReservation(false);
-  }
-};
   const updateReservationStatus = async (id: string, status: string) => {
     try {
       setError(null);
@@ -1321,7 +1648,6 @@ const createReservation = async () => {
         title: "Estado actualizado",
         description: `El estado de la reserva se ha actualizado a ${status}`,
         variant: "default",
-        action: <CheckCircle className="h-5 w-5 text-green-500" />,
       })
     } catch (error: any) {
       setError(`Error al actualizar la reserva: ${error.message}`);
@@ -1329,40 +1655,40 @@ const createReservation = async () => {
         title: "Error",
         description: error.message,
         variant: "destructive",
-        action: <AlertCircle className="h-5 w-5 text-red-500" />,
       })
     }
   };
-const toggleBikeSelection = (bikeGroup: any) => {
-  const index = newReservation.bikes.findIndex((b: any) => b.key === bikeGroup.key);
 
-  if (index >= 0) {
-    const newBikes = [...newReservation.bikes];
-    newBikes.splice(index, 1);
-    setNewReservation({ ...newReservation, bikes: newBikes });
-  } else {
-    const firstRealBikeId = bikeGroup.bikes && bikeGroup.bikes.length > 0
-      ? bikeGroup.bikes[0].id
-      : bikeGroup.id;
+  const toggleBikeSelection = (bikeGroup: any) => {
+    const index = newReservation.bikes.findIndex((b: any) => b.key === bikeGroup.key);
 
-    setNewReservation({
-      ...newReservation,
-      bikes: [
-        ...newReservation.bikes,
-        {
-          key: bikeGroup.key,
-          id: bikeGroup.id,
-          all_ids: [firstRealBikeId],
-          title: bikeGroup.title_es,
-          size: bikeGroup.size,
-          category: bikeGroup.category,
-          quantity: 1,
-          available_quantity: bikeGroup.quantity,
-        },
-      ],
-    });
-  }
-};
+    if (index >= 0) {
+      const newBikes = [...newReservation.bikes];
+      newBikes.splice(index, 1);
+      setNewReservation({ ...newReservation, bikes: newBikes });
+    } else {
+      const firstRealBikeId = bikeGroup.bikes && bikeGroup.bikes.length > 0
+        ? bikeGroup.bikes[0].id
+        : bikeGroup.id;
+
+      setNewReservation({
+        ...newReservation,
+        bikes: [
+          ...newReservation.bikes,
+          {
+            key: bikeGroup.key,
+            id: bikeGroup.id,
+            all_ids: [firstRealBikeId],
+            title: bikeGroup.title_es,
+            size: bikeGroup.size,
+            category: bikeGroup.category,
+            quantity: 1,
+            available_quantity: bikeGroup.quantity,
+          },
+        ],
+      });
+    }
+  };
 
   const toggleAccessorySelection = (accessory: any) => {
     const isSelected = newReservation.accessories.some((a: any) => a.id === accessory.id)
@@ -1385,91 +1711,79 @@ const toggleBikeSelection = (bikeGroup: any) => {
       })
     }
   }
-  
-// ============================================
-// ✅ CALCULATE TOTAL DAYS - VERSIÓN DEFINITIVA
-// ============================================
 
-const calculateTotalDays = (
-  startDate: Date,
-  endDate: Date,
-  pickupTime: string,
-  returnTime: string
-): number => {
-  try {
-    const startSpain = forceSpainDate(startDate, pickupTime);
-    const endSpain = forceSpainDate(endDate, returnTime);
-    
-    console.log("DEBUG [calculateTotalDays]:", {
-      startDate,
-      endDate,
-      pickupTime,
-      returnTime,
-      startSpain: startSpain.toISOString(),
-      endSpain: endSpain.toISOString()
-    });
-    
-    if (startSpain.toDateString() === endSpain.toDateString()) {
-      console.log("DEBUG [calculateTotalDays]: Mismo día = 1");
+  // ============================================
+  // ✅ CALCULATE TOTAL DAYS
+  // ============================================
+
+  const calculateTotalDays = (
+    startDate: Date,
+    endDate: Date,
+    pickupTime: string,
+    returnTime: string
+  ): number => {
+    try {
+      const startSpain = forceSpainDate(startDate, pickupTime);
+      const endSpain = forceSpainDate(endDate, returnTime);
+      
+      if (startSpain.toDateString() === endSpain.toDateString()) {
+        return 1;
+      }
+      
+      const diffTime = endSpain.getTime() - startSpain.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      return Math.max(1, Math.min(diffDays, 30));
+      
+    } catch (error) {
+      console.error("❌ Error en calculateTotalDays:", error);
       return 1;
     }
-    
-    const diffTime = endSpain.getTime() - startSpain.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    console.log("DEBUG [calculateTotalDays]: Días calculados =", diffDays);
-    
-    return Math.max(1, Math.min(diffDays, 30));
-    
-  } catch (error) {
-    console.error("❌ Error en calculateTotalDays:", error);
-    return 1;
-  }
-};
+  };
 
+  const calculateTotalDeposit = () => {
+    return newReservation.bikes.reduce((sum: number, bike: any) => {
+      const qty = bike.quantity || 1;
+      return sum + (isValidCategory(bike.category) ? calculateDeposit(bike.category) * qty : 0);
+    }, 0);
+  };
 
- const calculateTotalDeposit = () => {
-  return newReservation.bikes.reduce((sum: number, bike: any) => {
-    const qty = bike.quantity || 1;
-    return sum + (isValidCategory(bike.category) ? calculateDeposit(bike.category) * qty : 0);
-  }, 0);
-};
+  const calculateTotalPrice = () => {
+    if (!newReservation.start_date || !newReservation.end_date) return 0;
 
+    const days = calculateTotalDays(
+      new Date(newReservation.start_date),
+      new Date(newReservation.end_date),
+      newReservation.pickup_time,
+      newReservation.return_time
+    );
 
-const calculateTotalPrice = () => {
-  if (!newReservation.start_date || !newReservation.end_date) return 0;
+    let total = 0;
 
-  const days = calculateTotalDays(
-    new Date(newReservation.start_date),
-    new Date(newReservation.end_date),
-    newReservation.pickup_time,
-    newReservation.return_time
-  );
+    newReservation.bikes.forEach((bike: any) => {
+      const pricePerDay = calculatePrice(bike.category, days);
+      total += pricePerDay * days * (bike.quantity || 1);
+    });
 
-  let total = 0;
+    newReservation.accessories.forEach((acc: any) => {
+      total += acc.price || 0;
+    });
 
-  newReservation.bikes.forEach((bike: any) => {
-    const pricePerDay = calculatePrice(bike.category, days);
-    total += pricePerDay * days * (bike.quantity || 1);
-  });
+    if (newReservation.insurance) {
+      total +=
+        calculateInsurance(days) *
+        newReservation.bikes.reduce(
+          (sum: number, b: any) => sum + (b.quantity || 1),
+          0
+        );
+    }
 
-  newReservation.accessories.forEach((acc: any) => {
-    total += acc.price || 0;
-  });
+    return total;
+  };
 
-  if (newReservation.insurance) {
-    total +=
-      calculateInsurance(days) *
-      newReservation.bikes.reduce(
-        (sum: number, b: any) => sum + (b.quantity || 1),
-        0
-      );
-  }
-
-  return total;
-};
-
-
+  // ============================================
+  // ✅ RENDER PRINCIPAL
+  // ============================================
 
   if (!isAuthenticated) {
     return (
@@ -1559,13 +1873,14 @@ const calculateTotalPrice = () => {
         </div>
 
         <Tabs defaultValue="reservations" className="space-y-6">
-          <TabsList>
+          <TabsList className="flex flex-wrap gap-1">
             <TabsTrigger value="bikes">🚲 Bicicletas</TabsTrigger>
-            <TabsTrigger value="scooters">🛴 Scooters</TabsTrigger> {/* ✅ NUEVO */}
+            <TabsTrigger value="scooters">🛴 Scooters</TabsTrigger>
             <TabsTrigger value="accessories">Accesorios</TabsTrigger>
             <TabsTrigger value="reservations">Reservas</TabsTrigger>
-            <TabsTrigger value="create-reservation">Nueva Reserva</TabsTrigger>
+            <TabsTrigger value="create-reservation">➕ Nueva Reserva</TabsTrigger>
             <TabsTrigger value="blocked-dates">🚫 Feriados</TabsTrigger>
+            <TabsTrigger value="store-hours">🕐 Horarios</TabsTrigger>
           </TabsList>
 
           <TabsContent value="bikes">
@@ -1656,7 +1971,6 @@ const calculateTotalPrice = () => {
             </Card>
           </TabsContent>
 
-          {/* ✅ NUEVA PESTAÑA: SCOOTERS */}
           <TabsContent value="scooters">
             <Card>
               <CardHeader>
@@ -1674,7 +1988,7 @@ const calculateTotalPrice = () => {
                             subtitle_en: "",
                             subtitle_nl: "",
                             category: "SCOOTER_MOVILIDAD",
-                            size: "M", // Los scooters no usan talla pero lo mantenemos
+                            size: "M",
                             available: true,
                             image_url: "",
                           })
@@ -1811,9 +2125,9 @@ const calculateTotalPrice = () => {
                       </div>
                       <h3 className="font-semibold">{accessory.name_es || accessory.name}</h3>
                       <h3 className="font-semibold">{accessory.name?.es || accessory.name_es || accessory.name || ""}</h3>
-<p className="text-sm text-gray-600">
-  {accessory.type} - {accessory.price === 0 ? "Gratis" : `${accessory.price}€`}
-</p>
+                      <p className="text-sm text-gray-600">
+                        {accessory.type} - {accessory.price === 0 ? "Gratis" : `${accessory.price}€`}
+                      </p>
                       <div className="flex gap-2 mt-2">
                         <Badge>{accessory.type}</Badge>
                         <Badge variant={accessory.available ? "default" : "destructive"}>
@@ -1843,332 +2157,296 @@ const calculateTotalPrice = () => {
             </Card>
           </TabsContent>
 
-          {/* Resto del código de reservas, create-reservation y blocked-dates permanece igual */}
           <TabsContent value="reservations">
-  <Card>
-    <CardHeader>
-  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-    <CardTitle>Gestión de Reservas</CardTitle>
-    
-    <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
-      <div className="relative">
-        <Input
-          placeholder="Buscar por nombre y apellido"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full md:w-64"
-        />
-      </div>
+            <Card>
+              <CardHeader>
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <CardTitle>Gestión de Reservas</CardTitle>
+                  
+                  <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+                    <div className="relative">
+                      <Input
+                        placeholder="Buscar por nombre y apellido"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full md:w-64"
+                      />
+                    </div>
 
-      <Select value={statusFilter} onValueChange={setStatusFilter}>
-        <SelectTrigger className="w-full md:w-40">
-          <SelectValue placeholder="Estado" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">Todos los estados</SelectItem>
-          <SelectItem value="confirmed">Confirmadas</SelectItem>
-          <SelectItem value="in_process">En proceso</SelectItem>
-          <SelectItem value="completed">Completadas</SelectItem>
-          <SelectItem value="cancelled">Canceladas</SelectItem>
-        </SelectContent>
-      </Select>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger className="w-full md:w-40">
+                        <SelectValue placeholder="Estado" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos los estados</SelectItem>
+                        <SelectItem value="confirmed">Confirmadas</SelectItem>
+                        <SelectItem value="in_process">En proceso</SelectItem>
+                        <SelectItem value="completed">Completadas</SelectItem>
+                        <SelectItem value="cancelled">Canceladas</SelectItem>
+                      </SelectContent>
+                    </Select>
 
-<Select value={locationFilter} onValueChange={setLocationFilter}>
-  <SelectTrigger className="w-full md:w-64">
-    <SelectValue placeholder="Ubicación" />
-  </SelectTrigger>
-  <SelectContent>
-    <SelectItem value="all">Todas las ubicaciones</SelectItem>
-    <SelectItem value="sucursal_altea">
-      Altea Bike Shop - Calle la Tella 2, Altea
-    </SelectItem>
-    <SelectItem value="sucursal_albir">
-      Albir Cycling - Av del Albir 159, El Albir
-    </SelectItem>
-  </SelectContent>
-</Select>
+                    <Select value={locationFilter} onValueChange={setLocationFilter}>
+                      <SelectTrigger className="w-full md:w-64">
+                        <SelectValue placeholder="Ubicación" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas las ubicaciones</SelectItem>
+                        <SelectItem value="sucursal_altea">
+                          Altea Bike Shop - Calle la Tella 2, Altea
+                        </SelectItem>
+                        <SelectItem value="sucursal_albir">
+                          Albir Cycling - Av del Albir 159, El Albir
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
 
-<Select 
-  value={selectedMonth.toISOString()} 
-  onValueChange={(value) => setSelectedMonth(new Date(value))}
->
-  <SelectTrigger className="w-full md:w-40">
-    <SelectValue>
-      {format(selectedMonth, 'MMMM yyyy', { locale: es })}
-    </SelectValue>
-  </SelectTrigger>
-  <SelectContent>
-    {(() => {
-      const options = [];
-      const today = new Date();
-      
-      const oldestReservation = reservations.length > 0 
-        ? new Date(Math.min(...reservations.map(r => new Date(r.start_date).getTime())))
-        : new Date(2024, 0, 1);
-      
-      const startDate = new Date(oldestReservation.getFullYear(), oldestReservation.getMonth(), 1);
-      const endDate = new Date(today.getFullYear(), today.getMonth() + 12, 1);
-      
-      let current = new Date(startDate);
-      while (current <= endDate) {
-        options.push(new Date(current));
-        current.setMonth(current.getMonth() + 1);
-      }
-      
-      return options.map((date) => (
-        <SelectItem key={date.toISOString()} value={date.toISOString()}>
-          {format(date, 'MMMM yyyy', { locale: es })}
-        </SelectItem>
-      ));
-    })()}
-  </SelectContent>
-</Select>
-    </div>
-  </div>
-
-  <div className="mt-4 flex justify-end">
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={deleteCancelledReservationsOfMonth}
-      className="text-red-600 hover:bg-red-50 hover:text-red-700 border-red-200"
-    >
-      <Trash2 className="h-4 w-4 mr-2" />
-      Borrar canceladas de {format(selectedMonth, 'MMMM', { locale: es })}
-    </Button>
-  </div>
-</CardHeader>
-    <CardContent>
-      <div className="space-y-4">
-        {currentReservations.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            No hay reservas registradas para este mes
-          </div>
-        ) : (
-          currentReservations.map((reservation) => (
-            <div key={reservation.id} className="border rounded-lg p-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <h3 className="font-semibold">{reservation.customer_name}</h3>
-                  <p className="text-sm text-gray-600">{reservation.customer_email}</p>
-                  <p className="text-sm text-gray-600">{reservation.customer_phone}</p>
-                  <p className="text-sm text-gray-600">DNI: {reservation.customer_dni}</p>
-                </div>
-
-                <div>
-  <p className="text-sm">
-    <strong>Fechas:</strong> {format(reservation.start_date, 'PPP', { locale: es })} - {format(reservation.end_date, 'PPP', { locale: es })}
-  </p>
-  <p className="text-sm flex items-center gap-1">
-    <Clock className="h-4 w-4" />
-    <span>
-      Recogida: {reservation.pickup_time} - Devolución: {reservation.return_time}
-    </span>
-  </p>
-  <p className="text-sm">
-  <strong>Ubicación:</strong> {
-    locationOptions.find(loc => loc.value === reservation.pickup_location)?.label || 
-    reservation.pickup_location || 
-    "No especificada"
-  }
-</p>
-  <p className="text-sm">
-    <strong>Días:</strong> {reservation.total_days}
-  </p>
-  <p className="text-sm">
-    <strong>Total:</strong> {reservation.total_amount}€
-  </p>
-  <p className="text-sm">
-    <strong>Depósito:</strong> {reservation.deposit_amount}€
-  </p>
-  {reservation.insurance && (
-    <p className="text-sm">
-      <strong>Seguro:</strong> Sí
-    </p>
-  )}
-</div>
-
-                <div>
-                  <div className="mb-2">
-                    <Badge
-  className={
-    reservation.status === "confirmed"
-      ? "bg-black text-white hover:bg-gray-800 border-black"
-      : reservation.status === "in_process"
-      ? "bg-blue-500 text-white hover:bg-blue-600 border-blue-600"
-      : reservation.status === "completed"
-      ? "bg-green-500 text-white hover:bg-green-600 border-green-600"
-      : reservation.status === "cancelled"
-      ? "bg-red-500 text-white hover:bg-red-600 border-red-600"
-      : "bg-gray-500 text-white hover:bg-gray-600 border-gray-600"
-  }
->
-  {reservation.status === "confirmed" && "Confirmada"}
-  {reservation.status === "in_process" && "En proceso"}
-  {reservation.status === "completed" && "Completada"}
-  {reservation.status === "cancelled" && "Cancelada"}
-</Badge>
+                    <Select 
+                      value={selectedMonth.toISOString()} 
+                      onValueChange={(value) => setSelectedMonth(new Date(value))}
+                    >
+                      <SelectTrigger className="w-full md:w-40">
+                        <SelectValue>
+                          {format(selectedMonth, 'MMMM yyyy', { locale: es })}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(() => {
+                          const options = [];
+                          const today = new Date();
+                          
+                          const oldestReservation = reservations.length > 0 
+                            ? new Date(Math.min(...reservations.map(r => new Date(r.start_date).getTime())))
+                            : new Date(2024, 0, 1);
+                          
+                          const startDate = new Date(oldestReservation.getFullYear(), oldestReservation.getMonth(), 1);
+                          const endDate = new Date(today.getFullYear(), today.getMonth() + 12, 1);
+                          
+                          let current = new Date(startDate);
+                          while (current <= endDate) {
+                            options.push(new Date(current));
+                            current.setMonth(current.getMonth() + 1);
+                          }
+                          
+                          return options.map((date) => (
+                            <SelectItem key={date.toISOString()} value={date.toISOString()}>
+                              {format(date, 'MMMM yyyy', { locale: es })}
+                            </SelectItem>
+                          ));
+                        })()}
+                      </SelectContent>
+                    </Select>
                   </div>
+                </div>
 
-                  <Select
-                    value={reservation.status}
-                    onValueChange={(status) => updateReservationStatus(reservation.id, status)}
+                <div className="mt-4 flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={deleteCancelledReservationsOfMonth}
+                    className="text-red-600 hover:bg-red-50 hover:text-red-700 border-red-200"
                   >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="confirmed">Confirmada</SelectItem>
-                      <SelectItem value="in_process">En proceso</SelectItem>
-                      <SelectItem value="completed">Completada</SelectItem>
-                      <SelectItem value="cancelled">Cancelada</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Borrar canceladas de {format(selectedMonth, 'MMMM', { locale: es })}
+                  </Button>
                 </div>
-              </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {currentReservations.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      No hay reservas registradas para este mes
+                    </div>
+                  ) : (
+                    currentReservations.map((reservation) => (
+                      <div key={reservation.id} className="border rounded-lg p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <h3 className="font-semibold">{reservation.customer_name}</h3>
+                            <p className="text-sm text-gray-600">{reservation.customer_email}</p>
+                            <p className="text-sm text-gray-600">{reservation.customer_phone}</p>
+                            <p className="text-sm text-gray-600">DNI: {reservation.customer_dni}</p>
+                          </div>
 
-              <div className="mt-4 pt-4 border-t">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-  <h4 className="font-medium mb-2">Bicicletas:</h4>
-  {(() => {
-    const groupedBikes = reservation.bikes?.reduce((acc: any[], bike: any) => {
-      const bikeName = bike.title_es || bike.title || bike.model;
-      const key = `${bikeName}-${bike.size}`;
-      
-      const existing = acc.find((b: any) => b.key === key);
-      if (existing) {
-        existing.quantity += bike.quantity || 1;
-      } else {
-        acc.push({
-          key,
-          name: bikeName,
-          size: bike.size,
-          quantity: bike.quantity || 1
-        });
-      }
-      return acc;
-    }, []) || [];
+                          <div>
+                            <p className="text-sm">
+                              <strong>Fechas:</strong> {format(reservation.start_date, 'PPP', { locale: es })} - {format(reservation.end_date, 'PPP', { locale: es })}
+                            </p>
+                            <p className="text-sm flex items-center gap-1">
+                              <Clock className="h-4 w-4" />
+                              <span>
+                                Recogida: {reservation.pickup_time} - Devolución: {reservation.return_time}
+                              </span>
+                            </p>
+                            <p className="text-sm">
+                              <strong>Ubicación:</strong> {
+                                locationOptions.find(loc => loc.value === reservation.pickup_location)?.label || 
+                                reservation.pickup_location || 
+                                "No especificada"
+                              }
+                            </p>
+                            <p className="text-sm">
+                              <strong>Días:</strong> {reservation.total_days}
+                            </p>
+                            <p className="text-sm">
+                              <strong>Total:</strong> {reservation.total_amount}€
+                            </p>
+                            <p className="text-sm">
+                              <strong>Depósito:</strong> {reservation.deposit_amount}€
+                            </p>
+                            {reservation.insurance && (
+                              <p className="text-sm">
+                                <strong>Seguro:</strong> Sí
+                              </p>
+                            )}
+                          </div>
 
-    return groupedBikes.map((bike: any, index: number) => (
-      <p key={index} className="text-sm text-gray-600">
-        {bike.name} - Talla {bike.size} {bike.quantity > 1 && `(x${bike.quantity})`}
-      </p>
-    ));
-  })()}
-</div>
-                   
+                          <div>
+                            <div className="mb-2">
+                              <Badge
+                                className={
+                                  reservation.status === "confirmed"
+                                    ? "bg-black text-white hover:bg-gray-800 border-black"
+                                    : reservation.status === "in_process"
+                                    ? "bg-blue-500 text-white hover:bg-blue-600 border-blue-600"
+                                    : reservation.status === "completed"
+                                    ? "bg-green-500 text-white hover:bg-green-600 border-green-600"
+                                    : reservation.status === "cancelled"
+                                    ? "bg-red-500 text-white hover:bg-red-600 border-red-600"
+                                    : "bg-gray-500 text-white hover:bg-gray-600 border-gray-600"
+                                }
+                              >
+                                {reservation.status === "confirmed" && "Confirmada"}
+                                {reservation.status === "in_process" && "En proceso"}
+                                {reservation.status === "completed" && "Completada"}
+                                {reservation.status === "cancelled" && "Cancelada"}
+                              </Badge>
+                            </div>
 
-                  {reservation.accessories && reservation.accessories.length > 0 && (
-  <div>
-    <h4 className="font-medium mb-2">Accesorios:</h4>
-    {reservation.accessories.map((accessory: any, index: number) => (
-      <p key={index} className="text-sm text-gray-600">
-        {accessory.name?.es || accessory.name_es || accessory.name} - {accessory.price}€/día × {reservation.total_days} días = {accessory.price * reservation.total_days}€
-      </p>
-    ))}
-  </div>
-)}
+                            <Select
+                              value={reservation.status}
+                              onValueChange={(status) => updateReservationStatus(reservation.id, status)}
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="confirmed">Confirmada</SelectItem>
+                                <SelectItem value="in_process">En proceso</SelectItem>
+                                <SelectItem value="completed">Completada</SelectItem>
+                                <SelectItem value="cancelled">Cancelada</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 pt-4 border-t">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <h4 className="font-medium mb-2">Bicicletas:</h4>
+                              {(() => {
+                                const groupedBikes = reservation.bikes?.reduce((acc: any[], bike: any) => {
+                                  const bikeName = bike.title_es || bike.title || bike.model;
+                                  const key = `${bikeName}-${bike.size}`;
+                                  
+                                  const existing = acc.find((b: any) => b.key === key);
+                                  if (existing) {
+                                    existing.quantity += bike.quantity || 1;
+                                  } else {
+                                    acc.push({
+                                      key,
+                                      name: bikeName,
+                                      size: bike.size,
+                                      quantity: bike.quantity || 1
+                                    });
+                                  }
+                                  return acc;
+                                }, []) || [];
+
+                                return groupedBikes.map((bike: any, index: number) => (
+                                  <p key={index} className="text-sm text-gray-600">
+                                    {bike.name} - Talla {bike.size} {bike.quantity > 1 && `(x${bike.quantity})`}
+                                  </p>
+                                ));
+                              })()}
+                            </div>
+
+                            {reservation.accessories && reservation.accessories.length > 0 && (
+                              <div>
+                                <h4 className="font-medium mb-2">Accesorios:</h4>
+                                {reservation.accessories.map((accessory: any, index: number) => (
+                                  <p key={index} className="text-sm text-gray-600">
+                                    {accessory.name?.es || accessory.name_es || accessory.name} - {accessory.price}€/día × {reservation.total_days} días = {accessory.price * reservation.total_days}€
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-     {(statusFilter !== "all" || searchTerm.trim() !== "" || locationFilter !== "all") && (
-  <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-    <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="font-medium">Filtros aplicados:</span>
 
-      {statusFilter !== "all" && (
-        <Badge variant="secondary" className="flex items-center gap-1">
-          Estado: {statusFilter}
-          <button
-            onClick={() => setStatusFilter("all")}
-            className="ml-1 text-xs hover:text-red-500"
-          >
-            ×
-          </button>
-        </Badge>
-      )}
+                {(statusFilter !== "all" || searchTerm.trim() !== "" || locationFilter !== "all") && (
+                  <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="font-medium">Filtros aplicados:</span>
+                      {statusFilter !== "all" && (
+                        <Badge variant="secondary" className="flex items-center gap-1">
+                          Estado: {statusFilter}
+                          <button onClick={() => setStatusFilter("all")} className="ml-1 text-xs hover:text-red-500">×</button>
+                        </Badge>
+                      )}
+                      {searchTerm.trim() !== "" && (
+                        <Badge variant="secondary" className="flex items-center gap-1">
+                          Búsqueda: "{searchTerm}"
+                          <button onClick={() => setSearchTerm("")} className="ml-1 text-xs hover:text-red-500">×</button>
+                        </Badge>
+                      )}
+                      {locationFilter !== "all" && (
+                        <Badge variant="secondary" className="flex items-center gap-1">
+                          Ubicación: {locationFilter === "sucursal_altea" ? "Altea" : "Albir"}
+                          <button onClick={() => setLocationFilter("all")} className="ml-1 text-xs hover:text-red-500">×</button>
+                        </Badge>
+                      )}
+                      <button
+                        onClick={() => {
+                          setStatusFilter("all");
+                          setSearchTerm("");
+                          setLocationFilter("all");
+                        }}
+                        className="text-blue-600 hover:text-blue-800 text-sm"
+                      >
+                        Limpiar todos
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-      {searchTerm.trim() !== "" && (
-        <Badge variant="secondary" className="flex items-center gap-1">
-          Búsqueda: "{searchTerm}"
-          <button
-            onClick={() => setSearchTerm("")}
-            className="ml-1 text-xs hover:text-red-500"
-          >
-            ×
-          </button>
-        </Badge>
-      )}
-
-      {locationFilter !== "all" && (
-        <Badge variant="secondary" className="flex items-center gap-1">
-          Ubicación: {locationFilter === "sucursal_altea" ? "Altea" : "Albir"}
-          <button
-            onClick={() => setLocationFilter("all")}
-            className="ml-1 text-xs hover:text-red-500"
-          >
-            ×
-          </button>
-        </Badge>
-      )}
-
-      <button
-        onClick={() => {
-          setStatusFilter("all");
-          setSearchTerm("");
-          setLocationFilter("all");
-        }}
-        className="text-blue-600 hover:text-blue-800 text-sm"
-      >
-        Limpiar todos
-      </button>
-    </div>
-  </div>
-)}
-
-
-      {filteredReservations.length > 0 && (
-        <div className="flex items-center justify-between mt-6">
-          <div className="text-sm text-gray-600">
-            Mostrando {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, filteredReservations.length)} de {filteredReservations.length} reservas
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={prevPage}
-              disabled={currentPage === 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((number) => (
-              <Button
-                key={number}
-                variant={currentPage === number ? "default" : "outline"}
-                size="sm"
-                onClick={() => paginate(number)}
-              >
-                {number}
-              </Button>
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={nextPage}
-              disabled={currentPage === totalPages}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
-    </CardContent>
-  </Card>
-</TabsContent>
+                {filteredReservations.length > 0 && (
+                  <div className="flex items-center justify-between mt-6">
+                    <div className="text-sm text-gray-600">
+                      Mostrando {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, filteredReservations.length)} de {filteredReservations.length} reservas
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={prevPage} disabled={currentPage === 1}>
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((number) => (
+                        <Button key={number} variant={currentPage === number ? "default" : "outline"} size="sm" onClick={() => paginate(number)}>
+                          {number}
+                        </Button>
+                      ))}
+                      <Button variant="outline" size="sm" onClick={nextPage} disabled={currentPage === totalPages}>
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           <TabsContent value="create-reservation">
             <Card>
@@ -2177,1101 +2455,654 @@ const calculateTotalPrice = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                 {reservationStep === "dates" && (
-  <>
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <Label>Fecha de inicio*</Label>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant={"outline"}
-              className="w-full justify-start text-left font-normal"
-            >
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {newReservation.start_date ? (
-                format(newReservation.start_date, "PPP", { locale: es })
-              ) : (
-                <span>Selecciona una fecha</span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0">
-            <Calendar
-              mode="single"
-              selected={newReservation.start_date}
-              onSelect={(date) => {
-                if (!date) return;
-                const newDate = createLocalDate(date);
-                const isSaturday = newDate.getDay() === 6;
+                  {reservationStep === "dates" && (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Fecha de inicio*</Label>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button variant={"outline"} className="w-full justify-start text-left font-normal">
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {newReservation.start_date ? format(newReservation.start_date, "PPP", { locale: es }) : <span>Selecciona una fecha</span>}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                              <Calendar
+                                mode="single"
+                                selected={newReservation.start_date}
+                                onSelect={(date) => {
+                                  if (!date) return;
+                                  const newDate = createLocalDate(date);
+                                  if (isSunday(newDate)) {
+                                    setError("No se puede seleccionar domingo como fecha de inicio");
+                                    return;
+                                  }
+                                  setNewReservation({
+                                    ...newReservation,
+                                    start_date: newDate,
+                                    end_date: newReservation.end_date && newDate > newReservation.end_date ? newDate : newReservation.end_date,
+                                  });
+                                  setError(null);
+                                }}
+                                initialFocus
+                                locale={es}
+                                disabled={(date) => {
+                                  const today = createLocalDate();
+                                  if (date < today && !isSameDay(date, today)) return true;
+                                  if (isSunday(date)) return true;
+                                  if (blockedDates.some((item) => isSameDay(item.date, createLocalDate(date)) && (item.location === "all" || item.location === newReservation.pickup_location))) return true;
+                                  return false;
+                                }}
+                                modifiers={{ blocked: blockedDates.filter(item => item.location === "all" || item.location === newReservation.pickup_location).map(item => item.date) }}
+                                modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through" }}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        <div>
+                          <Label>Fecha de fin*</Label>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button variant={"outline"} className="w-full justify-start text-left font-normal">
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {newReservation.end_date ? format(newReservation.end_date, "PPP", { locale: es }) : <span>Selecciona una fecha</span>}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                              <Calendar
+                                mode="single"
+                                selected={newReservation.end_date}
+                                onSelect={(date) => {
+                                  if (!date) return;
+                                  const newDate = createLocalDate(date);
+                                  if (isSunday(newDate)) {
+                                    setError("No se puede seleccionar domingo como fecha de fin");
+                                    return;
+                                  }
+                                  if (newReservation.start_date && newDate < newReservation.start_date) {
+                                    setNewReservation({
+                                      ...newReservation,
+                                      start_date: newDate,
+                                      end_date: newDate,
+                                    });
+                                  } else {
+                                    setNewReservation({ ...newReservation, end_date: newDate });
+                                    setError(null);
+                                  }
+                                }}
+                                initialFocus
+                                locale={es}
+                                disabled={(date) => {
+                                  const today = createLocalDate();
+                                  const selectedDate = date ? createLocalDate(date) : new Date();
+                                  if (selectedDate < today && !isSameDay(selectedDate, today)) return true;
+                                  if (isSunday(selectedDate)) return true;
+                                  if (blockedDates.some((item) => isSameDay(item.date, selectedDate) && (item.location === "all" || item.location === newReservation.pickup_location))) return true;
+                                  return false;
+                                }}
+                                modifiers={{ blocked: blockedDates.filter(item => item.location === "all" || item.location === newReservation.pickup_location).map(item => item.date) }}
+                                modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through" }}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      </div>
 
-                if (isSunday(newDate)) {
-                  setError("No se puede seleccionar domingo como fecha de inicio");
-                  return;
-                }
+                      {error && <div className={`text-sm ${error.includes("Advertencia") ? "text-amber-600" : "text-red-500"}`}>{error}</div>}
 
-                setNewReservation({
-                  ...newReservation,
-                  start_date: newDate,
-                  end_date: newReservation.end_date && newDate > newReservation.end_date ? newDate : newReservation.end_date,
-                  pickup_time: isSaturday ? "10:00" : "10:00",
-                  return_time: isSaturday ? "14:00" : "18:00",
-                });
-                setError(null);
-              }}
-              initialFocus
-              locale={es}
-              disabled={(date) => {
-                const today = createLocalDate();
-                if (date < today && !isSameDay(date, today)) {
-                  return true;
-                }
-                if (isSunday(date)) return true;
-                if (blockedDates.some((item) => isSameDay(item.date, createLocalDate(date)) && (item.location === "all" || item.location === newReservation.pickup_location))) return true;
-                return false;
-              }}
-              modifiers={{ blocked: blockedDates.filter(item => item.location === "all" || item.location === newReservation.pickup_location).map(item => item.date) }}
-              modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through" }}
-            />
-          </PopoverContent>
-        </Popover>
-      </div>
-      <div>
-        <Label>Fecha de fin*</Label>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant={"outline"}
-              className="w-full justify-start text-left font-normal"
-            >
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {newReservation.end_date ? (
-                format(newReservation.end_date, "PPP", { locale: es })
-              ) : (
-                <span>Selecciona una fecha</span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0">
-            <Calendar
-              mode="single"
-              selected={newReservation.end_date}
-              onSelect={(date) => {
-                if (!date) return;
-                const newDate = createLocalDate(date);
-                
-                if (isSunday(newDate)) {
-                  setError("No se puede seleccionar domingo como fecha de fin");
-                  return;
-                }
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Hora de recogida*</Label>
+                          {isLoadingTimes ? (
+                            <div className="flex items-center gap-2 p-2 border rounded-lg bg-gray-50">
+                              <Clock className="animate-spin h-4 w-4 text-blue-500" />
+                              <span className="text-sm text-gray-500">Cargando horarios...</span>
+                            </div>
+                          ) : (
+                            <Select 
+                              value={newReservation.pickup_time} 
+                              onValueChange={(value) => {
+                                setNewReservation({ ...newReservation, pickup_time: value });
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Selecciona una hora" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableHours.length > 0 ? (
+                                  availableHours.map(hour => (
+                                    <SelectItem key={hour} value={hour}>{hour}</SelectItem>
+                                  ))
+                                ) : (
+                                  <SelectItem value="10:00">10:00</SelectItem>
+                                )}
+                              </SelectContent>
+                            </Select>
+                          )}
+                          <p className="text-xs text-gray-500 mt-1">Horas disponibles para esta tienda y día</p>
+                        </div>
+                        <div>
+                          <Label>Hora de devolución*</Label>
+                          {isLoadingTimes ? (
+                            <div className="flex items-center gap-2 p-2 border rounded-lg bg-gray-50">
+                              <Clock className="animate-spin h-4 w-4 text-blue-500" />
+                              <span className="text-sm text-gray-500">Cargando horarios...</span>
+                            </div>
+                          ) : (
+                            <Select 
+                              value={newReservation.return_time} 
+                              onValueChange={(value) => {
+                                setNewReservation({ ...newReservation, return_time: value });
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Selecciona una hora" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableHours.length > 0 ? (
+                                  availableHours.map(hour => (
+                                    <SelectItem key={hour} value={hour}>{hour}</SelectItem>
+                                  ))
+                                ) : (
+                                  <SelectItem value="18:00">18:00</SelectItem>
+                                )}
+                              </SelectContent>
+                            </Select>
+                          )}
+                          <p className="text-xs text-gray-500 mt-1">Debe ser igual o posterior a la hora de recogida</p>
+                        </div>
+                      </div>
 
-                if (newReservation.start_date && newDate < newReservation.start_date) {
-                  setError("Advertencia: La fecha de fin es anterior a la fecha de inicio. Se ajustará automáticamente.");
-                  
-                  setNewReservation({
-                    ...newReservation,
-                    start_date: newDate,
-                    end_date: newDate,
-                    pickup_time: isSaturday(newDate) ? "10:00" : "10:00",
-                    return_time: isSaturday(newDate) ? "14:00" : "18:00",
-                  });
-                } else {
-                  const isSaturday = newDate.getDay() === 6;
-                  setNewReservation({
-                    ...newReservation,
-                    end_date: newDate,
-                    return_time: isSaturday ? "14:00" : "18:00"
-                  });
-                  setError(null);
-                }
-              }}
-              initialFocus
-              locale={es}
-              disabled={(date) => {
-                const today = createLocalDate();
-                const selectedDate = date ? createLocalDate(date) : new Date();
-                
-                if (selectedDate < today && !isSameDay(selectedDate, today)) {
-                  return true;
-                }
-                
-                if (isSunday(selectedDate)) return true;
+                      <div className="md:col-span-2">
+                        <Label>Lugar de recogida y retorno*</Label>
+                        <Select
+                          value={newReservation.pickup_location}
+                          onValueChange={(value) => {
+                            setNewReservation({ ...newReservation, pickup_location: value, return_location: value });
+                            if (newReservation.start_date) loadAvailableHours(newReservation.start_date, value);
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {locationOptions.map(location => <SelectItem key={location.value} value={location.value}>{location.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-gray-500 mt-1">El mismo lugar para recogida y devolución</p>
+                      </div>
 
-                if (blockedDates.some((item) => isSameDay(item.date, selectedDate) && (item.location === "all" || item.location === newReservation.pickup_location))) return true;
-                
-                return false;
-              }}
-              modifiers={{ blocked: blockedDates.filter(item => item.location === "all" || item.location === newReservation.pickup_location).map(item => item.date) }}
-              modifiersClassNames={{ blocked: "!bg-red-100 !text-red-500 font-bold line-through" }}
-            />
-          </PopoverContent>
-        </Popover>
-      </div>
-    </div>
+                      {newReservation.start_date && newReservation.end_date && (
+                        <div className="mt-4 p-4 bg-green-50 rounded-lg">
+                          <p className="text-sm text-green-800">
+                            <strong>Duración:</strong> {calculateTotalDays(new Date(newReservation.start_date), new Date(newReservation.end_date), newReservation.pickup_time, newReservation.return_time)} días
+                          </p>
+                          <p className="text-sm text-green-800">
+                            <strong>Desde:</strong> {format(newReservation.start_date, 'PPP', { locale: es })} {newReservation.pickup_time} <strong>Hasta:</strong> {format(newReservation.end_date, 'PPP', { locale: es })} {newReservation.return_time}
+                          </p>
+                        </div>
+                      )}
 
-    {error && (
-      <div className={`text-sm ${error.includes("Advertencia") ? "text-amber-600" : "text-red-500"}`}>
-        {error}
-      </div>
-    )}
-
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-  <div>
-    <Label>Hora de recogida*</Label>
-    <Select
-      value={newReservation.pickup_time}
-      onValueChange={(value) => setNewReservation({ ...newReservation, pickup_time: value })}
-    >
-      <SelectTrigger>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {getTimeOptions(isSaturday(newReservation.start_date)).map(time => (
-          <SelectItem key={time} value={time}>{time}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-    <p className="text-xs text-gray-500 mt-1">
-      Lunes a Viernes: 10:00 - 18:00 | Sábados: 10:00 - 14:00
-    </p>
-  </div>
-  <div>
-    <Label>Hora de devolución*</Label>
-    <Select
-      value={newReservation.return_time}
-      onValueChange={(value) => setNewReservation({ ...newReservation, return_time: value })}
-    >
-      <SelectTrigger>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {getTimeOptions(isSaturday(newReservation.end_date)).map(time => (
-          <SelectItem key={time} value={time}>{time}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  </div>
-</div>
-
-<div className="md:col-span-2">
-  <Label>Lugar de recogida y retorno*</Label>
-  <Select
-    value={newReservation.pickup_location}
-    onValueChange={(value) => {
-      setNewReservation({
-        ...newReservation,
-        pickup_location: value,
-        return_location: value
-      });
-    }}
-  >
-    <SelectTrigger>
-      <SelectValue />
-    </SelectTrigger>
-    <SelectContent>
-      {locationOptions.map(location => (
-        <SelectItem key={location.value} value={location.value}>
-          {location.label}
-        </SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
-  <p className="text-xs text-gray-500 mt-1">
-    El mismo lugar para recogida y devolución
-  </p>
-</div>
-
-    {newReservation.start_date && newReservation.end_date && (
-      <div className="mt-4 p-4 bg-green-50 rounded-lg">
-        <p className="text-sm text-green-800">
-          <strong>Duración:</strong>{" "}
-          {calculateTotalDays(
-            new Date(newReservation.start_date),
-            new Date(newReservation.end_date),
-            newReservation.pickup_time,
-            newReservation.return_time
-          )}{" "}
-          días
-        </p>
-        <p className="text-sm text-green-800">
-          <strong>Desde:</strong>{" "}
-          {format(newReservation.start_date, 'PPP', { locale: es })} {newReservation.pickup_time} <strong>Hasta:</strong>{" "}
-          {format(newReservation.end_date, 'PPP', { locale: es })} {newReservation.return_time}
-        </p>
-      </div>
-    )}
-
-    <div className="flex justify-end gap-4 pt-4">
-      <Button
-        variant="outline"
-        onClick={() => {
-          setNewReservation({
-            customer_name: "",
-            customer_email: "",
-            customer_phone: "",
-            customer_dni: "",
-            start_date: createLocalDate(),
-            end_date: createLocalDate(),
-            pickup_time: "10:00",
-            return_time: "18:00",
-            bikes: [],
-            accessories: [],
-            insurance: false,
-            status: "confirmed",
-            locale: "es"
-          })
-          setError(null);
-        }}
-      >
-        Cancelar
-      </Button>
-      <Button 
-        onClick={() => {
-          if (!newReservation.start_date || !newReservation.end_date) {
-            setError("Debes seleccionar fechas de inicio y fin");
-            return;
-          }
-          if (isSunday(newReservation.start_date) || isSunday(newReservation.end_date)) {
-            setError("No se pueden seleccionar domingos como fecha de inicio o fin");
-            return;
-          }
-          if (newReservation.end_date < newReservation.start_date) {
-            setError("La fecha de fin debe ser igual o posterior a la fecha de inicio");
-            return;
-          }
-          setReservationStep("bikes");
-          setError(null);
-        }}
-      >
-        Siguiente: Seleccionar Bicicletas
-      </Button>
-    </div>
-  </>
-)}
-
-{reservationStep === "bikes" && (
-  <>
-    {newReservation.start_date && newReservation.end_date && (
-      <div className="p-4 bg-gray-50 rounded-lg mt-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <p className="text-sm text-gray-500">Fechas seleccionadas</p>
-            <p className="font-semibold">
-              {format(newReservation.start_date, "PPP", { locale: es })} -{" "}
-              {format(newReservation.end_date, "PPP", { locale: es })}
-            </p>
-
-            <p className="text-sm text-gray-500 mt-2">Horario</p>
-            <p className="font-semibold">
-              Recogida: {newReservation.pickup_time} - Devolución:{" "}
-              {newReservation.return_time}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-sm text-gray-500">Bicicletas seleccionadas</p>
-            {newReservation.bikes.length === 0 ? (
-              <p className="text-sm text-gray-400">
-                Todavía no seleccionaste bicicletas
-              </p>
-            ) : (
-              newReservation.bikes.map((bike: any, index: number) => {
-                const days = calculateTotalDays(
-                  new Date(newReservation.start_date),
-                  new Date(newReservation.end_date),
-                  newReservation.pickup_time,
-                  newReservation.return_time
-                );
-                const pricePerDay = isValidCategory(bike.category)
-                  ? calculatePrice(bike.category, 1)
-                  : 0;
-                const qty = bike.quantity || 1;
-
-                return (
-                  <p key={bike.key || index} className="text-sm">
-                    {bike.title} - Talla {bike.size}{" "}
-                    {qty > 1 ? `(x${qty})` : ""} ({pricePerDay}€/día × {days} días)
-                  </p>
-                );
-              })
-            )}
-          </div>
-
-          <div>
-            <p className="text-sm text-gray-500">Total parcial</p>
-            <p className="text-lg font-bold">
-              {calculateTotalPrice()}€
-            </p>
-            <p className="text-sm">
-              Depósito: {calculateTotalDeposit()}€
-            </p>
-          </div>
-        </div>
-      </div>
-    )}
-    
-    <div>
-      <Label>Bicicletas*</Label>
-
-      {isLoadingBikes ? (
-        <div className="text-center py-4">
-          <p>Cargando bicicletas disponibles...</p>
-        </div>
-      ) : availableBikes.length === 0 ? (
-        <div className="text-sm text-gray-500 mt-2">
-          No hay bicicletas disponibles para las fechas seleccionadas
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
-          {availableBikes.map((bikeGroup: any) => {
-            const days = calculateTotalDays(
-              new Date(newReservation.start_date),
-              new Date(newReservation.end_date),
-              newReservation.pickup_time,
-              newReservation.return_time
-            );
-
-            const pricePerDay = isValidCategory(bikeGroup.category)
-              ? calculatePrice(bikeGroup.category, 1)
-              : 0;
-
-            const totalPrice = pricePerDay * days;
-
-            const selectedBike = newReservation.bikes.find(
-              (b: any) => b.key === bikeGroup.key
-            );
-            const selectedCount = selectedBike?.quantity || 0;
-
-            return (
-              <div
-                key={bikeGroup.key}
-                className="border rounded-lg p-4"
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <h4 className="font-medium">{bikeGroup.title_es}</h4>
-                    <p className="text-sm text-gray-600">Talla: {bikeGroup.size}</p>
-                    <p className="text-sm text-gray-600">
-                      Disponibles: {bikeGroup.quantity}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Precio: {totalPrice}€ ({pricePerDay}€/día × {days} días)
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      Depósito: {calculateDeposit(bikeGroup.category)}€
-                    </p>
-                  </div>
-                  
-                  <div className="flex flex-col items-center">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={selectedCount === 0}
-                        onClick={() => {
-                          const newBikes = [...newReservation.bikes];
-                          const idx = newBikes.findIndex(
-                            (b: any) => b.key === bikeGroup.key
-                          );
-
-                          if (idx >= 0) {
-                            const updatedBike = { ...newBikes[idx] };
-
-                            if (updatedBike.quantity > 1) {
-                              updatedBike.quantity--;
-                              if (updatedBike.all_ids && updatedBike.all_ids.length > 0) {
-                                const newIds = [...updatedBike.all_ids];
-                                newIds.pop();
-                                updatedBike.all_ids = newIds;
-                              }
-                              newBikes[idx] = updatedBike;
-                            } else {
-                              newBikes.splice(idx, 1);
-                            }
-                            
-                            setNewReservation({
-                              ...newReservation,
-                              bikes: newBikes,
-                            });
-                          }
-                        }}
-                      >
-                        -
-                      </Button>
-
-                      <span className="w-8 text-center font-medium text-lg">
-                        {selectedCount}
-                      </span>
-
-                      <Button
-                        size="sm"
-                        disabled={selectedCount >= bikeGroup.quantity}
-                        onClick={() => {
-                          if (selectedCount < bikeGroup.quantity) {
-                            const newBikes = [...newReservation.bikes];
-                            const idx = newBikes.findIndex(
-                              (b: any) => b.key === bikeGroup.key
-                            );
-
-                            if (idx >= 0) {
-                              const updatedBike = { ...newBikes[idx] };
-                              updatedBike.quantity++;
-                              
-                              const nextIndex = updatedBike.quantity - 1;
-                              const nextBike = bikeGroup.bikes[nextIndex];
-
-                              if (nextBike) {
-                                const currentIds = updatedBike.all_ids ? [...updatedBike.all_ids] : [];
-                                currentIds.push(nextBike.id);
-                                updatedBike.all_ids = currentIds;
-                              }
-                              
-                              newBikes[idx] = updatedBike;
-
-                              setNewReservation({
-                                ...newReservation,
-                                bikes: newBikes,
-                              });
-                            } else {
-                              const firstRealBikeId = bikeGroup.bikes && bikeGroup.bikes.length > 0
-                                ? bikeGroup.bikes[0].id
-                                : bikeGroup.id;
-
-                              setNewReservation({
-                                ...newReservation,
-                                bikes: [
-                                  ...newReservation.bikes,
-                                  {
-                                    key: bikeGroup.key,
-                                    id: bikeGroup.id,
-                                    all_ids: [firstRealBikeId],
-                                    title: bikeGroup.title_es,
-                                    size: bikeGroup.size,
-                                    category: bikeGroup.category,
-                                    quantity: 1,
-                                    available_quantity: bikeGroup.quantity,
-                                  },
-                                ],
-                              });
-                            }
-                          }
-                        }}
-                      >
-                        +
-                      </Button>
-                    </div>
-                    
-                    {selectedCount > 0 ? (
-                      <Badge variant="secondary" className="text-xs">
-                        {selectedCount} seleccionada(s)
-                      </Badge>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          const firstRealBikeId = bikeGroup.bikes && bikeGroup.bikes.length > 0
-                            ? bikeGroup.bikes[0].id
-                            : bikeGroup.id;
-
+                      <div className="flex justify-end gap-4 pt-4">
+                        <Button variant="outline" onClick={() => {
                           setNewReservation({
-                            ...newReservation,
-                            bikes: [
-                              ...newReservation.bikes,
-                              {
-                                key: bikeGroup.key,
-                                id: bikeGroup.id,
-                                all_ids: [firstRealBikeId],
-                                title: bikeGroup.title_es,
-                                size: bikeGroup.size,
-                                category: bikeGroup.category,
-                                quantity: 1,
-                                available_quantity: bikeGroup.quantity,
-                              },
-                            ],
+                            customer_name: "",
+                            customer_email: "",
+                            customer_phone: "",
+                            customer_dni: "",
+                            start_date: createLocalDate(),
+                            end_date: createLocalDate(),
+                            pickup_time: "10:00",
+                            return_time: "18:00",
+                            bikes: [],
+                            accessories: [],
+                            insurance: false,
+                            status: "confirmed",
+                            locale: "es"
                           });
-                        }}
-                      >
-                        Seleccionar
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                          setError(null);
+                        }}>Cancelar</Button>
+                        <Button onClick={() => {
+                          if (!newReservation.start_date || !newReservation.end_date) {
+                            setError("Debes seleccionar fechas de inicio y fin");
+                            return;
+                          }
+                          if (isSunday(newReservation.start_date) || isSunday(newReservation.end_date)) {
+                            setError("No se pueden seleccionar domingos como fecha de inicio o fin");
+                            return;
+                          }
+                          if (newReservation.end_date < newReservation.start_date) {
+                            setError("La fecha de fin debe ser igual o posterior a la fecha de inicio");
+                            return;
+                          }
+                          if (newReservation.return_time < newReservation.pickup_time) {
+                            setError("La hora de devolución debe ser igual o posterior a la hora de recogida");
+                            return;
+                          }
+                          setReservationStep("bikes");
+                          setError(null);
+                        }}>Siguiente: Seleccionar Bicicletas</Button>
+                      </div>
+                    </>
+                  )}
 
-                {selectedCount > 0 && (
-                  <div className="mt-2 pt-2 border-t">
-                    <p className="text-xs text-green-600 text-center">
-                      {selectedCount} de {bikeGroup.quantity} disponible(s)
-                    </p>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
+                  {reservationStep === "bikes" && (
+                    <>
+                      {newReservation.start_date && newReservation.end_date && (
+                        <div className="p-4 bg-gray-50 rounded-lg mt-6">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                              <p className="text-sm text-gray-500">Fechas seleccionadas</p>
+                              <p className="font-semibold">{format(newReservation.start_date, "PPP", { locale: es })} - {format(newReservation.end_date, "PPP", { locale: es })}</p>
+                              <p className="text-sm text-gray-500 mt-2">Horario</p>
+                              <p className="font-semibold">Recogida: {newReservation.pickup_time} - Devolución: {newReservation.return_time}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-500">Bicicletas seleccionadas</p>
+                              {newReservation.bikes.length === 0 ? (
+                                <p className="text-sm text-gray-400">Todavía no seleccionaste bicicletas</p>
+                              ) : (
+                                newReservation.bikes.map((bike: any, index: number) => {
+                                  const days = calculateTotalDays(new Date(newReservation.start_date), new Date(newReservation.end_date), newReservation.pickup_time, newReservation.return_time);
+                                  const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0;
+                                  return <p key={bike.key || index} className="text-sm">{bike.title} - Talla {bike.size} x{bike.quantity} ({pricePerDay}€/día × {days} días)</p>;
+                                })
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-500">Total parcial</p>
+                              <p className="text-lg font-bold">{calculateTotalPrice()}€</p>
+                              <p className="text-sm">Depósito: {calculateTotalDeposit()}€</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div>
+                        <Label>Bicicletas*</Label>
+                        {isLoadingBikes ? (
+                          <div className="text-center py-4"><p>Cargando bicicletas disponibles...</p></div>
+                        ) : availableBikes.length === 0 ? (
+                          <div className="text-sm text-gray-500 mt-2">No hay bicicletas disponibles para las fechas seleccionadas</div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
+                            {availableBikes.map((bikeGroup: any) => {
+                              const days = calculateTotalDays(new Date(newReservation.start_date), new Date(newReservation.end_date), newReservation.pickup_time, newReservation.return_time);
+                              const pricePerDay = isValidCategory(bikeGroup.category) ? calculatePrice(bikeGroup.category, 1) : 0;
+                              const totalPrice = pricePerDay * days;
+                              const selectedBike = newReservation.bikes.find((b: any) => b.key === bikeGroup.key);
+                              const selectedCount = selectedBike?.quantity || 0;
 
-    <div className="flex justify-between gap-4 pt-4">
-      <Button variant="outline" onClick={() => setReservationStep("dates")}>
-        Volver a Fechas
-      </Button>
-      <Button
-        onClick={() => setReservationStep("accessories")}
-        disabled={newReservation.bikes.length === 0}
-      >
-        Siguiente: Accesorios
-      </Button>
-    </div>
-  </>
-)}
- 
-{reservationStep === "accessories" && (
-  <>
-    <div className="p-4 bg-gray-50 rounded-lg mb-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <h4 className="font-medium mb-2">Fechas:</h4>
-          <p>
-            {format(newReservation.start_date, 'PPP', { locale: es })} - {format(newReservation.end_date, 'PPP', { locale: es })}
-          </p>
-          <p>
-            Recogida: {newReservation.pickup_time} - Devolución: {newReservation.return_time}
-          </p>
-        </div>
-        <div>
-          <h4 className="font-medium mb-2">Bicicletas seleccionadas:</h4>
-          {newReservation.bikes.map((bike: any, index: number) => {
-            const days = calculateTotalDays(
-              new Date(newReservation.start_date),
-              new Date(newReservation.end_date),
-              newReservation.pickup_time,
-              newReservation.return_time
-            );
-            const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0;
-            return (
-              <p key={index} className="text-sm">
-                {bike.title} - {pricePerDay}€/día × {days} días = {pricePerDay * days}€
-              </p>
-            );
-          })}
-        </div>
-        <div>
-          <h4 className="font-medium mb-2">Total parcial:</h4>
-          <p className="text-lg font-bold">
-            {calculateTotalPrice()}€
-          </p>
-          <p className="text-sm">
-            Depósito: {calculateTotalDeposit()}€
-          </p>
-        </div>
-      </div>
-    </div>
+                              return (
+                                <div key={bikeGroup.key} className="border rounded-lg p-4">
+                                  <div className="flex justify-between items-start mb-2">
+                                    <div>
+                                      <h4 className="font-medium">{bikeGroup.title_es}</h4>
+                                      <p className="text-sm text-gray-600">Talla: {bikeGroup.size}</p>
+                                      <p className="text-sm text-gray-600">Disponibles: {bikeGroup.quantity}</p>
+                                      <p className="text-sm text-gray-600">Precio: {totalPrice}€ ({pricePerDay}€/día × {days} días)</p>
+                                      <p className="text-xs text-gray-500">Depósito: {calculateDeposit(bikeGroup.category)}€</p>
+                                    </div>
+                                    <div className="flex flex-col items-center">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <Button size="sm" variant="outline" disabled={selectedCount === 0} onClick={() => {
+                                          const newBikes = [...newReservation.bikes];
+                                          const idx = newBikes.findIndex((b: any) => b.key === bikeGroup.key);
+                                          if (idx >= 0) {
+                                            const updatedBike = { ...newBikes[idx] };
+                                            if (updatedBike.quantity > 1) {
+                                              updatedBike.quantity--;
+                                              if (updatedBike.all_ids && updatedBike.all_ids.length > 0) {
+                                                const newIds = [...updatedBike.all_ids];
+                                                newIds.pop();
+                                                updatedBike.all_ids = newIds;
+                                              }
+                                              newBikes[idx] = updatedBike;
+                                            } else {
+                                              newBikes.splice(idx, 1);
+                                            }
+                                            setNewReservation({ ...newReservation, bikes: newBikes });
+                                          }
+                                        }}>-</Button>
+                                        <span className="w-8 text-center font-medium text-lg">{selectedCount}</span>
+                                        <Button size="sm" disabled={selectedCount >= bikeGroup.quantity} onClick={() => {
+                                          if (selectedCount < bikeGroup.quantity) {
+                                            const newBikes = [...newReservation.bikes];
+                                            const idx = newBikes.findIndex((b: any) => b.key === bikeGroup.key);
+                                            if (idx >= 0) {
+                                              const updatedBike = { ...newBikes[idx] };
+                                              updatedBike.quantity++;
+                                              const nextIndex = updatedBike.quantity - 1;
+                                              const nextBike = bikeGroup.bikes[nextIndex];
+                                              if (nextBike) {
+                                                const currentIds = updatedBike.all_ids ? [...updatedBike.all_ids] : [];
+                                                currentIds.push(nextBike.id);
+                                                updatedBike.all_ids = currentIds;
+                                              }
+                                              newBikes[idx] = updatedBike;
+                                              setNewReservation({ ...newReservation, bikes: newBikes });
+                                            } else {
+                                              const firstRealBikeId = bikeGroup.bikes && bikeGroup.bikes.length > 0 ? bikeGroup.bikes[0].id : bikeGroup.id;
+                                              setNewReservation({
+                                                ...newReservation,
+                                                bikes: [...newReservation.bikes, {
+                                                  key: bikeGroup.key,
+                                                  id: bikeGroup.id,
+                                                  all_ids: [firstRealBikeId],
+                                                  title: bikeGroup.title_es,
+                                                  size: bikeGroup.size,
+                                                  category: bikeGroup.category,
+                                                  quantity: 1,
+                                                  available_quantity: bikeGroup.quantity,
+                                                }]
+                                              });
+                                            }
+                                          }
+                                        }}>+</Button>
+                                      </div>
+                                      {selectedCount > 0 ? (
+                                        <Badge variant="secondary" className="text-xs">{selectedCount} seleccionada(s)</Badge>
+                                      ) : (
+                                        <Button size="sm" variant="outline" onClick={() => {
+                                          const firstRealBikeId = bikeGroup.bikes && bikeGroup.bikes.length > 0 ? bikeGroup.bikes[0].id : bikeGroup.id;
+                                          setNewReservation({
+                                            ...newReservation,
+                                            bikes: [...newReservation.bikes, {
+                                              key: bikeGroup.key,
+                                              id: bikeGroup.id,
+                                              all_ids: [firstRealBikeId],
+                                              title: bikeGroup.title_es,
+                                              size: bikeGroup.size,
+                                              category: bikeGroup.category,
+                                              quantity: 1,
+                                              available_quantity: bikeGroup.quantity,
+                                            }]
+                                          });
+                                        }}>Seleccionar</Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {selectedCount > 0 && (
+                                    <div className="mt-2 pt-2 border-t">
+                                      <p className="text-xs text-green-600 text-center">{selectedCount} de {bikeGroup.quantity} disponible(s)</p>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
 
-    <div>
-      <Label>Accesorios</Label>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
-        {accessories
-          .filter((accessory) => accessory.available)
-          .map((accessory) => (
-            <div
-              key={accessory.id}
-              className="border rounded-lg p-4 flex items-center justify-between"
-            >
-              <div>
-                <h4 className="font-medium">
-                  {accessory.name_es || accessory.name}
-                </h4>
-                <p className="text-sm text-gray-600">
-                  {accessory.price}€/día
-                </p>
-              </div>
-              <Button
-                size="sm"
-                variant={
-                  newReservation.accessories.some(
-                    (a: any) => a.id === accessory.id
-                  )
-                    ? "default"
-                    : "outline"
-                }
-                onClick={() => toggleAccessorySelection(accessory)}
-              >
-                {newReservation.accessories.some(
-                  (a: any) => a.id === accessory.id
-                )
-                  ? "Seleccionado"
-                  : "Seleccionar"}
-              </Button>
-            </div>
-          ))}
-      </div>
-    </div>
+                      <div className="flex justify-between gap-4 pt-4">
+                        <Button variant="outline" onClick={() => setReservationStep("dates")}>Volver a Fechas</Button>
+                        <Button onClick={() => setReservationStep("accessories")} disabled={newReservation.bikes.length === 0}>Siguiente: Accesorios</Button>
+                      </div>
+                    </>
+                  )}
 
-    <div className="mt-4">
-      <Label>Seguro</Label>
-      <div className="border rounded-lg p-4 flex items-center justify-between">
-        <div>
-          <h4 className="font-medium">Seguro de daños</h4>
-          <p className="text-sm text-gray-600">
-            5€ por día (máximo 25€ para 5+ días)
-          </p>
-          <p className="text-xs text-gray-500">
-            Cubre daños menores y accidentes
-          </p>
-        </div>
-        <Button
-          size="sm"
-          variant={newReservation.insurance ? "default" : "outline"}
-          onClick={() => setNewReservation({
-            ...newReservation,
-            insurance: !newReservation.insurance
-          })}
-        >
-          {newReservation.insurance ? "Seleccionado" : "Añadir seguro"}
-        </Button>
-      </div>
-    </div>
+                  {reservationStep === "accessories" && (
+                    <>
+                      <div className="p-4 bg-gray-50 rounded-lg mb-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <h4 className="font-medium mb-2">Fechas:</h4>
+                            <p>{format(newReservation.start_date, 'PPP', { locale: es })} - {format(newReservation.end_date, 'PPP', { locale: es })}</p>
+                            <p>Recogida: {newReservation.pickup_time} - Devolución: {newReservation.return_time}</p>
+                          </div>
+                          <div>
+                            <h4 className="font-medium mb-2">Bicicletas seleccionadas:</h4>
+                            {newReservation.bikes.map((bike: any, index: number) => {
+                              const days = calculateTotalDays(new Date(newReservation.start_date), new Date(newReservation.end_date), newReservation.pickup_time, newReservation.return_time);
+                              const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0;
+                              return <p key={index} className="text-sm">{bike.title} - {pricePerDay}€/día × {days} días = {pricePerDay * days}€</p>;
+                            })}
+                          </div>
+                          <div>
+                            <h4 className="font-medium mb-2">Total parcial:</h4>
+                            <p className="text-lg font-bold">{calculateTotalPrice()}€</p>
+                            <p className="text-sm">Depósito: {calculateTotalDeposit()}€</p>
+                          </div>
+                        </div>
+                      </div>
 
-    <div className="flex justify-between gap-4 pt-4">
-      <Button 
-        variant="outline" 
-        onClick={() => setReservationStep("bikes")}
-      >
-        Volver a Bicicletas
-      </Button>
-      <Button 
-        onClick={() => setReservationStep("customer")}
-      >
-        Siguiente: Datos del Cliente
-      </Button>
-    </div>
-  </>
-)}
+                      <div>
+                        <Label>Accesorios</Label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
+                          {accessories.filter((accessory) => accessory.available).map((accessory) => (
+                            <div key={accessory.id} className="border rounded-lg p-4 flex items-center justify-between">
+                              <div>
+                                <h4 className="font-medium">{accessory.name_es || accessory.name}</h4>
+                                <p className="text-sm text-gray-600">{accessory.price}€/día</p>
+                              </div>
+                              <Button size="sm" variant={newReservation.accessories.some((a: any) => a.id === accessory.id) ? "default" : "outline"} onClick={() => toggleAccessorySelection(accessory)}>
+                                {newReservation.accessories.some((a: any) => a.id === accessory.id) ? "Seleccionado" : "Seleccionar"}
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
 
-{reservationStep === "customer" && (
-  <>
-    <div className="p-4 bg-gray-50 rounded-lg mb-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <h4 className="font-medium mb-2">Fechas:</h4>
-          <p>
-            {format(newReservation.start_date, 'PPP', { locale: es })} - {format(newReservation.end_date, 'PPP', { locale: es })}
-          </p>
-          <p>
-            Recogida: {newReservation.pickup_time} - Devolución: {newReservation.return_time}
-          </p>
-        </div>
-        <div>
-          <h4 className="font-medium mb-2">Bicicletas:</h4>
-          {newReservation.bikes.map((bike: any, index: number) => (
-            <p key={index} className="text-sm">
-              {bike.title} - {isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0}€/día
-            </p>
-          ))}
-        </div>
-        <div>
-          <h4 className="font-medium mb-2">Accesorios:</h4>
-          {newReservation.accessories.map((acc: any, index: number) => (
-            <p key={index} className="text-sm">
-              {acc.name} - {acc.price}€/día
-            </p>
-          ))}
-          {newReservation.insurance && (
-            <p className="text-sm">
-              Seguro: Incluido
-            </p>
-          )}
-        </div>
-      </div>
+                      <div className="mt-4">
+                        <Label>Seguro</Label>
+                        <div className="border rounded-lg p-4 flex items-center justify-between">
+                          <div>
+                            <h4 className="font-medium">Seguro de daños</h4>
+                            <p className="text-sm text-gray-600">5€ por día (máximo 25€ para 5+ días)</p>
+                            <p className="text-xs text-gray-500">Cubre daños menores y accidentes</p>
+                          </div>
+                          <Button size="sm" variant={newReservation.insurance ? "default" : "outline"} onClick={() => setNewReservation({ ...newReservation, insurance: !newReservation.insurance })}>
+                            {newReservation.insurance ? "Seleccionado" : "Añadir seguro"}
+                          </Button>
+                        </div>
+                      </div>
 
-      <div className="mt-4 pt-4 border-t">
-        <div className="flex justify-between">
-          <span className="font-medium">Total estimado:</span>
-          <span className="font-bold">
-            {calculateTotalPrice()}€
-          </span>
-        </div>
-        <div className="flex justify-between">
-          <span className="font-medium">Depósito:</span>
-          <span className="font-bold">
-            {calculateTotalDeposit()}€
-          </span>
-        </div>
-        <div className="flex justify-between pt-2 border-t">
-          <span className="font-medium">Total + Depósito:</span>
-          <span className="font-bold">
-            {calculateTotalPrice() + calculateTotalDeposit()}€
-          </span>
-        </div>
-      </div>
-    </div>
+                      <div className="flex justify-between gap-4 pt-4">
+                        <Button variant="outline" onClick={() => setReservationStep("bikes")}>Volver a Bicicletas</Button>
+                        <Button onClick={() => setReservationStep("customer")}>Siguiente: Datos del Cliente</Button>
+                      </div>
+                    </>
+                  )}
 
-    <div className="flex items-center gap-2 mb-4">
-      <Label className="mr-2">Idioma:</Label>
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant={newReservation.locale === "es" ? "default" : "outline"}
-          onClick={() => setNewReservation({ ...newReservation, locale: "es" })}
-        >
-          ES
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={newReservation.locale === "en" ? "default" : "outline"}
-          onClick={() => setNewReservation({ ...newReservation, locale: "en" })}
-        >
-          EN
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={newReservation.locale === "nl" ? "default" : "outline"}
-          onClick={() => setNewReservation({ ...newReservation, locale: "nl" })}
-        >
-          NL
-        </Button>
-      </div>
-    </div>
+                  {reservationStep === "customer" && (
+                    <>
+                      <div className="p-4 bg-gray-50 rounded-lg mb-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <h4 className="font-medium mb-2">Fechas:</h4>
+                            <p>{format(newReservation.start_date, 'PPP', { locale: es })} - {format(newReservation.end_date, 'PPP', { locale: es })}</p>
+                            <p>Recogida: {newReservation.pickup_time} - Devolución: {newReservation.return_time}</p>
+                          </div>
+                          <div>
+                            <h4 className="font-medium mb-2">Bicicletas:</h4>
+                            {newReservation.bikes.map((bike: any, index: number) => (
+                              <p key={index} className="text-sm">{bike.title} - {isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0}€/día</p>
+                            ))}
+                          </div>
+                          <div>
+                            <h4 className="font-medium mb-2">Accesorios:</h4>
+                            {newReservation.accessories.map((acc: any, index: number) => (
+                              <p key={index} className="text-sm">{acc.name} - {acc.price}€/día</p>
+                            ))}
+                            {newReservation.insurance && <p className="text-sm">Seguro: Incluido</p>}
+                          </div>
+                        </div>
 
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <Label htmlFor="customer_name">Nombre del cliente*</Label>
-        <Input
-          id="customer_name"
-          value={newReservation.customer_name}
-          onChange={(e) =>
-            setNewReservation({
-              ...newReservation,
-              customer_name: e.target.value,
-            })
-          }
-          required
-        />
-      </div>
-      <div>
-        <Label htmlFor="customer_email">Email*</Label>
-        <Input
-          id="customer_email"
-          type="email"
-          value={newReservation.customer_email}
-          onChange={(e) =>
-            setNewReservation({
-              ...newReservation,
-              customer_email: e.target.value,
-            })
-          }
-          required        />
-      </div>
-      <div>
-        <Label htmlFor="customer_phone">Teléfono*</Label>
-        <Input
-          id="customer_phone"
-          value={newReservation.customer_phone}
-          onChange={(e) =>
-            setNewReservation({
-              ...newReservation,
-              customer_phone: e.target.value,
-            })
-          }
-          required
-        />
-      </div>
-      <div>
-        <Label htmlFor="customer_dni">DNI/NIE*</Label>
-        <Input
-          id="customer_dni"
-          value={newReservation.customer_dni}
-          onChange={(e) =>
-            setNewReservation({
-              ...newReservation,
-              customer_dni: e.target.value,
-            })
-          }
-          required
-        />
-      </div>
-    </div>
+                        <div className="mt-4 pt-4 border-t">
+                          <div className="flex justify-between"><span className="font-medium">Total estimado:</span><span className="font-bold">{calculateTotalPrice()}€</span></div>
+                          <div className="flex justify-between"><span className="font-medium">Depósito:</span><span className="font-bold">{calculateTotalDeposit()}€</span></div>
+                          <div className="flex justify-between pt-2 border-t"><span className="font-medium">Total + Depósito:</span><span className="font-bold">{calculateTotalPrice() + calculateTotalDeposit()}€</span></div>
+                        </div>
+                      </div>
 
-    <div className="flex justify-between gap-4 pt-4">
-      <Button 
-        variant="outline" 
-        onClick={() => {
-          console.log("DEBUG: Botón Volver a Accesorios clickeado");
-          setReservationStep("accessories");
-        }}
-      >
-        Volver a Accesorios
-      </Button>
-      <Button 
-        onClick={() => {
-          console.log("DEBUG: Botón Confirmar Reserva clickeado");
-          console.log("DEBUG: Datos de reserva:", newReservation);
-          console.log("DEBUG: isCreatingReservation estado:", isCreatingReservation);
-          
-          const isDisabled = !newReservation.customer_name || 
-            !newReservation.customer_email || 
-            !newReservation.customer_phone || 
-            !newReservation.customer_dni;
-          
-          console.log("DEBUG: Validación campos obligatorios:", {
-            customer_name: newReservation.customer_name,
-            customer_email: newReservation.customer_email,
-            customer_phone: newReservation.customer_phone,
-            customer_dni: newReservation.customer_dni,
-            isDisabled: isDisabled
-          });
-          
-          if (isDisabled) {
-            console.log("DEBUG: Botón deshabilitado - faltan campos obligatorios");
-            return;
-          }
-          
-          if (isCreatingReservation) {
-            console.log("DEBUG: Ya se está creando una reserva, ignorando click");
-            return;
-          }
-          
-          console.log("DEBUG: Llamando a createReservation()");
-          createReservation();
-        }}
-        disabled={
-          !newReservation.customer_name || 
-          !newReservation.customer_email || 
-          !newReservation.customer_phone || 
-          !newReservation.customer_dni
-        }
-      >
-        Confirmar Reserva
-      </Button>
-    </div>
-  </>
-)}
+                      <div className="flex items-center gap-2 mb-4">
+                        <Label className="mr-2">Idioma:</Label>
+                        <div className="flex gap-2">
+                          <Button type="button" size="sm" variant={newReservation.locale === "es" ? "default" : "outline"} onClick={() => setNewReservation({ ...newReservation, locale: "es" })}>ES</Button>
+                          <Button type="button" size="sm" variant={newReservation.locale === "en" ? "default" : "outline"} onClick={() => setNewReservation({ ...newReservation, locale: "en" })}>EN</Button>
+                          <Button type="button" size="sm" variant={newReservation.locale === "nl" ? "default" : "outline"} onClick={() => setNewReservation({ ...newReservation, locale: "nl" })}>NL</Button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><Label htmlFor="customer_name">Nombre del cliente*</Label><Input id="customer_name" value={newReservation.customer_name} onChange={(e) => setNewReservation({ ...newReservation, customer_name: e.target.value })} required /></div>
+                        <div><Label htmlFor="customer_email">Email*</Label><Input id="customer_email" type="email" value={newReservation.customer_email} onChange={(e) => setNewReservation({ ...newReservation, customer_email: e.target.value })} required /></div>
+                        <div><Label htmlFor="customer_phone">Teléfono*</Label><Input id="customer_phone" value={newReservation.customer_phone} onChange={(e) => setNewReservation({ ...newReservation, customer_phone: e.target.value })} required /></div>
+                        <div><Label htmlFor="customer_dni">DNI/NIE*</Label><Input id="customer_dni" value={newReservation.customer_dni} onChange={(e) => setNewReservation({ ...newReservation, customer_dni: e.target.value })} required /></div>
+                      </div>
+
+                      <div className="flex justify-between gap-4 pt-4">
+                        <Button variant="outline" onClick={() => setReservationStep("accessories")}>Volver a Accesorios</Button>
+                        <Button onClick={() => {
+                          if (!newReservation.customer_name || !newReservation.customer_email || !newReservation.customer_phone || !newReservation.customer_dni) {
+                            toast({ title: "Campos incompletos", description: "Completa todos los campos obligatorios", variant: "destructive" });
+                            return;
+                          }
+                          createReservation();
+                        }} disabled={isCreatingReservation}>{isCreatingReservation ? "Creando..." : "Confirmar Reserva"}</Button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
+
           <TabsContent value="blocked-dates">
             <Card>
               <CardHeader>
                 <CardTitle>Gestión de Días No Disponibles</CardTitle>
-                <CardDescription>
-                  Hacé click en cualquier día del calendario para bloquearlo o desbloquearlo. Podés aplicar el cierre a todas las tiendas o a una tienda específica.
-                </CardDescription>
+                <CardDescription>Hacé click en cualquier día del calendario para bloquearlo o desbloquearlo.</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-
                   <div>
                     <h3 className="font-semibold mb-3 text-sm text-gray-700">Seleccioná los días a bloquear</h3>
-
                     <div className="flex flex-wrap gap-4 mb-4 text-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 rounded-full bg-red-500"></div>
-                        <span>Bloqueado para la tienda seleccionada</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 rounded-full bg-gray-200 border"></div>
-                        <span>Disponible</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 rounded-full bg-gray-100 border border-dashed"></div>
-                        <span>Domingo</span>
-                      </div>
+                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-red-500"></div><span>Bloqueado</span></div>
+                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-gray-200 border"></div><span>Disponible</span></div>
+                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-gray-100 border border-dashed"></div><span>Domingo</span></div>
                     </div>
-
                     <div className="mb-4">
                       <Label className="text-sm">Aplicar cierre a</Label>
                       <Select value={blockedLocation} onValueChange={setBlockedLocation}>
-                        <SelectTrigger className="mt-1">
-                          <SelectValue placeholder="Seleccionar tienda" />
-                        </SelectTrigger>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder="Seleccionar tienda" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">Todas las tiendas</SelectItem>
-                          <SelectItem value="sucursal_altea">Altea Bike Shop - Calle la Tella 2, Altea</SelectItem>
-                          <SelectItem value="sucursal_albir">Albir Cycling - Av del Albir 159, El Albir</SelectItem>
+                          <SelectItem value="sucursal_altea">Altea Bike Shop</SelectItem>
+                          <SelectItem value="sucursal_albir">Albir Cycling</SelectItem>
                         </SelectContent>
                       </Select>
-                      <p className="text-xs text-gray-500 mt-1">Se aplicará al siguiente día que bloquees</p>
                     </div>
-
                     <div className="mb-4">
                       <Label className="text-sm">Razón del bloqueo (opcional)</Label>
-                      <Input
-                        placeholder="Ej: Feriado nacional, Mantenimiento..."
-                        value={blockReason}
-                        onChange={(e) => setBlockReason(e.target.value)}
-                        className="mt-1"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Se aplicará al siguiente día que bloquees</p>
+                      <Input placeholder="Ej: Feriado nacional, Mantenimiento..." value={blockReason} onChange={(e) => setBlockReason(e.target.value)} className="mt-1" />
                     </div>
-
                     <Calendar
                       mode="single"
                       month={calendarMonth}
                       onMonthChange={setCalendarMonth}
                       selected={undefined}
-                      onSelect={(date) => {
-                        if (!date) return;
-                        const d = createLocalDate(date);
-                        if (isSunday(d)) return;
-                        toggleBlockedDate(d);
-                      }}
+                      onSelect={(date) => { if (!date) return; const d = createLocalDate(date); if (isSunday(d)) return; toggleBlockedDate(d); }}
                       locale={es}
-                      disabled={(date) => {
-                        const d = createLocalDate(date);
-                        if (isSunday(d)) return true;
-                        return false;
-                      }}
-                      modifiers={{
-                        blocked: blockedDates
-                          .filter(item => item.location === blockedLocation)
-                          .map(item => item.date),
-                      }}
-                      modifiersClassNames={{
-                        blocked: "!bg-red-100 !text-red-700 font-bold hover:!bg-red-200 rounded-full border border-red-300",
-                      }}
+                      disabled={(date) => { const d = createLocalDate(date); if (isSunday(d)) return true; return false; }}
+                      modifiers={{ blocked: blockedDates.filter(item => item.location === blockedLocation).map(item => item.date) }}
+                      modifiersClassNames={{ blocked: "!bg-red-100 !text-red-700 font-bold hover:!bg-red-200 rounded-full border border-red-300" }}
                       onDayMouseEnter={(date, modifiers, e) => {
                         if (modifiers.blocked) {
-                          const item = blockedDates.find(b =>
-                            isSameDay(b.date, createLocalDate(date)) && b.location === blockedLocation
-                          );
+                          const item = blockedDates.find(b => isSameDay(b.date, createLocalDate(date)) && b.location === blockedLocation);
                           if (item) {
                             const rect = (e.target as HTMLElement).getBoundingClientRect();
-                            setHoveredBlockedReason({
-                              text: `${item.reason} · ${getLocationLabel(item.location)}`,
-                              x: rect.left + rect.width / 2,
-                              y: rect.top
-                            });
+                            setHoveredBlockedReason({ text: `${item.reason} · ${getLocationLabel(item.location)}`, x: rect.left + rect.width / 2, y: rect.top });
                           }
                         }
                       }}
                       onDayMouseLeave={() => setHoveredBlockedReason(null)}
                       className="rounded-lg border p-3"
-                      classNames={{
-                        day_selected: "",
-                        day_today: "border border-blue-400 font-bold",
-                      }}
+                      classNames={{ day_selected: "", day_today: "border border-blue-400 font-bold" }}
                     />
-
                     {hoveredBlockedReason && (
-                      <div
-                        className="fixed z-50 pointer-events-none"
-                        style={{ left: hoveredBlockedReason.x, top: hoveredBlockedReason.y - 8, transform: "translate(-50%, -100%)" }}
-                      >
+                      <div className="fixed z-50 pointer-events-none" style={{ left: hoveredBlockedReason.x, top: hoveredBlockedReason.y - 8, transform: "translate(-50%, -100%)" }}>
                         <div className="bg-gray-900 text-white text-xs rounded-md px-2 py-1 whitespace-nowrap shadow-lg">
                           🚫 {hoveredBlockedReason.text}
                           <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
                         </div>
                       </div>
                     )}
-
-                    <p className="text-xs text-gray-500 mt-2 text-center">
-                      Hacé click en un día para bloquearlo • Hacé click de nuevo para desbloquearlo
-                    </p>
                   </div>
-
                   <div>
                     <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-semibold text-sm text-gray-700">
-                        Días bloqueados ({blockedDates.length})
-                      </h3>
+                      <h3 className="font-semibold text-sm text-gray-700">Días bloqueados ({blockedDates.length})</h3>
                       {blockedDates.length > 0 && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-red-600 border-red-200 hover:bg-red-50 text-xs"
-                          onClick={async () => {
-                            if (!confirm("¿Borrar TODOS los días bloqueados?")) return;
-                            await supabase.from("blocked_dates").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-                            await fetchBlockedDates();
-                            toast({ title: "✅ Todos los bloqueos eliminados" });
-                          }}
-                        >
-                          <Trash2 className="h-3 w-3 mr-1" />
-                          Limpiar todo
-                        </Button>
+                        <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50 text-xs" onClick={async () => {
+                          if (!confirm("¿Borrar TODOS los días bloqueados?")) return;
+                          await supabase.from("blocked_dates").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+                          await fetchBlockedDates();
+                          toast({ title: "✅ Todos los bloqueos eliminados" });
+                        }}><Trash2 className="h-3 w-3 mr-1" /> Limpiar todo</Button>
                       )}
                     </div>
-
                     {blockedDates.length === 0 ? (
                       <div className="text-center py-12 text-gray-400 border rounded-lg border-dashed">
                         <CalendarIcon className="h-10 w-10 mx-auto mb-2 opacity-30" />
                         <p className="text-sm">No hay días bloqueados</p>
-                        <p className="text-xs mt-1">Hacé click en el calendario para agregar</p>
                       </div>
                     ) : (
                       <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-                        {[...blockedDates]
-                          .sort((a, b) => a.date.getTime() - b.date.getTime())
-                          .map((item, idx) => (
-                            <div
-                              key={`${item.date.toISOString()}-${item.location}-${idx}`}
-                              className="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-lg"
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-0.5"></div>
-                                <div>
-                                  <p className="text-sm font-medium capitalize">
-                                    {format(item.date, "EEEE d 'de' MMMM yyyy", { locale: es })}
-                                  </p>
-                                  <p className="text-xs text-red-500 mt-0.5">
-                                    🚫 {item.reason} · {getLocationLabel(item.location)}
-                                  </p>
-                                </div>
+                        {[...blockedDates].sort((a, b) => a.date.getTime() - b.date.getTime()).map((item, idx) => (
+                          <div key={`${item.date.toISOString()}-${item.location}-${idx}`} className="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-lg">
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-0.5"></div>
+                              <div>
+                                <p className="text-sm font-medium capitalize">{format(item.date, "EEEE d 'de' MMMM yyyy", { locale: es })}</p>
+                                <p className="text-xs text-red-500 mt-0.5">🚫 {item.reason} · {getLocationLabel(item.location)}</p>
                               </div>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-red-500 hover:text-red-700 hover:bg-red-100 h-7 w-7 p-0"
-                                onClick={() => toggleBlockedDate(item.date, item.location)}
-                                title="Desbloquear este cierre"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
                             </div>
-                          ))}
-                      </div>
-                    )}
-
-                    {blockedDates.length > 0 && (
-                      <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                        <p className="text-xs text-blue-700">
-                          <strong>ℹ️ Sincronizado:</strong> Estos días aparecen bloqueados automáticamente en el calendario del cliente según la tienda elegida.
-                        </p>
+                            <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-100 h-7 w-7 p-0" onClick={() => toggleBlockedDate(item.date, item.location)}><Trash2 className="h-3 w-3" /></Button>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
-
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* fin tabs */}
+          <TabsContent value="store-hours">
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="h-5 w-5" />
+                    Gestión de Horarios
+                  </CardTitle>
+                </div>
+                <CardDescription>
+                  Configura los horarios de cada tienda. Podés tener horario normal (un bloque) o partido (mañana y tarde).
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <StoreHoursManager />
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
 
         {editingBike && (
           <Dialog open={!!editingBike} onOpenChange={() => setEditingBike(null)}>
             <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>{editingBike?.id ? "Editar" : "Nueva"} Bicicleta</DialogTitle>
-              </DialogHeader>
+              <DialogHeader><DialogTitle>{editingBike?.id ? "Editar" : "Nueva"} Bicicleta</DialogTitle></DialogHeader>
               <BikeForm bike={editingBike} onSave={saveBike} onCancel={() => setEditingBike(null)} />
             </DialogContent>
           </Dialog>
         )}
 
-        {/* ✅ NUEVO: Dialog para editar Scooter */}
         {editingScooter && (
           <Dialog open={!!editingScooter} onOpenChange={() => setEditingScooter(null)}>
             <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>{editingScooter?.id ? "Editar" : "Nuevo"} Scooter</DialogTitle>
-              </DialogHeader>
+              <DialogHeader><DialogTitle>{editingScooter?.id ? "Editar" : "Nuevo"} Scooter</DialogTitle></DialogHeader>
               <ScooterForm scooter={editingScooter} onSave={saveScooter} onCancel={() => setEditingScooter(null)} />
             </DialogContent>
           </Dialog>
@@ -3280,14 +3111,8 @@ const calculateTotalPrice = () => {
         {editingAccessory && (
           <Dialog open={!!editingAccessory} onOpenChange={() => setEditingAccessory(null)}>
             <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>{editingAccessory?.id ? "Editar" : "Nuevo"} Accesorio</DialogTitle>
-              </DialogHeader>
-              <AccessoryForm
-                accessory={editingAccessory}
-                onSave={saveAccessory}
-                onCancel={() => setEditingAccessory(null)}
-              />
+              <DialogHeader><DialogTitle>{editingAccessory?.id ? "Editar" : "Nuevo"} Accesorio</DialogTitle></DialogHeader>
+              <AccessoryForm accessory={editingAccessory} onSave={saveAccessory} onCancel={() => setEditingAccessory(null)} />
             </DialogContent>
           </Dialog>
         )}
@@ -3296,8 +3121,10 @@ const calculateTotalPrice = () => {
   )
 }
 
-// ✅ NUEVO: ScooterForm - Formulario para Scooters (sin talla)
-// ✅ NUEVO: ScooterForm MEJORADO - Formulario para Scooters (sin talla)
+// ============================================
+// ✅ SCOOTER FORM
+// ============================================
+
 function ScooterForm({ scooter, onSave, onCancel }: any) {
   const [formData, setFormData] = useState({
     title_es: scooter?.title_es || "",
@@ -3321,9 +3148,7 @@ function ScooterForm({ scooter, onSave, onCancel }: any) {
     setImageFile(file)
     if (file) {
       const reader = new FileReader()
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string)
-      }
+      reader.onloadend = () => { setImagePreview(reader.result as string) }
       reader.readAsDataURL(file)
     } else {
       setImagePreview(null)
@@ -3335,196 +3160,54 @@ function ScooterForm({ scooter, onSave, onCancel }: any) {
     setIsUploading(true)
     setError(null)
     try {
-      if (!formData.title_es || !formData.subtitle_es) {
-        throw new Error("Los campos en español son obligatorios")
-      }
+      if (!formData.title_es || !formData.subtitle_es) throw new Error("Los campos en español son obligatorios")
       await onSave({ ...scooter, ...formData }, imageFile)
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setIsUploading(false)
-    }
+    } catch (err: any) { setError(err.message) }
+    finally { setIsUploading(false) }
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Header con ícono y descripción */}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
         <div className="text-2xl">🛴</div>
-        <div>
-          <h3 className="font-semibold text-blue-800 text-sm">Scooter de Movilidad</h3>
-          <p className="text-sm text-blue-600">
-            Los scooters no tienen talla. Solo necesitas el nombre, descripción e imagen.
-          </p>
-        </div>
+        <div><h3 className="font-semibold text-blue-800 text-sm">Scooter de Movilidad</h3><p className="text-sm text-blue-600">Los scooters no tienen talla. Solo necesitas el nombre, descripción e imagen.</p></div>
       </div>
-
-      {/* Grid de 2 columnas para títulos */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="title_es" className="text-sm font-medium">
-            Título (ES) <span className="text-red-500">*</span>
-          </Label>
-          <Input
-            id="title_es"
-            value={formData.title_es}
-            onChange={(e) => setFormData({ ...formData, title_es: e.target.value })}
-            placeholder="Ej: Scooter Eléctrico"
-            className="mt-1.5"
-            required
-          />
-        </div>
-        <div>
-          <Label htmlFor="title_en" className="text-sm font-medium">
-            Título (EN)
-          </Label>
-          <Input
-            id="title_en"
-            value={formData.title_en}
-            onChange={(e) => setFormData({ ...formData, title_en: e.target.value })}
-            placeholder="Ej: Electric Scooter"
-            className="mt-1.5"
-          />
-        </div>
-        <div>
-          <Label htmlFor="title_nl" className="text-sm font-medium">
-            Título (NL)
-          </Label>
-          <Input
-            id="title_nl"
-            value={formData.title_nl}
-            onChange={(e) => setFormData({ ...formData, title_nl: e.target.value })}
-            placeholder="Ej: Elektrische Scooter"
-            className="mt-1.5"
-          />
-        </div>
+        <div><Label htmlFor="title_es" className="text-sm font-medium">Título (ES) <span className="text-red-500">*</span></Label><Input id="title_es" value={formData.title_es} onChange={(e) => setFormData({ ...formData, title_es: e.target.value })} placeholder="Ej: Scooter Eléctrico" className="mt-1.5" required /></div>
+        <div><Label htmlFor="title_en" className="text-sm font-medium">Título (EN)</Label><Input id="title_en" value={formData.title_en} onChange={(e) => setFormData({ ...formData, title_en: e.target.value })} placeholder="Ej: Electric Scooter" className="mt-1.5" /></div>
+        <div><Label htmlFor="title_nl" className="text-sm font-medium">Título (NL)</Label><Input id="title_nl" value={formData.title_nl} onChange={(e) => setFormData({ ...formData, title_nl: e.target.value })} placeholder="Ej: Elektrische Scooter" className="mt-1.5" /></div>
       </div>
-
-      {/* Grid de 2 columnas para subtítulos */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="subtitle_es" className="text-sm font-medium">
-            Subtítulo (ES) <span className="text-red-500">*</span>
-          </Label>
-          <Input
-            id="subtitle_es"
-            value={formData.subtitle_es}
-            onChange={(e) => setFormData({ ...formData, subtitle_es: e.target.value })}
-            placeholder="Ej: Perfecto para movilidad urbana"
-            className="mt-1.5"
-            required
-          />
-        </div>
-        <div>
-          <Label htmlFor="subtitle_en" className="text-sm font-medium">
-            Subtítulo (EN)
-          </Label>
-          <Input
-            id="subtitle_en"
-            value={formData.subtitle_en}
-            onChange={(e) => setFormData({ ...formData, subtitle_en: e.target.value })}
-            placeholder="Ej: Perfect for urban mobility"
-            className="mt-1.5"
-          />
-        </div>
-        <div>
-          <Label htmlFor="subtitle_nl" className="text-sm font-medium">
-            Subtítulo (NL)
-          </Label>
-          <Input
-            id="subtitle_nl"
-            value={formData.subtitle_nl}
-            onChange={(e) => setFormData({ ...formData, subtitle_nl: e.target.value })}
-            placeholder="Ej: Perfect voor stedelijke mobiliteit"
-            className="mt-1.5"
-          />
-        </div>
+        <div><Label htmlFor="subtitle_es" className="text-sm font-medium">Subtítulo (ES) <span className="text-red-500">*</span></Label><Input id="subtitle_es" value={formData.subtitle_es} onChange={(e) => setFormData({ ...formData, subtitle_es: e.target.value })} placeholder="Ej: Perfecto para movilidad urbana" className="mt-1.5" required /></div>
+        <div><Label htmlFor="subtitle_en" className="text-sm font-medium">Subtítulo (EN)</Label><Input id="subtitle_en" value={formData.subtitle_en} onChange={(e) => setFormData({ ...formData, subtitle_en: e.target.value })} placeholder="Ej: Perfect for urban mobility" className="mt-1.5" /></div>
+        <div><Label htmlFor="subtitle_nl" className="text-sm font-medium">Subtítulo (NL)</Label><Input id="subtitle_nl" value={formData.subtitle_nl} onChange={(e) => setFormData({ ...formData, subtitle_nl: e.target.value })} placeholder="Ej: Perfect voor stedelijke mobiliteit" className="mt-1.5" /></div>
       </div>
-
-      {/* Disponible e Imagen en grid de 2 columnas */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="flex items-center space-x-3 pt-2">
-          <input
-            id="available"
-            type="checkbox"
-            checked={formData.available}
-            onChange={(e) => setFormData({ ...formData, available: e.target.checked })}
-            className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          <Label htmlFor="available" className="text-sm font-medium cursor-pointer">
-            Disponible para alquiler
-          </Label>
+          <input id="available" type="checkbox" checked={formData.available} onChange={(e) => setFormData({ ...formData, available: e.target.checked })} className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+          <Label htmlFor="available" className="text-sm font-medium cursor-pointer">Disponible para alquiler</Label>
         </div>
-
         <div>
-          <Label htmlFor="image" className="text-sm font-medium">
-            Imagen del Scooter
-          </Label>
+          <Label htmlFor="image" className="text-sm font-medium">Imagen del Scooter</Label>
           <div className="mt-1.5 flex items-center gap-4">
-            <Input
-              id="image"
-              type="file"
-              accept="image/*"
-              onChange={handleImageChange}
-              className="flex-1 text-sm"
-            />
-            {imagePreview && (
-              <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200 flex-shrink-0">
-                <img
-                  src={imagePreview}
-                  alt="Vista previa"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
+            <Input id="image" type="file" accept="image/*" onChange={handleImageChange} className="flex-1 text-sm" />
+            {imagePreview && <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200 flex-shrink-0"><img src={imagePreview} alt="Vista previa" className="w-full h-full object-cover" /></div>}
           </div>
-          {formData.image_url && !imagePreview && (
-            <p className="text-xs text-gray-500 mt-1">
-              Imagen actual: {formData.image_url.split("/").pop()}
-            </p>
-          )}
+          {formData.image_url && !imagePreview && <p className="text-xs text-gray-500 mt-1">Imagen actual: {formData.image_url.split("/").pop()}</p>}
         </div>
       </div>
-
-      {/* Botones */}
       <div className="flex gap-4 pt-4 border-t border-gray-100">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onCancel}
-          disabled={isUploading}
-          className="flex-1"
-        >
-          Cancelar
-        </Button>
-        <Button
-          type="submit"
-          disabled={isUploading}
-          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
-        >
-          {isUploading ? (
-            <>
-              <span className="animate-spin mr-2">⏳</span>
-              Guardando...
-            </>
-          ) : (
-            <>
-              💾 Guardar Scooter
-            </>
-          )}
-        </Button>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={isUploading} className="flex-1">Cancelar</Button>
+        <Button type="submit" disabled={isUploading} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white">{isUploading ? <>⏳ Guardando...</> : <>💾 Guardar Scooter</>}</Button>
       </div>
     </form>
   )
 }
 
-
+// ============================================
+// ✅ BIKE FORM
+// ============================================
 
 function BikeForm({ bike, onSave, onCancel }: any) {
   const [formData, setFormData] = useState({
@@ -3548,147 +3231,33 @@ function BikeForm({ bike, onSave, onCancel }: any) {
     setIsUploading(true)
     setError(null)
     try {
-      if (!formData.title_es || !formData.subtitle_es) {
-        throw new Error("Los campos en español son obligatorios")
-      }
+      if (!formData.title_es || !formData.subtitle_es) throw new Error("Los campos en español son obligatorios")
       await onSave({ ...bike, ...formData }, imageFile)
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setIsUploading(false)
-    }
+    } catch (err: any) { setError(err.message) }
+    finally { setIsUploading(false) }
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && <div className="text-red-500 text-sm">{error}</div>}
-      <div>
-        <Label htmlFor="title_es">Título (ES)*</Label>
-        <Input
-          id="title_es"
-          value={formData.title_es}
-          onChange={(e) => setFormData({ ...formData, title_es: e.target.value })}
-          required
-        />
-      </div>
-      <div>
-        <Label htmlFor="title_en">Título (EN)</Label>
-        <Input
-          id="title_en"
-          value={formData.title_en}
-          onChange={(e) => setFormData({ ...formData, title_en: e.target.value })}
-        />
-      </div>
-      <div>
-        <Label htmlFor="title_nl">Título (NL)</Label>
-        <Input
-          id="title_nl"
-          value={formData.title_nl}
-          onChange={(e) => setFormData({ ...formData, title_nl: e.target.value })}
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="subtitle_es">Subtítulo (ES)*</Label>
-        <Input
-          id="subtitle_es"
-          value={formData.subtitle_es}
-          onChange={(e) => setFormData({ ...formData, subtitle_es: e.target.value })}
-          required
-        />
-      </div>
-      <div>
-        <Label htmlFor="subtitle_en">Subtítulo (EN)</Label>
-        <Input
-          id="subtitle_en"
-          value={formData.subtitle_en}
-          onChange={(e) => setFormData({ ...formData, subtitle_en: e.target.value })}
-        />
-      </div>
-      <div>
-        <Label htmlFor="subtitle_nl">Subtítulo (NL)</Label>
-        <Input
-          id="subtitle_nl"
-          value={formData.subtitle_nl}
-          onChange={(e) => setFormData({ ...formData, subtitle_nl: e.target.value })}
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="category">Categoría</Label>
-        <Select
-          value={formData.category}
-          onValueChange={(value) => setFormData({ ...formData, category: value })}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ROAD">Carretera</SelectItem>
-            <SelectItem value="ROAD_PREMIUM">Carretera Premium</SelectItem>
-            <SelectItem value="MTB">MTB</SelectItem>
-            <SelectItem value="CITY_BIKE">Ciudad</SelectItem>
-            <SelectItem value="E_CITY_BIKE">E-Ciudad</SelectItem>
-            <SelectItem value="E_MTB">E-MTB</SelectItem>
-            {/* Los scooters se gestionan en la pestaña separada */}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div>
-        <Label htmlFor="size">Talla</Label>
-        <Select
-          value={formData.size}
-          onValueChange={(value) => setFormData({ ...formData, size: value })}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="XS">XS</SelectItem>
-            <SelectItem value="S">S</SelectItem>
-            <SelectItem value="M">M</SelectItem>
-            <SelectItem value="L">L</SelectItem>
-            <SelectItem value="XL">XL</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="flex items-center space-x-2">
-        <input
-          id="available"
-          type="checkbox"
-          checked={formData.available}
-          onChange={(e) => setFormData({ ...formData, available: e.target.checked })}
-          className="h-4 w-4"
-        />
-        <Label htmlFor="available">Disponible</Label>
-      </div>
-
-      <div>
-        <Label htmlFor="image">Imagen</Label>
-        <Input
-          id="image"
-          type="file"
-          accept="image/*"
-          onChange={(e) => setImageFile(e.target.files?.[0] || null)}
-        />
-        {formData.image_url && (
-          <p className="text-xs text-gray-500 mt-1">Imagen actual: {formData.image_url.split("/").pop()}</p>
-        )}
-      </div>
-
-      <div className="flex gap-4 pt-4">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={isUploading}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={isUploading}>
-          {isUploading ? "Guardando..." : "Guardar"}
-        </Button>
-      </div>
+      <div><Label htmlFor="title_es">Título (ES)*</Label><Input id="title_es" value={formData.title_es} onChange={(e) => setFormData({ ...formData, title_es: e.target.value })} required /></div>
+      <div><Label htmlFor="title_en">Título (EN)</Label><Input id="title_en" value={formData.title_en} onChange={(e) => setFormData({ ...formData, title_en: e.target.value })} /></div>
+      <div><Label htmlFor="title_nl">Título (NL)</Label><Input id="title_nl" value={formData.title_nl} onChange={(e) => setFormData({ ...formData, title_nl: e.target.value })} /></div>
+      <div><Label htmlFor="subtitle_es">Subtítulo (ES)*</Label><Input id="subtitle_es" value={formData.subtitle_es} onChange={(e) => setFormData({ ...formData, subtitle_es: e.target.value })} required /></div>
+      <div><Label htmlFor="subtitle_en">Subtítulo (EN)</Label><Input id="subtitle_en" value={formData.subtitle_en} onChange={(e) => setFormData({ ...formData, subtitle_en: e.target.value })} /></div>
+      <div><Label htmlFor="subtitle_nl">Subtítulo (NL)</Label><Input id="subtitle_nl" value={formData.subtitle_nl} onChange={(e) => setFormData({ ...formData, subtitle_nl: e.target.value })} /></div>
+      <div><Label htmlFor="category">Categoría</Label><Select value={formData.category} onValueChange={(value) => setFormData({ ...formData, category: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ROAD">Carretera</SelectItem><SelectItem value="ROAD_PREMIUM">Carretera Premium</SelectItem><SelectItem value="MTB">MTB</SelectItem><SelectItem value="CITY_BIKE">Ciudad</SelectItem><SelectItem value="E_CITY_BIKE">E-Ciudad</SelectItem><SelectItem value="E_MTB">E-MTB</SelectItem></SelectContent></Select></div>
+      <div><Label htmlFor="size">Talla</Label><Select value={formData.size} onValueChange={(value) => setFormData({ ...formData, size: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="XS">XS</SelectItem><SelectItem value="S">S</SelectItem><SelectItem value="M">M</SelectItem><SelectItem value="L">L</SelectItem><SelectItem value="XL">XL</SelectItem></SelectContent></Select></div>
+      <div className="flex items-center space-x-2"><input id="available" type="checkbox" checked={formData.available} onChange={(e) => setFormData({ ...formData, available: e.target.checked })} className="h-4 w-4" /><Label htmlFor="available">Disponible</Label></div>
+      <div><Label htmlFor="image">Imagen</Label><Input id="image" type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files?.[0] || null)} />{formData.image_url && <p className="text-xs text-gray-500 mt-1">Imagen actual: {formData.image_url.split("/").pop()}</p>}</div>
+      <div className="flex gap-4 pt-4"><Button type="button" variant="outline" onClick={onCancel} disabled={isUploading}>Cancelar</Button><Button type="submit" disabled={isUploading}>{isUploading ? "Guardando..." : "Guardar"}</Button></div>
     </form>
   )
 }
+
+// ============================================
+// ✅ ACCESSORY FORM
+// ============================================
 
 function AccessoryForm({ accessory, onSave, onCancel }: any) {
   const [formData, setFormData] = useState({
@@ -3709,109 +3278,23 @@ function AccessoryForm({ accessory, onSave, onCancel }: any) {
     setIsSaving(true)
     setError(null)
     try {
-      if (!formData.name_es) {
-        throw new Error("Nombre en español es obligatorio")
-      }
+      if (!formData.name_es) throw new Error("Nombre en español es obligatorio")
       await onSave({ ...accessory, ...formData }, imageFile)
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setIsSaving(false)
-    }
+    } catch (err: any) { setError(err.message) }
+    finally { setIsSaving(false) }
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && <div className="text-red-500 text-sm">{error}</div>}
-      <div>
-        <Label htmlFor="name_es">Nombre (ES)*</Label>
-        <Input
-          id="name_es"
-          value={formData.name_es}
-          onChange={(e) => setFormData({ ...formData, name_es: e.target.value })}
-          required
-        />
-      </div>
-      <div>
-        <Label htmlFor="name_en">Nombre (EN)</Label>
-        <Input
-          id="name_en"
-          value={formData.name_en}
-          onChange={(e) => setFormData({ ...formData, name_en: e.target.value })}
-        />
-      </div>
-      <div>
-        <Label htmlFor="name_nl">Nombre (NL)</Label>
-        <Input
-          id="name_nl"
-          value={formData.name_nl}
-          onChange={(e) => setFormData({ ...formData, name_nl: e.target.value })}
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="type">Tipo</Label>
-        <Select 
-          value={formData.type} 
-          onValueChange={(value) => setFormData({ ...formData, type: value })}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="pedal">Pedal</SelectItem>
-            <SelectItem value="helmet">Casco</SelectItem>
-            <SelectItem value="lock">Candado</SelectItem>
-            <SelectItem value="other">Otro</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div>
-        <Label htmlFor="price">Precio por día (€)*</Label>
-        <Input
-          id="price"
-          type="number"
-          step="0.01"
-          min="0"
-          value={formData.price}
-          onChange={(e) => setFormData({ ...formData, price: Number.parseFloat(e.target.value) || 0 })}
-          required
-        />
-      </div>
-
-      <div className="flex items-center space-x-2">
-        <input
-          id="available"
-          type="checkbox"
-          checked={formData.available}
-          onChange={(e) => setFormData({ ...formData, available: e.target.checked })}
-          className="h-4 w-4"
-        />
-        <Label htmlFor="available">Disponible</Label>
-      </div>
-
-      <div>
-        <Label htmlFor="image">Imagen</Label>
-        <Input 
-          id="image" 
-          type="file" 
-          accept="image/*" 
-          onChange={(e) => setImageFile(e.target.files?.[0] || null)} 
-        />
-        {formData.image_url && (
-          <p className="text-xs text-gray-500 mt-1">Imagen actual: {formData.image_url.split("/").pop()}</p>
-        )}
-      </div>
-
-      <div className="flex gap-4 pt-4">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={isSaving}>
-          Cancelar
-        </Button>
-        <Button type="submit" disabled={isSaving}>
-          {isSaving ? "Guardando..." : "Guardar"}
-        </Button>
-      </div>
+      <div><Label htmlFor="name_es">Nombre (ES)*</Label><Input id="name_es" value={formData.name_es} onChange={(e) => setFormData({ ...formData, name_es: e.target.value })} required /></div>
+      <div><Label htmlFor="name_en">Nombre (EN)</Label><Input id="name_en" value={formData.name_en} onChange={(e) => setFormData({ ...formData, name_en: e.target.value })} /></div>
+      <div><Label htmlFor="name_nl">Nombre (NL)</Label><Input id="name_nl" value={formData.name_nl} onChange={(e) => setFormData({ ...formData, name_nl: e.target.value })} /></div>
+      <div><Label htmlFor="type">Tipo</Label><Select value={formData.type} onValueChange={(value) => setFormData({ ...formData, type: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pedal">Pedal</SelectItem><SelectItem value="helmet">Casco</SelectItem><SelectItem value="lock">Candado</SelectItem><SelectItem value="other">Otro</SelectItem></SelectContent></Select></div>
+      <div><Label htmlFor="price">Precio por día (€)*</Label><Input id="price" type="number" step="0.01" min="0" value={formData.price} onChange={(e) => setFormData({ ...formData, price: Number.parseFloat(e.target.value) || 0 })} required /></div>
+      <div className="flex items-center space-x-2"><input id="available" type="checkbox" checked={formData.available} onChange={(e) => setFormData({ ...formData, available: e.target.checked })} className="h-4 w-4" /><Label htmlFor="available">Disponible</Label></div>
+      <div><Label htmlFor="image">Imagen</Label><Input id="image" type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files?.[0] || null)} />{formData.image_url && <p className="text-xs text-gray-500 mt-1">Imagen actual: {formData.image_url.split("/").pop()}</p>}</div>
+      <div className="flex gap-4 pt-4"><Button type="button" variant="outline" onClick={onCancel} disabled={isSaving}>Cancelar</Button><Button type="submit" disabled={isSaving}>{isSaving ? "Guardando..." : "Guardar"}</Button></div>
     </form>
   )
 }
