@@ -184,6 +184,9 @@ interface StoreHour {
   day_of_week: number;
   open_time: string;
   close_time: string;
+  open_time_2?: string | null;
+  close_time_2?: string | null;
+  split_schedule?: boolean;
   use_global: boolean;
 }
 
@@ -202,12 +205,10 @@ const generateHoursBetween = (openTime: string | null, closeTime: string | null)
   const [openHour] = openTime.split(':').map(Number);
   const [closeHour] = closeTime.split(':').map(Number);
   
-  // Si la hora de apertura es mayor o igual que la de cierre, no generamos nada
   if (openHour >= closeHour) {
     return hours;
   }
   
-  // Generamos todas las horas enteras desde openHour hasta closeHour
   for (let hour = openHour; hour <= closeHour; hour++) {
     hours.push(`${String(hour).padStart(2, '0')}:00`);
   }
@@ -217,7 +218,7 @@ const generateHoursBetween = (openTime: string | null, closeTime: string | null)
 
 /**
  * Obtiene las horas disponibles para una tienda y fecha específica
- * ✅ MISMA LÓGICA QUE EL ADMIN (consulta directa)
+ * ✅ MISMA LÓGICA QUE EL ADMIN
  */
 const getAvailableTimes = async (
   location: string,
@@ -289,6 +290,162 @@ const getAvailableTimes = async (
   return fallbackHours;
 };
 
+// ============================================
+// 🏪 FUNCIÓN PARA OBTENER HORARIO COMPLETO DE LA TIENDA (DINÁMICO)
+// ============================================
+
+const getStoreSchedule = async (location: string): Promise<{
+  weekdays: string;
+  saturday: string;
+  sunday: string;
+}> => {
+  try {
+    // Obtener horario de Lunes a Viernes (días 1-5)
+    const { data: weekdaysData } = await supabase
+      .from("store_hours")
+      .select("*")
+      .eq("location", location)
+      .in("day_of_week", [1, 2, 3, 4, 5])
+      .order("day_of_week");
+
+    // Obtener horario de Sábado (día 6)
+    const { data: saturdayData } = await supabase
+      .from("store_hours")
+      .select("*")
+      .eq("location", location)
+      .eq("day_of_week", 6)
+      .maybeSingle();
+
+    let weekdaysText = "";
+    let saturdayText = "";
+    let sundayText = "Cerrado";
+
+    // Procesar Lunes a Viernes
+    if (weekdaysData && weekdaysData.length > 0) {
+      const first = weekdaysData[0];
+      if (first.split_schedule && first.open_time_2 && first.close_time_2) {
+        weekdaysText = `${first.open_time} - ${first.close_time} y ${first.open_time_2} - ${first.close_time_2}`;
+      } else {
+        weekdaysText = `${first.open_time} - ${first.close_time}`;
+      }
+    } else {
+      weekdaysText = "10:00 - 18:00";
+    }
+
+    // Procesar Sábado
+    if (saturdayData && !saturdayData.use_global) {
+      if (saturdayData.split_schedule && saturdayData.open_time_2 && saturdayData.close_time_2) {
+        saturdayText = `${saturdayData.open_time} - ${saturdayData.close_time} y ${saturdayData.open_time_2} - ${saturdayData.close_time_2}`;
+      } else {
+        saturdayText = `${saturdayData.open_time} - ${saturdayData.close_time}`;
+      }
+    } else {
+      saturdayText = "10:00 - 14:00";
+    }
+
+    return {
+      weekdays: weekdaysText,
+      saturday: saturdayText,
+      sunday: sundayText,
+    };
+  } catch (error) {
+    console.error("Error getting store schedule:", error);
+    return {
+      weekdays: "10:00 - 18:00",
+      saturday: "10:00 - 14:00",
+      sunday: "Cerrado",
+    };
+  }
+};
+
+// ============================================
+// 🏪 COMPONENTE StoreHoursNotice (DINÁMICO)
+// ============================================
+
+const StoreHoursNotice = ({ 
+  t, 
+  location 
+}: { 
+  t: (key: TranslationKey) => string;
+  location: string;
+}) => {
+  const [schedule, setSchedule] = useState<{
+    weekdays: string;
+    saturday: string;
+    sunday: string;
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const loadSchedule = async () => {
+      setIsLoading(true);
+      const data = await getStoreSchedule(location);
+      setSchedule(data);
+      setIsLoading(false);
+    };
+    loadSchedule();
+  }, [location]);
+
+  const getLocationName = () => {
+    const names: Record<string, string> = {
+      sucursal_altea: "Altea Bike Shop",
+      sucursal_albir: "Albir Cycling",
+    };
+    return names[location] || location;
+  };
+
+  if (isLoading) {
+    return (
+      <div className="bg-blue-50 p-4 rounded-lg mb-6">
+        <div className="flex items-start gap-3">
+          <Clock className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0 animate-pulse" />
+          <div>
+            <h4 className="font-semibold text-blue-800">Cargando horarios...</h4>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!schedule) {
+    return (
+      <div className="bg-blue-50 p-4 rounded-lg mb-6">
+        <div className="flex items-start gap-3">
+          <Clock className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <h4 className="font-semibold text-blue-800">{t("storeHoursTitle")}</h4>
+            <p className="text-sm text-blue-700">
+              Lunes a Viernes: 10:00 - 18:00 | Sábados: 10:00 - 14:00 | Domingos: Cerrado
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-blue-50 p-4 rounded-lg mb-6">
+      <div className="flex items-start gap-3">
+        <Clock className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+        <div>
+          <h4 className="font-semibold text-blue-800">
+            {getLocationName()} - {t("storeHoursTitle")}
+          </h4>
+          <p className="text-sm text-blue-700">
+            <strong>Lunes a Viernes:</strong> {schedule.weekdays}hrs
+          </p>
+          <p className="text-sm text-blue-700">
+            <strong>Sábados:</strong> {schedule.saturday}hrs
+          </p>
+          <p className="text-sm text-blue-700">
+            <strong>Domingos:</strong> {schedule.sunday}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const translateBikeContent = (
   textObject: { es: string; en: string; nl: string },
   language: string
@@ -348,18 +505,6 @@ const locationOptions: LocationOption[] = [
     label_nl: "Albir Cycling - Av del Albir 159, El Albir" 
   }
 ];
-
-const StoreHoursNotice = ({ t }: { t: (key: TranslationKey) => string }) => (
-  <div className="bg-blue-50 p-4 rounded-lg mb-6">
-    <div className="flex items-start gap-3">
-      <Clock className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-      <div>
-        <h4 className="font-semibold text-blue-800">{t("storeHoursTitle")}</h4>
-        <p className="text-sm text-blue-700">{t("storeHoursContent")}</p>
-      </div>
-    </div>
-  </div>
-);
 
 const RentalTermsCheckbox = ({ 
   t, 
@@ -495,7 +640,7 @@ const InsuranceContractCheckbox = ({
   );
 };
 
-// StripePaymentForm (sin cambios, se mantiene igual)
+// StripePaymentForm
 const StripePaymentForm = ({ 
   clientSecret,
   customerData,
@@ -1014,7 +1159,7 @@ export default function ReservePage() {
   const [isLoadingTimes, setIsLoadingTimes] = useState(false);
 
   // ============================================
-  // ✅ FUNCIÓN PARA CARGAR HORARIOS DISPONIBLES (CORREGIDA)
+  // ✅ FUNCIÓN PARA CARGAR HORARIOS DISPONIBLES
   // ============================================
 
   const loadAvailableTimes = async (date: Date, location: string) => {
@@ -1193,7 +1338,7 @@ export default function ReservePage() {
   }, [availableBikes]);
 
   // ============================================
-  // ✅ FUNCIONES DE BICIS (sin cambios)
+  // ✅ FUNCIONES DE BICIS
   // ============================================
 
   const fetchAvailableBikes = async () => {
@@ -1300,7 +1445,7 @@ export default function ReservePage() {
   };
 
   // ============================================
-  // ✅ VALIDACIONES Y SELECCIONES (sin cambios)
+  // ✅ VALIDACIONES Y SELECCIONES
   // ============================================
 
   const validateCustomerData = () => {
@@ -1584,7 +1729,7 @@ export default function ReservePage() {
   };
 
   // ============================================
-  // ✅ CHECK BIKES AVAILABILITY (sin cambios)
+  // ✅ CHECK BIKES AVAILABILITY
   // ============================================
 
   const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
@@ -1667,7 +1812,7 @@ export default function ReservePage() {
   };
 
   // ============================================
-  // ✅ HANDLE SUBMIT RESERVATION (sin cambios)
+  // ✅ HANDLE SUBMIT RESERVATION
   // ============================================
 
   const handleSubmitReservation = async () => {
@@ -2012,7 +2157,7 @@ export default function ReservePage() {
   };
 
   // ============================================
-  // ✅ RENDER (sin cambios estructurales)
+  // ✅ RENDER
   // ============================================
 
   const renderStepContent = () => {
@@ -2030,7 +2175,7 @@ export default function ReservePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <StoreHoursNotice t={t} />
+              <StoreHoursNotice t={t} location={pickupLocation} />
 
               {(() => {
                 const closedLabel: Record<string, string> = {
@@ -2358,7 +2503,7 @@ export default function ReservePage() {
                 </div>
               )}
               
-              <StoreHoursNotice t={t} />
+              <StoreHoursNotice t={t} location={pickupLocation} />
               
               {isLoadingBikes ? (
                 <div className="space-y-4">
@@ -2639,7 +2784,7 @@ export default function ReservePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <StoreHoursNotice t={t} />
+              <StoreHoursNotice t={t} location={pickupLocation} />
               
               {isLoadingBikes ? (
                 <div className="space-y-4">
@@ -2874,7 +3019,7 @@ export default function ReservePage() {
               <CardTitle>{getStepTitle("accessories")}</CardTitle>
             </CardHeader>
             <CardContent>
-              <StoreHoursNotice t={t} />
+              <StoreHoursNotice t={t} location={pickupLocation} />
 
               {isLoadingAccessories ? (
                 <div className="space-y-4">
@@ -3012,7 +3157,7 @@ export default function ReservePage() {
               <CardTitle>{getStepTitle("customer")}</CardTitle>
             </CardHeader>
             <CardContent>
-              <StoreHoursNotice t={t} />
+              <StoreHoursNotice t={t} location={pickupLocation} />
               
               <div className="grid grid-cols-1 gap-4">
                 <div>
@@ -3234,7 +3379,7 @@ export default function ReservePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <StoreHoursNotice t={t} />
+              <StoreHoursNotice t={t} location={pickupLocation} />
               
               <div className="bg-gray-50 p-4 rounded-lg mb-6">
                 <h4 className="font-semibold mb-2">{t("orderSummary")}</h4>
