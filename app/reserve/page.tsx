@@ -1155,53 +1155,85 @@ export default function ReservePage() {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [reservationData, setReservationData] = useState<any>(null);
   
-  const [availableTimes, setAvailableTimes] = useState<string[]>([]);
-  const [isLoadingTimes, setIsLoadingTimes] = useState(false);
+  // ✅ ESTADOS SEPARADOS PARA HORARIOS DE RECOGIDA Y DEVOLUCIÓN
+  const [availablePickupTimes, setAvailablePickupTimes] = useState<string[]>([]);
+  const [availableReturnTimes, setAvailableReturnTimes] = useState<string[]>([]);
+  const [isLoadingPickupTimes, setIsLoadingPickupTimes] = useState(false);
+  const [isLoadingReturnTimes, setIsLoadingReturnTimes] = useState(false);
 
   // ============================================
-  // ✅ FUNCIÓN PARA CARGAR HORARIOS DISPONIBLES
+  // ✅ FUNCIONES PARA CARGAR HORARIOS DISPONIBLES
   // ============================================
 
-  const loadAvailableTimes = async (date: Date, location: string) => {
+  const loadPickupTimes = async (date: Date, location: string) => {
     if (!date || !location) {
-      console.log("⚠️ loadAvailableTimes: faltan datos", { date, location });
+      console.log("⚠️ loadPickupTimes: faltan datos", { date, location });
       return;
     }
     
     const dateStr = formatDateForDB(date);
-    console.log(`🔄 Cargando horarios para: ${location} - ${dateStr}`);
-    setIsLoadingTimes(true);
+    console.log(`🔄 Cargando horarios de RECOGIDA para: ${location} - ${dateStr}`);
+    setIsLoadingPickupTimes(true);
     
     try {
       const times = await getAvailableTimes(location, date);
       
-      console.log(`📋 Horarios disponibles: ${times.join(', ')}`);
-      setAvailableTimes(times);
+      console.log(`📋 Horarios de recogida: ${times.join(', ')}`);
+      setAvailablePickupTimes(times);
       
       if (times.length > 0) {
         const currentPickupTime = pickupTime;
-        const currentReturnTime = returnTime;
-        
         if (!times.includes(currentPickupTime)) {
           console.log(`⏰ Actualizando pickupTime de ${currentPickupTime} a ${times[0]}`);
           setPickupTime(times[0]);
         }
-        
-        if (!times.includes(currentReturnTime)) {
-          console.log(`⏰ Actualizando returnTime de ${currentReturnTime} a ${times[0]}`);
-          setReturnTime(times[0]);
-        }
       } else {
-        console.warn("⚠️ No hay horarios disponibles para esta fecha");
+        console.warn("⚠️ No hay horarios disponibles para recogida");
         const fallbackTimes = generateHoursBetween("10:00", "18:00");
-        setAvailableTimes(fallbackTimes);
+        setAvailablePickupTimes(fallbackTimes);
       }
     } catch (error) {
-      console.error("❌ Error loading available times:", error);
+      console.error("❌ Error loading pickup times:", error);
       const fallbackTimes = generateHoursBetween("10:00", "18:00");
-      setAvailableTimes(fallbackTimes);
+      setAvailablePickupTimes(fallbackTimes);
     } finally {
-      setIsLoadingTimes(false);
+      setIsLoadingPickupTimes(false);
+    }
+  };
+
+  const loadReturnTimes = async (date: Date, location: string) => {
+    if (!date || !location) {
+      console.log("⚠️ loadReturnTimes: faltan datos", { date, location });
+      return;
+    }
+    
+    const dateStr = formatDateForDB(date);
+    console.log(`🔄 Cargando horarios de DEVOLUCIÓN para: ${location} - ${dateStr}`);
+    setIsLoadingReturnTimes(true);
+    
+    try {
+      const times = await getAvailableTimes(location, date);
+      
+      console.log(`📋 Horarios de devolución: ${times.join(', ')}`);
+      setAvailableReturnTimes(times);
+      
+      if (times.length > 0) {
+        const currentReturnTime = returnTime;
+        if (!times.includes(currentReturnTime)) {
+          console.log(`⏰ Actualizando returnTime de ${currentReturnTime} a ${times[times.length - 1]}`);
+          setReturnTime(times[times.length - 1]);
+        }
+      } else {
+        console.warn("⚠️ No hay horarios disponibles para devolución");
+        const fallbackTimes = generateHoursBetween("10:00", "18:00");
+        setAvailableReturnTimes(fallbackTimes);
+      }
+    } catch (error) {
+      console.error("❌ Error loading return times:", error);
+      const fallbackTimes = generateHoursBetween("10:00", "18:00");
+      setAvailableReturnTimes(fallbackTimes);
+    } finally {
+      setIsLoadingReturnTimes(false);
     }
   };
 
@@ -1239,11 +1271,28 @@ export default function ReservePage() {
   // ✅ EFECTOS
   // ============================================
 
+  // ✅ EFECTO PARA CARGAR HORARIOS DE RECOGIDA
   useEffect(() => {
     if (startDate && pickupLocation) {
-      loadAvailableTimes(startDate, pickupLocation);
+      loadPickupTimes(startDate, pickupLocation);
     }
   }, [startDate, pickupLocation]);
+
+  // ✅ EFECTO PARA CARGAR HORARIOS DE DEVOLUCIÓN
+  useEffect(() => {
+    if (endDate && pickupLocation) {
+      const startStr = formatDateForDB(startDate);
+      const endStr = formatDateForDB(endDate);
+      // Solo cargar si la fecha de fin es diferente a la de inicio
+      if (startStr !== endStr) {
+        loadReturnTimes(endDate, pickupLocation);
+      } else {
+        // Si es el mismo día, usar los mismos horarios que pickup
+        setAvailableReturnTimes(availablePickupTimes);
+        setReturnTime(pickupTime);
+      }
+    }
+  }, [endDate, pickupLocation]);
 
   useEffect(() => {
     const newType = typeParam === "scooters" ? "scooters" : "bikes";
@@ -1329,7 +1378,7 @@ export default function ReservePage() {
       if (!returnTime) setReturnTime("10:00");
       fetchAvailableBikes();
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, pickupTime, returnTime]);
 
   useEffect(() => {
     if (availableBikes.length > 0) {
@@ -1356,7 +1405,7 @@ export default function ReservePage() {
       const { data: reservations, error: resError } = await supabase
         .from("reservations")
         .select("bikes, start_date, end_date, pickup_time, return_time, status")
-        .or(`and(start_date.lte.${formatDate(endDate)},end_date.gte.${formatDate(startDate)})`)
+        .or(`and(start_date.lte.${formatDateForDB(endDate)},end_date.gte.${formatDateForDB(startDate)})`)
         .in("status", ["confirmed", "in_process"]);
 
       if (resError) throw resError;
@@ -2256,7 +2305,7 @@ export default function ReservePage() {
                             setEndDate(newDate);
                           }
                           if (pickupLocation) {
-                            loadAvailableTimes(newDate, pickupLocation);
+                            loadPickupTimes(newDate, pickupLocation);
                           }
                         }
                       }}
@@ -2315,10 +2364,10 @@ export default function ReservePage() {
                     <Label className="text-sm font-medium mb-2 block">
                       {t("pickupTime")}
                     </Label>
-                    {isLoadingTimes ? (
+                    {isLoadingPickupTimes ? (
                       <div className="flex items-center gap-2 p-2 border rounded-lg bg-gray-50">
                         <Loader2 className="animate-spin h-4 w-4 text-blue-500" />
-                        <span className="text-sm text-gray-500">Cargando horarios...</span>
+                        <span className="text-sm text-gray-500">Cargando horarios de recogida...</span>
                       </div>
                     ) : (
                       <Select
@@ -2329,8 +2378,8 @@ export default function ReservePage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {availableTimes.length > 0 ? (
-                            availableTimes.map(time => (
+                          {availablePickupTimes.length > 0 ? (
+                            availablePickupTimes.map(time => (
                               <SelectItem key={time} value={time}>{time}</SelectItem>
                             ))
                           ) : (
@@ -2340,17 +2389,17 @@ export default function ReservePage() {
                       </Select>
                     )}
                     <p className="text-xs text-gray-500 mt-1">
-                      Horarios disponibles para esta tienda y día
+                      Horas disponibles para recogida en esta fecha
                     </p>
                   </div>
                   <div>
                     <Label className="text-sm font-medium mb-2 block">
                       {t("returnTime")}
                     </Label>
-                    {isLoadingTimes ? (
+                    {isLoadingReturnTimes ? (
                       <div className="flex items-center gap-2 p-2 border rounded-lg bg-gray-50">
                         <Loader2 className="animate-spin h-4 w-4 text-blue-500" />
-                        <span className="text-sm text-gray-500">Cargando horarios...</span>
+                        <span className="text-sm text-gray-500">Cargando horarios de devolución...</span>
                       </div>
                     ) : (
                       <Select
@@ -2361,16 +2410,19 @@ export default function ReservePage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {availableTimes.length > 0 ? (
-                            availableTimes.map(time => (
+                          {availableReturnTimes.length > 0 ? (
+                            availableReturnTimes.map(time => (
                               <SelectItem key={time} value={time}>{time}</SelectItem>
                             ))
                           ) : (
-                            <SelectItem value="10:00">10:00</SelectItem>
+                            <SelectItem value="18:00">18:00</SelectItem>
                           )}
                         </SelectContent>
                       </Select>
                     )}
+                    <p className="text-xs text-gray-500 mt-1">
+                      Horas disponibles para devolución en esta fecha
+                    </p>
                   </div>
                   
                   <div className="md:col-span-2">
@@ -2386,7 +2438,10 @@ export default function ReservePage() {
                         setAvailableBikes([]);
                         setBikeModels([]);
                         if (startDate) {
-                          loadAvailableTimes(startDate, value);
+                          loadPickupTimes(startDate, value);
+                        }
+                        if (endDate && formatDateForDB(startDate) !== formatDateForDB(endDate)) {
+                          loadReturnTimes(endDate, value);
                         }
                       }}
                     >

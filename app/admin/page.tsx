@@ -596,83 +596,145 @@ export default function AdminPage() {
   const [hoveredBlockedReason, setHoveredBlockedReason] = useState<{text: string, x: number, y: number} | null>(null)
 
   // ========== ESTADO PARA HORARIOS DISPONIBLES EN CREAR RESERVA ==========
-  const [availableHours, setAvailableHours] = useState<string[]>([])
-  const [isLoadingTimes, setIsLoadingTimes] = useState(false)
+  // ✅ SEPARADO: pickup y return tienen sus propios horarios
+  const [availablePickupHours, setAvailablePickupHours] = useState<string[]>([])
+  const [availableReturnHours, setAvailableReturnHours] = useState<string[]>([])
+  const [isLoadingPickupTimes, setIsLoadingPickupTimes] = useState(false)
+  const [isLoadingReturnTimes, setIsLoadingReturnTimes] = useState(false)
 
   // ============================================
-  // ✅ FUNCIÓN PARA OBTENER TODAS LAS HORAS DISPONIBLES - VERSIÓN CORREGIDA
+  // ✅ FUNCIÓN PARA OBTENER HORAS DISPONIBLES - ADMIN
   // ============================================
 
-  const loadAvailableHours = async (date: Date, location: string) => {
-    if (!date || !location) return;
+  const getAvailableTimes = async (date: Date, location: string): Promise<string[]> => {
+    if (!date || !location) return [];
     
     const dateStr = formatDateForDB(date);
     const dayOfWeek = date.getDay();
     console.log(`🔄 Admin - Cargando horas para: ${location} - ${dateStr} - Día ${dayOfWeek}`);
-    setIsLoadingTimes(true);
+    
+    let allHours: string[] = [];
     
     try {
-      // CONSULTA DIRECTA a la tabla store_hours
-      const { data: weeklyHours, error } = await supabase
+      // 1. PRIMERO: Verificar horario personalizado (store_hours_by_date)
+      const { data: customHours } = await supabase
+        .from("store_hours_by_date")
+        .select("*")
+        .eq("location", location)
+        .eq("date", dateStr)
+        .maybeSingle();
+      
+      if (customHours) {
+        console.log("📌 Custom hours encontrado:", customHours);
+        const hours1 = generateHoursBetween(customHours.open_time, customHours.close_time);
+        allHours.push(...hours1);
+        
+        if (customHours.split_schedule && customHours.open_time_2 && customHours.close_time_2) {
+          const hours2 = generateHoursBetween(customHours.open_time_2, customHours.close_time_2);
+          allHours.push(...hours2);
+        }
+        
+        if (allHours.length > 0) {
+          const uniqueHours = [...new Set(allHours)].sort();
+          console.log(`✅ Horas (custom): ${uniqueHours.join(', ')}`);
+          return uniqueHours;
+        }
+      }
+      
+      // 2. SEGUNDO: Verificar horario semanal (store_hours)
+      const { data: weeklyHours } = await supabase
         .from("store_hours")
         .select("*")
         .eq("location", location)
         .eq("day_of_week", dayOfWeek)
         .maybeSingle();
       
-      console.log("📌 Datos directos de store_hours:", weeklyHours);
-      
-      let allHours: string[] = [];
-      
-      // Si hay horario semanal y NO usa global
       if (weeklyHours && !weeklyHours.use_global) {
-        console.log(`📌 Horario encontrado: ${weeklyHours.open_time} - ${weeklyHours.close_time}`);
-        
-        // Primer bloque
+        console.log("📌 Weekly hours encontrado:", weeklyHours);
         const hours1 = generateHoursBetween(weeklyHours.open_time, weeklyHours.close_time);
         allHours.push(...hours1);
         
-        // Segundo bloque (si existe y está activado)
         if (weeklyHours.split_schedule && weeklyHours.open_time_2 && weeklyHours.close_time_2) {
           const hours2 = generateHoursBetween(weeklyHours.open_time_2, weeklyHours.close_time_2);
           allHours.push(...hours2);
         }
-      } else {
-        // FALLBACK: No hay horario configurado
-        console.log("⚠️ No hay horario, usando fallback");
-        const isSaturday = dayOfWeek === 6;
-        const fallbackHours = isSaturday 
-          ? generateHoursBetween("10:00", "14:00")
-          : generateHoursBetween("10:00", "18:00");
-        allHours = fallbackHours;
-      }
-      
-      // Eliminar duplicados y ordenar
-      const uniqueHours = [...new Set(allHours)].sort();
-      console.log(`✅ Horas finales: ${uniqueHours.join(', ')}`);
-      setAvailableHours(uniqueHours);
-      
-      // Si la hora actual no está disponible, seleccionar la primera/última
-      if (uniqueHours.length > 0) {
-        const currentPickup = newReservation.pickup_time;
-        const currentReturn = newReservation.return_time;
         
-        if (!uniqueHours.includes(currentPickup)) {
-          setNewReservation({ ...newReservation, pickup_time: uniqueHours[0] });
-        }
-        if (!uniqueHours.includes(currentReturn)) {
-          setNewReservation({ ...newReservation, return_time: uniqueHours[uniqueHours.length - 1] });
+        if (allHours.length > 0) {
+          const uniqueHours = [...new Set(allHours)].sort();
+          console.log(`✅ Horas (weekly): ${uniqueHours.join(', ')}`);
+          return uniqueHours;
         }
       }
+      
+      // 3. FALLBACK: Horario global estándar
+      const isSaturday = date.getDay() === 6;
+      const fallbackHours = isSaturday 
+        ? generateHoursBetween("10:00", "14:00")
+        : generateHoursBetween("10:00", "18:00");
+      
+      console.log(`✅ Horas (fallback): ${fallbackHours.join(', ')}`);
+      return fallbackHours;
+      
     } catch (error) {
-      console.error("Error loading available hours:", error);
-    } finally {
-      setIsLoadingTimes(false);
+      console.error("Error loading available times:", error);
+      const isSaturday = date.getDay() === 6;
+      const fallbackHours = isSaturday 
+        ? generateHoursBetween("10:00", "14:00")
+        : generateHoursBetween("10:00", "18:00");
+      return fallbackHours;
     }
   };
 
   // ============================================
-  // ✅ EFECTOS
+  // ✅ FUNCIONES PARA CARGAR HORARIOS - ADMIN
+  // ============================================
+
+  const loadPickupHours = async (date: Date, location: string) => {
+    if (!date || !location) return;
+    console.log(`🔄 Admin - Cargando horas de RECOGIDA para: ${formatDateForDB(date)}`);
+    setIsLoadingPickupTimes(true);
+    try {
+      const hours = await getAvailableTimes(date, location);
+      setAvailablePickupHours(hours);
+      
+      // Si la hora actual no está disponible, seleccionar la primera
+      if (hours.length > 0) {
+        const currentPickup = newReservation.pickup_time;
+        if (!hours.includes(currentPickup)) {
+          setNewReservation({ ...newReservation, pickup_time: hours[0] });
+        }
+      }
+    } catch (error) {
+      console.error("Error loading pickup hours:", error);
+    } finally {
+      setIsLoadingPickupTimes(false);
+    }
+  };
+
+  const loadReturnHours = async (date: Date, location: string) => {
+    if (!date || !location) return;
+    console.log(`🔄 Admin - Cargando horas de DEVOLUCIÓN para: ${formatDateForDB(date)}`);
+    setIsLoadingReturnTimes(true);
+    try {
+      const hours = await getAvailableTimes(date, location);
+      setAvailableReturnHours(hours);
+      
+      // Si la hora actual no está disponible, seleccionar la última
+      if (hours.length > 0) {
+        const currentReturn = newReservation.return_time;
+        if (!hours.includes(currentReturn)) {
+          setNewReservation({ ...newReservation, return_time: hours[hours.length - 1] });
+        }
+      }
+    } catch (error) {
+      console.error("Error loading return hours:", error);
+    } finally {
+      setIsLoadingReturnTimes(false);
+    }
+  };
+
+  // ============================================
+  // ✅ EFECTOS - ADMIN
   // ============================================
 
   useEffect(() => {
@@ -721,11 +783,28 @@ export default function AdminPage() {
     }
   }, [newReservation.start_date, newReservation.end_date])
 
+  // ✅ EFECTO PARA CARGAR HORARIOS DE RECOGIDA - ADMIN
   useEffect(() => {
     if (newReservation.start_date && newReservation.pickup_location) {
-      loadAvailableHours(newReservation.start_date, newReservation.pickup_location);
+      loadPickupHours(newReservation.start_date, newReservation.pickup_location);
     }
   }, [newReservation.start_date, newReservation.pickup_location]);
+
+  // ✅ EFECTO PARA CARGAR HORARIOS DE DEVOLUCIÓN - ADMIN
+  useEffect(() => {
+    if (newReservation.end_date && newReservation.pickup_location) {
+      const startStr = formatDateForDB(newReservation.start_date);
+      const endStr = formatDateForDB(newReservation.end_date);
+      // Solo cargar si la fecha de fin es diferente a la de inicio
+      if (startStr !== endStr) {
+        loadReturnHours(newReservation.end_date, newReservation.pickup_location);
+      } else {
+        // Si es el mismo día, usar los mismos horarios que pickup
+        setAvailableReturnHours(availablePickupHours);
+        setNewReservation({ ...newReservation, return_time: newReservation.pickup_time });
+      }
+    }
+  }, [newReservation.end_date, newReservation.pickup_location]);
 
   // ============================================
   // ✅ FETCH DATA
@@ -2554,7 +2633,7 @@ export default function AdminPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <Label>Hora de recogida*</Label>
-                          {isLoadingTimes ? (
+                          {isLoadingPickupTimes ? (
                             <div className="flex items-center gap-2 p-2 border rounded-lg bg-gray-50">
                               <Clock className="animate-spin h-4 w-4 text-blue-500" />
                               <span className="text-sm text-gray-500">Cargando horarios...</span>
@@ -2570,8 +2649,8 @@ export default function AdminPage() {
                                 <SelectValue placeholder="Selecciona una hora" />
                               </SelectTrigger>
                               <SelectContent>
-                                {availableHours.length > 0 ? (
-                                  availableHours.map(hour => (
+                                {availablePickupHours.length > 0 ? (
+                                  availablePickupHours.map(hour => (
                                     <SelectItem key={hour} value={hour}>{hour}</SelectItem>
                                   ))
                                 ) : (
@@ -2580,11 +2659,11 @@ export default function AdminPage() {
                               </SelectContent>
                             </Select>
                           )}
-                          <p className="text-xs text-gray-500 mt-1">Horas disponibles para esta tienda y día</p>
+                          <p className="text-xs text-gray-500 mt-1">Horas disponibles para la fecha de recogida</p>
                         </div>
                         <div>
                           <Label>Hora de devolución*</Label>
-                          {isLoadingTimes ? (
+                          {isLoadingReturnTimes ? (
                             <div className="flex items-center gap-2 p-2 border rounded-lg bg-gray-50">
                               <Clock className="animate-spin h-4 w-4 text-blue-500" />
                               <span className="text-sm text-gray-500">Cargando horarios...</span>
@@ -2600,8 +2679,8 @@ export default function AdminPage() {
                                 <SelectValue placeholder="Selecciona una hora" />
                               </SelectTrigger>
                               <SelectContent>
-                                {availableHours.length > 0 ? (
-                                  availableHours.map(hour => (
+                                {availableReturnHours.length > 0 ? (
+                                  availableReturnHours.map(hour => (
                                     <SelectItem key={hour} value={hour}>{hour}</SelectItem>
                                   ))
                                 ) : (
@@ -2610,7 +2689,7 @@ export default function AdminPage() {
                               </SelectContent>
                             </Select>
                           )}
-                          <p className="text-xs text-gray-500 mt-1">Debe ser igual o posterior a la hora de recogida</p>
+                          <p className="text-xs text-gray-500 mt-1">Horas disponibles para la fecha de devolución</p>
                         </div>
                       </div>
 
@@ -2620,7 +2699,8 @@ export default function AdminPage() {
                           value={newReservation.pickup_location}
                           onValueChange={(value) => {
                             setNewReservation({ ...newReservation, pickup_location: value, return_location: value });
-                            if (newReservation.start_date) loadAvailableHours(newReservation.start_date, value);
+                            if (newReservation.start_date) loadPickupHours(newReservation.start_date, value);
+                            if (newReservation.end_date) loadReturnHours(newReservation.end_date, value);
                           }}
                         >
                           <SelectTrigger>
@@ -2655,6 +2735,8 @@ export default function AdminPage() {
                             end_date: createLocalDate(),
                             pickup_time: "10:00",
                             return_time: "18:00",
+                            pickup_location: "sucursal_altea",
+                            return_location: "sucursal_altea",
                             bikes: [],
                             accessories: [],
                             insurance: false,
