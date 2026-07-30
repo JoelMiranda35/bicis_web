@@ -39,13 +39,23 @@ import {
   Split,
   Store,
   Save,
+  RefreshCw,
+  Loader2,
 } from "lucide-react"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { format, startOfMonth, endOfMonth, isWithinInterval, isSunday, isSaturday, isSameDay, getDay } from "date-fns"
 import { es } from "date-fns/locale"
-import { calculatePrice, calculateDeposit, calculateInsurance, isValidCategory } from "@/lib/pricing"
+import { 
+  calculatePrice, 
+  calculateDeposit, 
+  calculateInsurance, 
+  isValidCategory,
+  calculatePriceAsync,
+  calculateDepositAsync,
+} from "@/lib/pricing"
 import { toast } from "@/components/ui/use-toast"
+import { getPricingFromDB, updatePricing, PricingData } from "@/lib/pricing-db"
 
 // ============================================
 // ✅ FORCE SPAIN DATE
@@ -100,10 +110,6 @@ const convertToMadridTime = (date: Date): Date => {
 // 📅 FUNCIONES DE HORARIOS
 // ============================================
 
-/**
- * Genera todas las horas entre openTime y closeTime (inclusive)
- * SOLO genera horas ENTERAS (ej: 10:00, 11:00, 12:00)
- */
 const generateHoursBetween = (openTime: string | null, closeTime: string | null): string[] => {
   if (!openTime || !closeTime) return [];
   
@@ -111,12 +117,10 @@ const generateHoursBetween = (openTime: string | null, closeTime: string | null)
   const [openHour] = openTime.split(':').map(Number);
   const [closeHour] = closeTime.split(':').map(Number);
   
-  // Si la hora de apertura es mayor o igual que la de cierre, no generamos nada
   if (openHour >= closeHour) {
     return hours;
   }
   
-  // Generamos todas las horas enteras desde openHour hasta closeHour
   for (let hour = openHour; hour <= closeHour; hour++) {
     hours.push(`${String(hour).padStart(2, '0')}:00`);
   }
@@ -175,8 +179,6 @@ function StoreHoursManager() {
 
       if (error) throw error;
 
-      console.log("📊 Datos cargados de store_hours:", data);
-
       const weekdays = data?.filter(h => h.day_of_week >= 1 && h.day_of_week <= 5) || [];
       const saturday = data?.find(h => h.day_of_week === 6);
 
@@ -216,7 +218,6 @@ function StoreHoursManager() {
   const saveHours = async () => {
     setIsSaving(true);
     try {
-      // Guardar Lunes a Viernes
       for (let day = 1; day <= 5; day++) {
         const data = {
           location: selectedLocation,
@@ -236,7 +237,6 @@ function StoreHoursManager() {
         if (error) throw error;
       }
 
-      // Guardar Sábado
       const saturdayDataToSave = {
         location: selectedLocation,
         day_of_week: 6,
@@ -254,7 +254,6 @@ function StoreHoursManager() {
 
       if (satError) throw satError;
 
-      // Guardar Domingo (cerrado)
       const { error: sunError } = await supabase
         .from("store_hours")
         .upsert({
@@ -595,8 +594,22 @@ export default function AdminPage() {
   const [calendarMonth, setCalendarMonth] = useState<Date>(createLocalDate())
   const [hoveredBlockedReason, setHoveredBlockedReason] = useState<{text: string, x: number, y: number} | null>(null)
 
+  // ========== ESTADO PARA PRECIOS ==========
+  const [pricingData, setPricingData] = useState<PricingData[]>([]);
+  const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
+  const [isSavingPricing, setIsSavingPricing] = useState(false);
+  const [pricingForm, setPricingForm] = useState({
+    price_1_3: 0,
+    price_4_9: 0,
+    price_10_plus: 0,
+    deposit: 0,
+  });
+
+  // ========== ESTADO PARA TOTALES EN CREACIÓN DE RESERVA ==========
+  const [totalPrice, setTotalPrice] = useState(0);
+  const [totalDeposit, setTotalDeposit] = useState(0);
+
   // ========== ESTADO PARA HORARIOS DISPONIBLES EN CREAR RESERVA ==========
-  // ✅ SEPARADO: pickup y return tienen sus propios horarios
   const [availablePickupHours, setAvailablePickupHours] = useState<string[]>([])
   const [availableReturnHours, setAvailableReturnHours] = useState<string[]>([])
   const [isLoadingPickupTimes, setIsLoadingPickupTimes] = useState(false)
@@ -611,12 +624,10 @@ export default function AdminPage() {
     
     const dateStr = formatDateForDB(date);
     const dayOfWeek = date.getDay();
-    console.log(`🔄 Admin - Cargando horas para: ${location} - ${dateStr} - Día ${dayOfWeek}`);
     
     let allHours: string[] = [];
     
     try {
-      // 1. PRIMERO: Verificar horario personalizado (store_hours_by_date)
       const { data: customHours } = await supabase
         .from("store_hours_by_date")
         .select("*")
@@ -625,7 +636,6 @@ export default function AdminPage() {
         .maybeSingle();
       
       if (customHours) {
-        console.log("📌 Custom hours encontrado:", customHours);
         const hours1 = generateHoursBetween(customHours.open_time, customHours.close_time);
         allHours.push(...hours1);
         
@@ -636,12 +646,10 @@ export default function AdminPage() {
         
         if (allHours.length > 0) {
           const uniqueHours = [...new Set(allHours)].sort();
-          console.log(`✅ Horas (custom): ${uniqueHours.join(', ')}`);
           return uniqueHours;
         }
       }
       
-      // 2. SEGUNDO: Verificar horario semanal (store_hours)
       const { data: weeklyHours } = await supabase
         .from("store_hours")
         .select("*")
@@ -650,7 +658,6 @@ export default function AdminPage() {
         .maybeSingle();
       
       if (weeklyHours && !weeklyHours.use_global) {
-        console.log("📌 Weekly hours encontrado:", weeklyHours);
         const hours1 = generateHoursBetween(weeklyHours.open_time, weeklyHours.close_time);
         allHours.push(...hours1);
         
@@ -661,18 +668,15 @@ export default function AdminPage() {
         
         if (allHours.length > 0) {
           const uniqueHours = [...new Set(allHours)].sort();
-          console.log(`✅ Horas (weekly): ${uniqueHours.join(', ')}`);
           return uniqueHours;
         }
       }
       
-      // 3. FALLBACK: Horario global estándar
       const isSaturday = date.getDay() === 6;
       const fallbackHours = isSaturday 
         ? generateHoursBetween("10:00", "14:00")
         : generateHoursBetween("10:00", "18:00");
       
-      console.log(`✅ Horas (fallback): ${fallbackHours.join(', ')}`);
       return fallbackHours;
       
     } catch (error) {
@@ -691,13 +695,11 @@ export default function AdminPage() {
 
   const loadPickupHours = async (date: Date, location: string) => {
     if (!date || !location) return;
-    console.log(`🔄 Admin - Cargando horas de RECOGIDA para: ${formatDateForDB(date)}`);
     setIsLoadingPickupTimes(true);
     try {
       const hours = await getAvailableTimes(date, location);
       setAvailablePickupHours(hours);
       
-      // Si la hora actual no está disponible, seleccionar la primera
       if (hours.length > 0) {
         const currentPickup = newReservation.pickup_time;
         if (!hours.includes(currentPickup)) {
@@ -713,13 +715,11 @@ export default function AdminPage() {
 
   const loadReturnHours = async (date: Date, location: string) => {
     if (!date || !location) return;
-    console.log(`🔄 Admin - Cargando horas de DEVOLUCIÓN para: ${formatDateForDB(date)}`);
     setIsLoadingReturnTimes(true);
     try {
       const hours = await getAvailableTimes(date, location);
       setAvailableReturnHours(hours);
       
-      // Si la hora actual no está disponible, seleccionar la última
       if (hours.length > 0) {
         const currentReturn = newReservation.return_time;
         if (!hours.includes(currentReturn)) {
@@ -734,6 +734,185 @@ export default function AdminPage() {
   };
 
   // ============================================
+  // ✅ FUNCIONES PARA PRECIOS
+  // ============================================
+
+ const loadPricing = async () => {
+  console.log("🔵 Cargando precios...");
+  try {
+    // 🔥 USAR getPricingFromDB EN VEZ DE SUPABASE DIRECTO
+    const data = await getPricingFromDB();
+    console.log("🔵 Datos cargados:", data);
+    
+    // 🔥 Forzar actualización del estado con un nuevo array
+    setPricingData([...data]);
+  } catch (error) {
+    console.error("🔴 Error loading pricing:", error);
+    toast({ 
+      title: "Error", 
+      description: "No se pudieron cargar los precios", 
+      variant: "destructive" 
+    });
+  }
+};
+
+  const handleEditPricing = (item: PricingData) => {
+    console.log("✏️ Editando:", item.category);
+    setEditingPricingId(item.id);
+    setPricingForm({
+      price_1_3: item.price_1_3,
+      price_4_9: item.price_4_9,
+      price_10_plus: item.price_10_plus,
+      deposit: item.deposit,
+    });
+  };
+
+  const handleSavePricing = async (item: PricingData) => {
+  console.log("🟢 === INICIANDO GUARDADO ===");
+  console.log("🟢 Categoría:", item.category);
+  console.log("🟢 ID:", item.id);
+  console.log("🟢 pricingForm ANTES de guardar:", pricingForm);
+  console.log("🟢 price_1_3 en euros:", pricingForm.price_1_3 / 100);
+  
+  setIsSavingPricing(true);
+  try {
+    if (pricingForm.price_1_3 < 0 || pricingForm.price_4_9 < 0 || pricingForm.price_10_plus < 0 || pricingForm.deposit < 0) {
+      throw new Error("Los valores no pueden ser negativos");
+    }
+
+    console.log("🟢 Enviando a updatePricing:", {
+      category: item.category,
+      prices: pricingForm,
+    });
+
+    // 🔥 USAR LA FUNCIÓN updatePricing DE pricing-db
+    const result = await updatePricing(item.category, pricingForm);
+    console.log("🟢 Resultado de updatePricing:", result);
+
+    if (!result.success) {
+      throw new Error(result.error || "Error al actualizar");
+    }
+
+    console.log("✅ Precios actualizados correctamente en DB");
+    
+    toast({ 
+      title: "✅ Precios actualizados", 
+      description: `Los precios de ${item.category} se actualizaron correctamente` 
+    });
+    
+    setEditingPricingId(null);
+    
+    // 🔥 RECARGAR CON UN RETRASO PARA ASEGURAR QUE LA DB SE ACTUALIZÓ
+    console.log("🔄 Esperando 500ms antes de recargar...");
+    setTimeout(async () => {
+      console.log("🔄 Recargando precios...");
+      await loadPricing();
+    }, 500);
+    
+  } catch (error: any) {
+    console.error("🔴 Error en handleSavePricing:", error);
+    toast({ 
+      title: "❌ Error", 
+      description: error.message || "No se pudieron guardar los cambios", 
+      variant: "destructive" 
+    });
+  } finally {
+    setIsSavingPricing(false);
+    console.log("🟢 === FIN GUARDADO ===");
+  }
+};
+
+  const formatPrice = (cents: number): string => (cents / 100).toFixed(2);
+
+  // ✅ NUEVO: lee el precio desde pricingData (DB), con fallback al estático
+  const getPriceFromState = (category: string, days: number): number => {
+    const item = pricingData.find((p) => p.category === category);
+    if (item) {
+      const priceInCents =
+        days <= 3 ? item.price_1_3 : days <= 9 ? item.price_4_9 : item.price_10_plus;
+      return priceInCents / 100;
+    }
+    return isValidCategory(category) ? calculatePrice(category, days) : 0;
+  };
+
+  // ✅ NUEVO: lee el depósito desde pricingData (DB), con fallback al estático
+  const getDepositFromState = (category: string): number => {
+    const item = pricingData.find((p) => p.category === category);
+    if (item) return item.deposit / 100;
+    return isValidCategory(category) ? calculateDeposit(category) : 0;
+  };
+
+  // ============================================
+  // ✅ FUNCIONES PARA TOTALES EN CREACIÓN DE RESERVA
+  // ============================================
+
+  const calculateTotalDays = (
+    startDate: Date,
+    endDate: Date,
+    pickupTime: string,
+    returnTime: string
+  ): number => {
+    try {
+      const startSpain = forceSpainDate(startDate, pickupTime);
+      const endSpain = forceSpainDate(endDate, returnTime);
+      
+      if (startSpain.toDateString() === endSpain.toDateString()) {
+        return 1;
+      }
+      
+      const diffTime = endSpain.getTime() - startSpain.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      return Math.max(1, Math.min(diffDays, 30));
+      
+    } catch (error) {
+      console.error("❌ Error en calculateTotalDays:", error);
+      return 1;
+    }
+  };
+
+  const updateTotals = async () => {
+    if (!newReservation.start_date || !newReservation.end_date) {
+      setTotalPrice(0);
+      setTotalDeposit(0);
+      return;
+    }
+
+    const days = calculateTotalDays(
+      new Date(newReservation.start_date),
+      new Date(newReservation.end_date),
+      newReservation.pickup_time,
+      newReservation.return_time
+    );
+
+    let total = 0;
+    let deposit = 0;
+
+    for (const bike of newReservation.bikes) {
+      const pricePerDay = await calculatePriceAsync(bike.category, days);
+      total += pricePerDay * days * (bike.quantity || 1);
+      const bikeDeposit = await calculateDepositAsync(bike.category);
+      deposit += bikeDeposit * (bike.quantity || 1);
+    }
+
+    newReservation.accessories.forEach((acc: any) => {
+      total += acc.price || 0;
+    });
+
+    if (newReservation.insurance) {
+      total +=
+        calculateInsurance(days) *
+        newReservation.bikes.reduce(
+          (sum: number, b: any) => sum + (b.quantity || 1),
+          0
+        );
+    }
+
+    setTotalPrice(total);
+    setTotalDeposit(deposit);
+  };
+
+  // ============================================
   // ✅ EFECTOS - ADMIN
   // ============================================
 
@@ -742,6 +921,7 @@ export default function AdminPage() {
     if (savedAuth === 'true') {
       setIsAuthenticated(true)
       fetchData()
+      loadPricing()
     }
   }, [])
 
@@ -795,16 +975,27 @@ export default function AdminPage() {
     if (newReservation.end_date && newReservation.pickup_location) {
       const startStr = formatDateForDB(newReservation.start_date);
       const endStr = formatDateForDB(newReservation.end_date);
-      // Solo cargar si la fecha de fin es diferente a la de inicio
       if (startStr !== endStr) {
         loadReturnHours(newReservation.end_date, newReservation.pickup_location);
       } else {
-        // Si es el mismo día, usar los mismos horarios que pickup
         setAvailableReturnHours(availablePickupHours);
         setNewReservation({ ...newReservation, return_time: newReservation.pickup_time });
       }
     }
   }, [newReservation.end_date, newReservation.pickup_location]);
+
+  // ✅ EFECTO PARA ACTUALIZAR TOTALES CUANDO CAMBIA LA SELECCIÓN
+  useEffect(() => {
+    updateTotals();
+  }, [
+    newReservation.bikes,
+    newReservation.accessories,
+    newReservation.insurance,
+    newReservation.start_date,
+    newReservation.end_date,
+    newReservation.pickup_time,
+    newReservation.return_time,
+  ]);
 
   // ============================================
   // ✅ FETCH DATA
@@ -865,7 +1056,6 @@ export default function AdminPage() {
       setReservations(formattedReservations)
       await fetchBlockedDates()
       
-      console.log("Datos cargados - Total reservas:", formattedReservations.length);
     } catch (error: any) {
       setError(error.message || "Error al cargar los datos")
       console.error("Error fetching data:", error)
@@ -1189,6 +1379,7 @@ export default function AdminPage() {
       setIsAuthenticated(true);
       localStorage.setItem('adminAuthenticated', 'true');
       fetchData();
+      loadPricing();
     } else {
       setError("Credenciales incorrectas");
     }
@@ -1509,7 +1700,7 @@ export default function AdminPage() {
   }
 
   // ============================================
-  // ✅ CREATE RESERVATION
+  // ✅ CREATE RESERVATION (MODIFICADO CON ASYNC)
   // ============================================
 
   const createReservation = async () => {
@@ -1525,8 +1716,9 @@ export default function AdminPage() {
         newReservation.return_time
       );
 
-      const bikesForDB = newReservation.bikes.map((bike: any) => {
-        const pricePerDay = calculatePrice(bike.category, days);
+      // ✅ USAR calculatePriceAsync PARA OBTENER PRECIOS DE DB
+      const bikesForDB = await Promise.all(newReservation.bikes.map(async (bike: any) => {
+        const pricePerDay = await calculatePriceAsync(bike.category, days);
         let bike_ids = bike.all_ids && bike.all_ids.length > 0 
           ? bike.all_ids 
           : [bike.id];
@@ -1541,15 +1733,23 @@ export default function AdminPage() {
           price_per_day: pricePerDay,
           total_price: pricePerDay * days * (bike.quantity || 1),
         };
-      });
+      }));
 
       let totalAmount = 0;
       let depositAmount = 0;
 
+      // ✅ USAR calculateDepositAsync PARA OBTENER DEPÓSITO DE DB
+      for (const bike of newReservation.bikes) {
+        if (isValidCategory(bike.category)) {
+          const bikeDeposit = await calculateDepositAsync(bike.category);
+          depositAmount += bikeDeposit * (bike.quantity || 1);
+        }
+      }
+
+      // Calcular totalAmount desde bikesForDB
       bikesForDB.forEach((bike: any) => {
         if (isValidCategory(bike.category)) {
           totalAmount += bike.total_price;
-          depositAmount += calculateDeposit(bike.category) * (bike.quantity || 1);
         }
       });
 
@@ -1792,75 +1992,6 @@ export default function AdminPage() {
   }
 
   // ============================================
-  // ✅ CALCULATE TOTAL DAYS
-  // ============================================
-
-  const calculateTotalDays = (
-    startDate: Date,
-    endDate: Date,
-    pickupTime: string,
-    returnTime: string
-  ): number => {
-    try {
-      const startSpain = forceSpainDate(startDate, pickupTime);
-      const endSpain = forceSpainDate(endDate, returnTime);
-      
-      if (startSpain.toDateString() === endSpain.toDateString()) {
-        return 1;
-      }
-      
-      const diffTime = endSpain.getTime() - startSpain.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      return Math.max(1, Math.min(diffDays, 30));
-      
-    } catch (error) {
-      console.error("❌ Error en calculateTotalDays:", error);
-      return 1;
-    }
-  };
-
-  const calculateTotalDeposit = () => {
-    return newReservation.bikes.reduce((sum: number, bike: any) => {
-      const qty = bike.quantity || 1;
-      return sum + (isValidCategory(bike.category) ? calculateDeposit(bike.category) * qty : 0);
-    }, 0);
-  };
-
-  const calculateTotalPrice = () => {
-    if (!newReservation.start_date || !newReservation.end_date) return 0;
-
-    const days = calculateTotalDays(
-      new Date(newReservation.start_date),
-      new Date(newReservation.end_date),
-      newReservation.pickup_time,
-      newReservation.return_time
-    );
-
-    let total = 0;
-
-    newReservation.bikes.forEach((bike: any) => {
-      const pricePerDay = calculatePrice(bike.category, days);
-      total += pricePerDay * days * (bike.quantity || 1);
-    });
-
-    newReservation.accessories.forEach((acc: any) => {
-      total += acc.price || 0;
-    });
-
-    if (newReservation.insurance) {
-      total +=
-        calculateInsurance(days) *
-        newReservation.bikes.reduce(
-          (sum: number, b: any) => sum + (b.quantity || 1),
-          0
-        );
-    }
-
-    return total;
-  };
-
-  // ============================================
   // ✅ RENDER PRINCIPAL
   // ============================================
 
@@ -1960,6 +2091,7 @@ export default function AdminPage() {
             <TabsTrigger value="create-reservation">➕ Nueva Reserva</TabsTrigger>
             <TabsTrigger value="blocked-dates">🚫 Feriados</TabsTrigger>
             <TabsTrigger value="store-hours">🕐 Horarios</TabsTrigger>
+            <TabsTrigger value="pricing">💰 Precios</TabsTrigger>
           </TabsList>
 
           <TabsContent value="bikes">
@@ -2787,15 +2919,15 @@ export default function AdminPage() {
                               ) : (
                                 newReservation.bikes.map((bike: any, index: number) => {
                                   const days = calculateTotalDays(new Date(newReservation.start_date), new Date(newReservation.end_date), newReservation.pickup_time, newReservation.return_time);
-                                  const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0;
+                                  const pricePerDay = getPriceFromState(bike.category, days);
                                   return <p key={bike.key || index} className="text-sm">{bike.title} - Talla {bike.size} x{bike.quantity} ({pricePerDay}€/día × {days} días)</p>;
                                 })
                               )}
                             </div>
                             <div>
                               <p className="text-sm text-gray-500">Total parcial</p>
-                              <p className="text-lg font-bold">{calculateTotalPrice()}€</p>
-                              <p className="text-sm">Depósito: {calculateTotalDeposit()}€</p>
+                              <p className="text-lg font-bold">{totalPrice}€</p>
+                              <p className="text-sm">Depósito: {totalDeposit}€</p>
                             </div>
                           </div>
                         </div>
@@ -2811,8 +2943,8 @@ export default function AdminPage() {
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
                             {availableBikes.map((bikeGroup: any) => {
                               const days = calculateTotalDays(new Date(newReservation.start_date), new Date(newReservation.end_date), newReservation.pickup_time, newReservation.return_time);
-                              const pricePerDay = isValidCategory(bikeGroup.category) ? calculatePrice(bikeGroup.category, 1) : 0;
-                              const totalPrice = pricePerDay * days;
+                              const pricePerDay = getPriceFromState(bikeGroup.category, days);
+                              const totalPriceBike = pricePerDay * days;
                               const selectedBike = newReservation.bikes.find((b: any) => b.key === bikeGroup.key);
                               const selectedCount = selectedBike?.quantity || 0;
 
@@ -2823,8 +2955,8 @@ export default function AdminPage() {
                                       <h4 className="font-medium">{bikeGroup.title_es}</h4>
                                       <p className="text-sm text-gray-600">Talla: {bikeGroup.size}</p>
                                       <p className="text-sm text-gray-600">Disponibles: {bikeGroup.quantity}</p>
-                                      <p className="text-sm text-gray-600">Precio: {totalPrice}€ ({pricePerDay}€/día × {days} días)</p>
-                                      <p className="text-xs text-gray-500">Depósito: {calculateDeposit(bikeGroup.category)}€</p>
+                                      <p className="text-sm text-gray-600">Precio: {totalPriceBike}€ ({pricePerDay}€/día × {days} días)</p>
+                                      <p className="text-xs text-gray-500">Depósito: {getDepositFromState(bikeGroup.category)}€</p>
                                     </div>
                                     <div className="flex flex-col items-center">
                                       <div className="flex items-center gap-2 mb-2">
@@ -2937,14 +3069,14 @@ export default function AdminPage() {
                             <h4 className="font-medium mb-2">Bicicletas seleccionadas:</h4>
                             {newReservation.bikes.map((bike: any, index: number) => {
                               const days = calculateTotalDays(new Date(newReservation.start_date), new Date(newReservation.end_date), newReservation.pickup_time, newReservation.return_time);
-                              const pricePerDay = isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0;
+                              const pricePerDay = getPriceFromState(bike.category, days);
                               return <p key={index} className="text-sm">{bike.title} - {pricePerDay}€/día × {days} días = {pricePerDay * days}€</p>;
                             })}
                           </div>
                           <div>
                             <h4 className="font-medium mb-2">Total parcial:</h4>
-                            <p className="text-lg font-bold">{calculateTotalPrice()}€</p>
-                            <p className="text-sm">Depósito: {calculateTotalDeposit()}€</p>
+                            <p className="text-lg font-bold">{totalPrice}€</p>
+                            <p className="text-sm">Depósito: {totalDeposit}€</p>
                           </div>
                         </div>
                       </div>
@@ -2999,7 +3131,7 @@ export default function AdminPage() {
                           <div>
                             <h4 className="font-medium mb-2">Bicicletas:</h4>
                             {newReservation.bikes.map((bike: any, index: number) => (
-                              <p key={index} className="text-sm">{bike.title} - {isValidCategory(bike.category) ? calculatePrice(bike.category, 1) : 0}€/día</p>
+                              <p key={index} className="text-sm">{bike.title} - {getPriceFromState(bike.category, 1)}€/día</p>
                             ))}
                           </div>
                           <div>
@@ -3012,9 +3144,9 @@ export default function AdminPage() {
                         </div>
 
                         <div className="mt-4 pt-4 border-t">
-                          <div className="flex justify-between"><span className="font-medium">Total estimado:</span><span className="font-bold">{calculateTotalPrice()}€</span></div>
-                          <div className="flex justify-between"><span className="font-medium">Depósito:</span><span className="font-bold">{calculateTotalDeposit()}€</span></div>
-                          <div className="flex justify-between pt-2 border-t"><span className="font-medium">Total + Depósito:</span><span className="font-bold">{calculateTotalPrice() + calculateTotalDeposit()}€</span></div>
+                          <div className="flex justify-between"><span className="font-medium">Total estimado:</span><span className="font-bold">{totalPrice}€</span></div>
+                          <div className="flex justify-between"><span className="font-medium">Depósito:</span><span className="font-bold">{totalDeposit}€</span></div>
+                          <div className="flex justify-between pt-2 border-t"><span className="font-medium">Total + Depósito:</span><span className="font-bold">{totalPrice + totalDeposit}€</span></div>
                         </div>
                       </div>
 
@@ -3170,12 +3302,197 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* ============================================ */}
+          {/* ✅ PESTAÑA: PRECIOS */}
+          {/* ============================================ */}
+          <TabsContent value="pricing">
+            <Card>
+              <CardHeader>
+                <CardTitle>💰 Gestión de Precios</CardTitle>
+                <CardDescription>
+                  Edita los precios por categoría. Los cambios se aplican inmediatamente en toda la web.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {(() => {
+                  console.log("🟡 Renderizando pestaña de precios");
+                  console.log("🟡 pricingData:", pricingData);
+                  console.log("🟡 editingPricingId:", editingPricingId);
+                  
+                  const CATEGORY_LABELS: Record<string, string> = {
+                    ROAD: "Carretera",
+                    ROAD_PREMIUM: "Carretera Premium",
+                    MTB: "MTB",
+                    CITY_BIKE: "Ciudad",
+                    E_CITY_BIKE: "E-Ciudad",
+                    E_MTB: "E-MTB",
+                    SCOOTER_MOVILIDAD: "Scooter Movilidad",
+                  };
+
+                  return (
+                    <div className="space-y-4">
+                      <div className="flex justify-end">
+                        <Button variant="outline" size="sm" onClick={loadPricing}>
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          Recargar
+                        </Button>
+                      </div>
+
+                      {pricingData.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          No hay datos de precios disponibles.
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr className="bg-gray-50 border-b">
+                                <th className="text-left p-3 font-medium text-sm">Categoría</th>
+                                <th className="text-center p-3 font-medium text-sm">1-3 días</th>
+                                <th className="text-center p-3 font-medium text-sm">4-9 días</th>
+                                <th className="text-center p-3 font-medium text-sm">10+ días</th>
+                                <th className="text-center p-3 font-medium text-sm">Depósito</th>
+                                <th className="text-center p-3 font-medium text-sm">Acción</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {pricingData.map((item) => {
+                                const isEditing = editingPricingId === item.id;
+
+                                return (
+                                  <tr key={item.id} className="border-b hover:bg-gray-50">
+                                    <td className="p-3">
+                                      <div>
+                                        <span className="font-medium">{CATEGORY_LABELS[item.category] || item.category}</span>
+                                        <Badge variant="outline" className="ml-2 text-xs">{item.category}</Badge>
+                                      </div>
+                                    </td>
+                                    <td className="text-center p-3">
+                                      {isEditing ? (
+                                        <Input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={pricingForm.price_1_3 / 100}
+                                          onChange={(e) => {
+                                            const val = parseFloat(e.target.value);
+                                            console.log("✏️ Cambiando price_1_3:", { val, cents: Math.round((isNaN(val) ? 0 : val) * 100) });
+                                            setPricingForm({ ...pricingForm, price_1_3: Math.round((isNaN(val) ? 0 : val) * 100) });
+                                          }}
+                                          className="w-24 mx-auto text-center"
+                                        />
+                                      ) : (
+                                        <span className="font-medium">{formatPrice(item.price_1_3)}€</span>
+                                      )}
+                                    </td>
+                                    <td className="text-center p-3">
+                                      {isEditing ? (
+                                        <Input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={pricingForm.price_4_9 / 100}
+                                          onChange={(e) => {
+                                            const val = parseFloat(e.target.value);
+                                            console.log("✏️ Cambiando price_4_9:", { val, cents: Math.round((isNaN(val) ? 0 : val) * 100) });
+                                            setPricingForm({ ...pricingForm, price_4_9: Math.round((isNaN(val) ? 0 : val) * 100) });
+                                          }}
+                                          className="w-24 mx-auto text-center"
+                                        />
+                                      ) : (
+                                        <span className="font-medium">{formatPrice(item.price_4_9)}€</span>
+                                      )}
+                                    </td>
+                                    <td className="text-center p-3">
+                                      {isEditing ? (
+                                        <Input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={pricingForm.price_10_plus / 100}
+                                          onChange={(e) => {
+                                            const val = parseFloat(e.target.value);
+                                            console.log("✏️ Cambiando price_10_plus:", { val, cents: Math.round((isNaN(val) ? 0 : val) * 100) });
+                                            setPricingForm({ ...pricingForm, price_10_plus: Math.round((isNaN(val) ? 0 : val) * 100) });
+                                          }}
+                                          className="w-24 mx-auto text-center"
+                                        />
+                                      ) : (
+                                        <span className="font-medium">{formatPrice(item.price_10_plus)}€</span>
+                                      )}
+                                    </td>
+                                    <td className="text-center p-3">
+                                      {isEditing ? (
+                                        <Input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={pricingForm.deposit / 100}
+                                          onChange={(e) => {
+                                            const val = parseFloat(e.target.value);
+                                            console.log("✏️ Cambiando deposit:", { val, cents: Math.round((isNaN(val) ? 0 : val) * 100) });
+                                            setPricingForm({ ...pricingForm, deposit: Math.round((isNaN(val) ? 0 : val) * 100) });
+                                          }}
+                                          className="w-24 mx-auto text-center"
+                                        />
+                                      ) : (
+                                        <span className="font-medium text-orange-600">{formatPrice(item.deposit)}€</span>
+                                      )}
+                                    </td>
+                                    <td className="text-center p-3">
+                                      {isEditing ? (
+                                        <div className="flex justify-center gap-2">
+                                          <Button
+                                            size="sm"
+                                            onClick={() => {
+                                              console.log("🔵 Click en guardar para:", item.category);
+                                              handleSavePricing(item);
+                                            }}
+                                            disabled={isSavingPricing}
+                                            className="bg-green-600 hover:bg-green-700"
+                                          >
+                                            {isSavingPricing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                          </Button>
+                                          <Button size="sm" variant="outline" onClick={() => {
+                                            console.log("🔵 Cancelando edición para:", item.category);
+                                            setEditingPricingId(null);
+                                          }}>
+                                            Cancelar
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <Button size="sm" variant="outline" onClick={() => handleEditPricing(item)}>
+                                          <Edit className="h-4 w-4" />
+                                        </Button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+                        <p>💡 Los precios están en <strong>euros</strong>. Los cambios se aplican inmediatamente en toda la web.</p>
+                        <p className="text-xs mt-1">ℹ️ Los precios se guardan en céntimos en la base de datos para mayor precisión.</p>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
 
         {editingBike && (
           <Dialog open={!!editingBike} onOpenChange={() => setEditingBike(null)}>
             <DialogContent className="max-w-md">
-              <DialogHeader><DialogTitle>{editingBike?.id ? "Editar" : "Nueva"} Bicicleta</DialogTitle></DialogHeader>
+              <DialogHeader>
+  <DialogTitle>{editingBike?.id ? "Editar" : "Nueva"} Bicicleta</DialogTitle>
+</DialogHeader>
               <BikeForm bike={editingBike} onSave={saveBike} onCancel={() => setEditingBike(null)} />
             </DialogContent>
           </Dialog>
@@ -3184,7 +3501,9 @@ export default function AdminPage() {
         {editingScooter && (
           <Dialog open={!!editingScooter} onOpenChange={() => setEditingScooter(null)}>
             <DialogContent className="max-w-md">
-              <DialogHeader><DialogTitle>{editingScooter?.id ? "Editar" : "Nuevo"} Scooter</DialogTitle></DialogHeader>
+              <DialogHeader>
+  <DialogTitle>{editingScooter?.id ? "Editar" : "Nuevo"} Scooter</DialogTitle>
+</DialogHeader>
               <ScooterForm scooter={editingScooter} onSave={saveScooter} onCancel={() => setEditingScooter(null)} />
             </DialogContent>
           </Dialog>
@@ -3193,7 +3512,9 @@ export default function AdminPage() {
         {editingAccessory && (
           <Dialog open={!!editingAccessory} onOpenChange={() => setEditingAccessory(null)}>
             <DialogContent className="max-w-md">
-              <DialogHeader><DialogTitle>{editingAccessory?.id ? "Editar" : "Nuevo"} Accesorio</DialogTitle></DialogHeader>
+              <DialogHeader>
+  <DialogTitle>{editingAccessory?.id ? "Editar" : "Nuevo"} Accesorio</DialogTitle>
+</DialogHeader>
               <AccessoryForm accessory={editingAccessory} onSave={saveAccessory} onCancel={() => setEditingAccessory(null)} />
             </DialogContent>
           </Dialog>

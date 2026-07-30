@@ -61,6 +61,11 @@ import {
   INSURANCE_PRICE_PER_DAY,
   INSURANCE_MAX_PRICE,
   calculateInsurance,
+  getPriceFromDB,
+  getDepositFromDB,
+  calculatePriceAsync,
+  calculateDepositAsync,
+  getAllPricesFromDB,
 } from "@/lib/pricing";
 import { calculateDays, formatDate, formatDateForDisplay } from "@/lib/utils";
 import {
@@ -1162,6 +1167,37 @@ export default function ReservePage() {
   const [isLoadingReturnTimes, setIsLoadingReturnTimes] = useState(false);
 
   // ============================================
+  // ✅ PRECIOS DESDE LA DB (IGUAL QUE ADMIN)
+  // ============================================
+
+  const [pricingData, setPricingData] = useState<Record<string, {
+    price_1_3: number;
+    price_4_9: number;
+    price_10_plus: number;
+    deposit: number;
+  }>>({});
+
+  useEffect(() => {
+    getAllPricesFromDB().then(setPricingData);
+  }, []);
+
+  // ✅ Lee el precio desde pricingData (DB), con fallback al estático
+  const getPriceFromState = (category: string, days: number): number => {
+    const item = pricingData[category];
+    if (item) {
+      return days <= 3 ? item.price_1_3 : days <= 9 ? item.price_4_9 : item.price_10_plus;
+    }
+    return calculatePrice(category, days);
+  };
+
+  // ✅ Lee el depósito desde pricingData (DB), con fallback al estático
+  const getDepositFromState = (category: string): number => {
+    const item = pricingData[category];
+    if (item) return item.deposit;
+    return calculateDeposit(category);
+  };
+
+  // ============================================
   // ✅ FUNCIONES PARA CARGAR HORARIOS DISPONIBLES
   // ============================================
 
@@ -1686,17 +1722,19 @@ export default function ReservePage() {
     return titles[baseKey]?.[isScooter ? "scooters" : "bikes"] || baseKey;
   };
 
-  const calculateTotal = (): number => {
+  // ✅ FUNCIÓN PARA CALCULAR TOTAL CON PRECIOS DE DB (ASYNC)
+  const calculateTotalAsync = async (): Promise<number> => {
     if (!startDate || !endDate || selectedBikes.length === 0) {
       throw new Error("No se han seleccionado bicicletas o fechas");
     }
 
     const days = calculateTotalDays(startDate, endDate, pickupTime, returnTime);
     
-    const bikeTotal = selectedBikes.reduce((total, bike) => {
-      const price = calculatePrice(bike.category, days);
-      return total + (price * bike.quantity);
-    }, 0);
+    let bikeTotal = 0;
+    for (const bike of selectedBikes) {
+      const price = await getPriceFromDB(bike.category, days);
+      bikeTotal += (price * bike.quantity);
+    }
 
     const accessoryTotal = selectedAccessories.reduce((total, acc) => {
       return total + (acc.price || 0);
@@ -1716,9 +1754,34 @@ export default function ReservePage() {
     return total;
   };
 
+  // ✅ FUNCIÓN SÍNCRONA PARA MOSTRAR TOTAL EN UI (USA CACHE O FALLBACK)
+  const calculateTotal = (): number => {
+    if (!startDate || !endDate || selectedBikes.length === 0) {
+      return 0;
+    }
+
+    const days = calculateTotalDays(startDate, endDate, pickupTime, returnTime);
+    
+    const bikeTotal = selectedBikes.reduce((total, bike) => {
+      const price = getPriceFromState(bike.category, days);
+      return total + (price * bike.quantity);
+    }, 0);
+
+    const accessoryTotal = selectedAccessories.reduce((total, acc) => {
+      return total + (acc.price || 0);
+    }, 0);
+
+    const isScooter = isScooterReservation();
+    const insuranceTotal = (!isScooter && hasInsurance)
+      ? calculateInsurance(days) * selectedBikes.reduce((t, b) => t + b.quantity, 0)
+      : 0;
+
+    return bikeTotal + accessoryTotal + insuranceTotal;
+  };
+
   const calculateTotalDeposit = (): number => {
     return selectedBikes.reduce((total, bike) => {
-      return total + calculateDeposit(bike.category) * bike.quantity;
+      return total + getDepositFromState(bike.category) * bike.quantity;
     }, 0);
   };
 
@@ -2021,14 +2084,16 @@ export default function ReservePage() {
         throw new Error("La duración del alquiler no es válida");
       }
 
-      const bikeSubtotal = selectedBikes.reduce((total, bike) => {
-        const pricePerDay = Number(calculatePrice(bike.category, days));
+      // ✅ CALCULAR TOTAL CON PRECIOS DE DB
+      let bikeSubtotal = 0;
+      for (const bike of selectedBikes) {
+        const pricePerDay = await getPriceFromDB(bike.category, days);
         const quantity = Number(bike.quantity);
         const subtotal = Number.isFinite(pricePerDay) && Number.isFinite(quantity)
           ? pricePerDay * days * quantity
           : 0;
-        return total + subtotal;
-      }, 0);
+        bikeSubtotal += subtotal;
+      }
 
       const accessoriesSubtotal = selectedAccessories.reduce((total, acc) => {
         const price = Number(acc.price);
@@ -2079,8 +2144,8 @@ export default function ReservePage() {
         model: bike.title_es.substring(0, 50),
         size: bike.size,
         quantity: bike.quantity,
-        pricePerDay: calculatePrice(bike.category, days),
-        totalPrice: calculatePrice(bike.category, days) * days * bike.quantity,
+        pricePerDay: getPriceFromState(bike.category, days),
+        totalPrice: getPriceFromState(bike.category, days) * days * bike.quantity,
         bike_ids: bike.bikes.map((b: any) => b.id).filter(Boolean)
       }));
 
@@ -2673,7 +2738,7 @@ export default function ReservePage() {
                                   )}
                                 </p>
                                 <p className="text-sm font-medium text-green-600">
-                                  {calculatePrice(
+                                  {getPriceFromState(
                                     model.category,
                                     calculateTotalDays(
                                       new Date(startDate!),
@@ -2757,7 +2822,7 @@ export default function ReservePage() {
                                       {currentQuantity > 0 && (
                                         <div className="mt-2 text-xs text-green-600">
                                           {t("total")}:{" "}
-                                          {calculatePrice(
+                                          {getPriceFromState(
                                             model.category,
                                             calculateTotalDays(
                                               new Date(startDate!),
@@ -2903,7 +2968,7 @@ export default function ReservePage() {
                                   )}
                                 </p>
                                 <p className="text-sm font-medium text-green-600">
-                                  {calculatePrice(
+                                  {getPriceFromState(
                                     model.category,
                                     calculateTotalDays(
                                       new Date(startDate!),
@@ -2960,7 +3025,7 @@ export default function ReservePage() {
                               {currentQuantity > 0 && (
                                 <div className="mt-2 text-xs text-green-600">
                                   {t("total")}:{" "}
-                                  {calculatePrice(
+                                  {getPriceFromState(
                                     model.category,
                                     calculateTotalDays(
                                       new Date(startDate!),
@@ -3039,7 +3104,7 @@ export default function ReservePage() {
 
         const bikeSubtotal = selectedBikes.reduce(
           (total, bike) => {
-            const pricePerDay = calculatePrice(bike.category, rentalDays);
+            const pricePerDay = getPriceFromState(bike.category, rentalDays);
             return total + (pricePerDay * rentalDays * bike.quantity);
           },
           0
@@ -3058,7 +3123,7 @@ export default function ReservePage() {
           : 0;
 
         const depositTotal = selectedBikes.reduce((total, bike) => {
-          const deposit = Number(calculateDeposit(bike.category));
+          const deposit = Number(getDepositFromState(bike.category));
           const quantity = Number(bike.quantity);
           const subtotal = Number.isFinite(deposit) && Number.isFinite(quantity)
             ? deposit * quantity
@@ -3395,35 +3460,49 @@ export default function ReservePage() {
           );
         }
 
-        const bikeSubtotalPayment = selectedBikes.reduce((total, bike) => {
-          const pricePerDay = calculatePrice(bike.category, days);
-          return total + (pricePerDay * days * bike.quantity);
-        }, 0);
+        // ✅ USAR getPriceFromDB PARA OBTENER PRECIOS DE DB
+        const [bikeSubtotalPayment, setBikeSubtotalPayment] = useState(0);
+        const [orderTotalPayment, setOrderTotalPayment] = useState(0);
+        const [depositTotalPayment, setDepositTotalPayment] = useState(0);
 
-        const accessoriesSubtotalPayment = selectedAccessories.reduce(
-          (total, acc) => total + (acc.price ?? 0),
-          0
-        );
+        useEffect(() => {
+          const calculatePaymentTotals = async () => {
+            let bikeTotal = 0;
+            for (const bike of selectedBikes) {
+              const pricePerDay = await getPriceFromDB(bike.category, days);
+              bikeTotal += (pricePerDay * days * bike.quantity);
+            }
+            setBikeSubtotalPayment(bikeTotal);
 
-        const insuranceSubtotalPayment = (!isScooterPayment && hasInsurance)
-          ? calculateInsurance(days) * selectedBikes.reduce((t, b) => t + b.quantity, 0)
-          : 0;
+            const accessoriesTotal = selectedAccessories.reduce(
+              (total, acc) => total + (acc.price ?? 0),
+              0
+            );
 
-        const orderTotalPayment = bikeSubtotalPayment + accessoriesSubtotalPayment + insuranceSubtotalPayment;
+            const insuranceTotal = (!isScooterPayment && hasInsurance)
+              ? calculateInsurance(days) * selectedBikes.reduce((t, b) => t + b.quantity, 0)
+              : 0;
+
+            setOrderTotalPayment(bikeTotal + accessoriesTotal + insuranceTotal);
+
+            let depositTotal = 0;
+            for (const bike of selectedBikes) {
+              const deposit = await getDepositFromDB(bike.category);
+              depositTotal += deposit * bike.quantity;
+            }
+            setDepositTotalPayment(depositTotal);
+          };
+
+          calculatePaymentTotals();
+        }, [selectedBikes, selectedAccessories, hasInsurance, days, isScooterPayment]);
 
         if (orderTotalPayment <= 0) {
-          console.error("❌ Monto total inválido:", orderTotalPayment);
           return (
             <div className="text-red-500 p-4 border border-red-200 bg-red-50 rounded-lg">
               Error: El monto total debe ser mayor a 0. Por favor, verifica tu selección.
             </div>
           );
         }
-
-        const depositTotalPayment = selectedBikes.reduce(
-          (total, bike) => total + calculateDeposit(bike.category) * bike.quantity,
-          0
-        );
 
         return (
           <Card>
@@ -3455,7 +3534,7 @@ export default function ReservePage() {
                     <div className="flex justify-between">
                       <span>{t("accessories")}</span>
                       <span>
-                        {accessoriesSubtotalPayment.toFixed(2)}
+                        {selectedAccessories.reduce((total, acc) => total + (acc.price ?? 0), 0).toFixed(2)}
                         {t("euro")}
                       </span>
                     </div>
@@ -3465,7 +3544,7 @@ export default function ReservePage() {
                     <div className="flex justify-between">
                       <span>{t("insurance")}</span>
                       <span>
-                        {insuranceSubtotalPayment.toFixed(2)}
+                        {calculateInsurance(days).toFixed(2)}
                         {t("euro")}
                       </span>
                     </div>
