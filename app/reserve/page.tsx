@@ -1166,6 +1166,13 @@ export default function ReservePage() {
   const [isLoadingPickupTimes, setIsLoadingPickupTimes] = useState(false);
   const [isLoadingReturnTimes, setIsLoadingReturnTimes] = useState(false);
 
+  // ✅ FIX: estos estados vivían dentro del case "payment" de renderStepContent(),
+  // lo que violaba las Reglas de los Hooks (se llamaban condicionalmente según el paso
+  // actual) y causaba React error #310. Se movieron al nivel superior del componente.
+  const [bikeSubtotalPayment, setBikeSubtotalPayment] = useState(0);
+  const [orderTotalPayment, setOrderTotalPayment] = useState(0);
+  const [depositTotalPayment, setDepositTotalPayment] = useState(0);
+
   // ============================================
   // ✅ PRECIOS DESDE LA DB (IGUAL QUE ADMIN)
   // ============================================
@@ -1180,6 +1187,52 @@ export default function ReservePage() {
   useEffect(() => {
     getAllPricesFromDB().then(setPricingData);
   }, []);
+
+  // ✅ FIX: cálculo de totales del paso "payment", movido aquí (antes vivía dentro
+  // del switch de renderStepContent y violaba las Reglas de los Hooks).
+  useEffect(() => {
+    if (currentStep !== "payment" || isAdminMode) return;
+
+    const days = calculateTotalDays(
+      new Date(startDate),
+      new Date(endDate),
+      pickupTime,
+      returnTime
+    );
+
+    if (!Number.isFinite(days) || days <= 0) return;
+
+    const isScooterPayment = isScooterReservation();
+
+    const calculatePaymentTotals = async () => {
+      let bikeTotal = 0;
+      for (const bike of selectedBikes) {
+        const pricePerDay = await getPriceFromDB(bike.category, days);
+        bikeTotal += (pricePerDay * days * bike.quantity);
+      }
+      setBikeSubtotalPayment(bikeTotal);
+
+      const accessoriesTotal = selectedAccessories.reduce(
+        (total, acc) => total + (acc.price ?? 0),
+        0
+      );
+
+      const insuranceTotal = (!isScooterPayment && hasInsurance)
+        ? calculateInsurance(days) * selectedBikes.reduce((t, b) => t + b.quantity, 0)
+        : 0;
+
+      setOrderTotalPayment(bikeTotal + accessoriesTotal + insuranceTotal);
+
+      let depositTotal = 0;
+      for (const bike of selectedBikes) {
+        const deposit = await getDepositFromDB(bike.category);
+        depositTotal += deposit * bike.quantity;
+      }
+      setDepositTotalPayment(depositTotal);
+    };
+
+    calculatePaymentTotals();
+  }, [currentStep, isAdminMode, startDate, endDate, pickupTime, returnTime, selectedBikes, selectedAccessories, hasInsurance]);
 
   // ✅ Lee el precio desde pricingData (DB), con fallback al estático
   const getPriceFromState = (category: string, days: number): number => {
@@ -3460,41 +3513,9 @@ export default function ReservePage() {
           );
         }
 
-        // ✅ USAR getPriceFromDB PARA OBTENER PRECIOS DE DB
-        const [bikeSubtotalPayment, setBikeSubtotalPayment] = useState(0);
-        const [orderTotalPayment, setOrderTotalPayment] = useState(0);
-        const [depositTotalPayment, setDepositTotalPayment] = useState(0);
-
-        useEffect(() => {
-          const calculatePaymentTotals = async () => {
-            let bikeTotal = 0;
-            for (const bike of selectedBikes) {
-              const pricePerDay = await getPriceFromDB(bike.category, days);
-              bikeTotal += (pricePerDay * days * bike.quantity);
-            }
-            setBikeSubtotalPayment(bikeTotal);
-
-            const accessoriesTotal = selectedAccessories.reduce(
-              (total, acc) => total + (acc.price ?? 0),
-              0
-            );
-
-            const insuranceTotal = (!isScooterPayment && hasInsurance)
-              ? calculateInsurance(days) * selectedBikes.reduce((t, b) => t + b.quantity, 0)
-              : 0;
-
-            setOrderTotalPayment(bikeTotal + accessoriesTotal + insuranceTotal);
-
-            let depositTotal = 0;
-            for (const bike of selectedBikes) {
-              const deposit = await getDepositFromDB(bike.category);
-              depositTotal += deposit * bike.quantity;
-            }
-            setDepositTotalPayment(depositTotal);
-          };
-
-          calculatePaymentTotals();
-        }, [selectedBikes, selectedAccessories, hasInsurance, days, isScooterPayment]);
+        // ✅ bikeSubtotalPayment / orderTotalPayment / depositTotalPayment se calculan
+        // en el useEffect a nivel superior del componente (ver arriba) para respetar
+        // las Reglas de los Hooks.
 
         if (orderTotalPayment <= 0) {
           return (
