@@ -1251,82 +1251,6 @@ export default function ReservePage() {
   };
 
   // ============================================
-  // ✅ FUNCIONES PARA CARGAR HORARIOS DISPONIBLES
-  // ============================================
-
-  const loadPickupTimes = async (date: Date, location: string) => {
-    if (!date || !location) {
-      console.log("⚠️ loadPickupTimes: faltan datos", { date, location });
-      return;
-    }
-    
-    const dateStr = formatDateForDB(date);
-    console.log(`🔄 Cargando horarios de RECOGIDA para: ${location} - ${dateStr}`);
-    setIsLoadingPickupTimes(true);
-    
-    try {
-      const times = await getAvailableTimes(location, date);
-      
-      console.log(`📋 Horarios de recogida: ${times.join(', ')}`);
-      setAvailablePickupTimes(times);
-      
-      if (times.length > 0) {
-        const currentPickupTime = pickupTime;
-        if (!times.includes(currentPickupTime)) {
-          console.log(`⏰ Actualizando pickupTime de ${currentPickupTime} a ${times[0]}`);
-          setPickupTime(times[0]);
-        }
-      } else {
-        console.warn("⚠️ No hay horarios disponibles para recogida");
-        const fallbackTimes = generateHoursBetween("10:00", "18:00");
-        setAvailablePickupTimes(fallbackTimes);
-      }
-    } catch (error) {
-      console.error("❌ Error loading pickup times:", error);
-      const fallbackTimes = generateHoursBetween("10:00", "18:00");
-      setAvailablePickupTimes(fallbackTimes);
-    } finally {
-      setIsLoadingPickupTimes(false);
-    }
-  };
-
-  const loadReturnTimes = async (date: Date, location: string) => {
-    if (!date || !location) {
-      console.log("⚠️ loadReturnTimes: faltan datos", { date, location });
-      return;
-    }
-    
-    const dateStr = formatDateForDB(date);
-    console.log(`🔄 Cargando horarios de DEVOLUCIÓN para: ${location} - ${dateStr}`);
-    setIsLoadingReturnTimes(true);
-    
-    try {
-      const times = await getAvailableTimes(location, date);
-      
-      console.log(`📋 Horarios de devolución: ${times.join(', ')}`);
-      setAvailableReturnTimes(times);
-      
-      if (times.length > 0) {
-        const currentReturnTime = returnTime;
-        if (!times.includes(currentReturnTime)) {
-          console.log(`⏰ Actualizando returnTime de ${currentReturnTime} a ${times[times.length - 1]}`);
-          setReturnTime(times[times.length - 1]);
-        }
-      } else {
-        console.warn("⚠️ No hay horarios disponibles para devolución");
-        const fallbackTimes = generateHoursBetween("10:00", "18:00");
-        setAvailableReturnTimes(fallbackTimes);
-      }
-    } catch (error) {
-      console.error("❌ Error loading return times:", error);
-      const fallbackTimes = generateHoursBetween("10:00", "18:00");
-      setAvailableReturnTimes(fallbackTimes);
-    } finally {
-      setIsLoadingReturnTimes(false);
-    }
-  };
-
-  // ============================================
   // ✅ RESET
   // ============================================
   const resetReservationState = (keepDates: boolean = false) => {
@@ -1360,28 +1284,86 @@ export default function ReservePage() {
   // ✅ EFECTOS
   // ============================================
 
-  // ✅ EFECTO PARA CARGAR HORARIOS DE RECOGIDA
+  // ✅ EFECTO ÚNICO Y SECUENCIAL PARA CARGAR HORARIOS DE RECOGIDA Y DEVOLUCIÓN
+  // 🔧 FIX: antes había dos useEffect separados (uno para pickup, otro para
+  // return) que corrían en paralelo. Cuando startDate cambiaba y "empujaba"
+  // endDate al mismo día, el efecto de "mismo día" copiaba
+  // `availablePickupTimes`/`pickupTime` ANTES de que terminara de resolver
+  // la carga async de los horarios de pickup para la nueva fecha (race
+  // condition). Eso dejaba el dropdown de devolución con horas de un día
+  // distinto (ej. 20:00 de un día de semana) aunque la fecha real fuera
+  // sábado (cierre 14:00). Ahora todo corre en un solo efecto secuencial:
+  // primero se espera (await) la carga de horarios de recogida para
+  // startDate, y recién con ese resultado ya resuelto se decide qué hacer
+  // con los horarios de devolución.
   useEffect(() => {
-    if (startDate && pickupLocation) {
-      loadPickupTimes(startDate, pickupLocation);
-    }
-  }, [startDate, pickupLocation]);
+    let cancelled = false;
 
-  // ✅ EFECTO PARA CARGAR HORARIOS DE DEVOLUCIÓN
-  useEffect(() => {
-    if (endDate && pickupLocation) {
+    const syncTimes = async () => {
+      if (!startDate || !pickupLocation) return;
+
+      // 1) Cargar y ESPERAR los horarios de recogida para la fecha de inicio
+      const pickupTimes = await getAvailableTimes(pickupLocation, startDate);
+      if (cancelled) return;
+
+      setIsLoadingPickupTimes(true);
+      let resolvedPickupTime = pickupTime;
+      if (pickupTimes.length > 0) {
+        setAvailablePickupTimes(pickupTimes);
+        if (!pickupTimes.includes(resolvedPickupTime)) {
+          resolvedPickupTime = pickupTimes[0];
+        }
+      } else {
+        const fallback = generateHoursBetween("10:00", "18:00");
+        setAvailablePickupTimes(fallback);
+        if (!fallback.includes(resolvedPickupTime)) {
+          resolvedPickupTime = fallback[0] ?? "10:00";
+        }
+      }
+      setPickupTime(resolvedPickupTime);
+      setIsLoadingPickupTimes(false);
+
+      if (!endDate) return;
+
       const startStr = formatDateForDB(startDate);
       const endStr = formatDateForDB(endDate);
-      // Solo cargar si la fecha de fin es diferente a la de inicio
+
+      setIsLoadingReturnTimes(true);
+
       if (startStr !== endStr) {
-        loadReturnTimes(endDate, pickupLocation);
+        // 2a) Días distintos → cargar horarios reales de la fecha de fin
+        const returnTimes = await getAvailableTimes(pickupLocation, endDate);
+        if (cancelled) return;
+
+        if (returnTimes.length > 0) {
+          setAvailableReturnTimes(returnTimes);
+          setReturnTime((current) =>
+            returnTimes.includes(current) ? current : returnTimes[returnTimes.length - 1]
+          );
+        } else {
+          const fallback = generateHoursBetween("10:00", "18:00");
+          setAvailableReturnTimes(fallback);
+          setReturnTime(fallback[fallback.length - 1] ?? "18:00");
+        }
       } else {
-        // Si es el mismo día, usar los mismos horarios que pickup
-        setAvailableReturnTimes(availablePickupTimes);
-        setReturnTime(pickupTime);
+        // 2b) Mismo día → usar EXACTAMENTE los horarios ya validados de pickup
+        // (resolvedPickupTime/pickupTimes), no un estado potencialmente stale.
+        const sameDayTimes = pickupTimes.length > 0
+          ? pickupTimes
+          : generateHoursBetween("10:00", "18:00");
+        setAvailableReturnTimes(sameDayTimes);
+        setReturnTime(resolvedPickupTime);
       }
-    }
-  }, [endDate, pickupLocation]);
+
+      setIsLoadingReturnTimes(false);
+    };
+
+    syncTimes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [startDate, endDate, pickupLocation]);
 
   useEffect(() => {
     const newType = typeParam === "scooters" ? "scooters" : "bikes";
@@ -2422,9 +2404,10 @@ export default function ReservePage() {
                           if (endDate && newDate > endDate) {
                             setEndDate(newDate);
                           }
-                          if (pickupLocation) {
-                            loadPickupTimes(newDate, pickupLocation);
-                          }
+                          // 🔧 FIX: ya no se llama loadPickupTimes acá directo.
+                          // El useEffect [startDate, endDate, pickupLocation]
+                          // se encarga de recargar pickup y return de forma
+                          // secuencial y sin condición de carrera.
                         }
                       }}
                       disabled={(date) => {
@@ -2555,12 +2538,10 @@ export default function ReservePage() {
                         setSelectedBikes([]);
                         setAvailableBikes([]);
                         setBikeModels([]);
-                        if (startDate) {
-                          loadPickupTimes(startDate, value);
-                        }
-                        if (endDate && formatDateForDB(startDate) !== formatDateForDB(endDate)) {
-                          loadReturnTimes(endDate, value);
-                        }
+                        // 🔧 FIX: ya no se llama loadPickupTimes/loadReturnTimes
+                        // acá directo. El useEffect [startDate, endDate,
+                        // pickupLocation] se dispara solo al cambiar
+                        // pickupLocation y recarga todo en orden.
                       }}
                     >
                       <SelectTrigger>
