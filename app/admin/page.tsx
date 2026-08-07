@@ -690,50 +690,6 @@ export default function AdminPage() {
   };
 
   // ============================================
-  // ✅ FUNCIONES PARA CARGAR HORARIOS - ADMIN
-  // ============================================
-
-  const loadPickupHours = async (date: Date, location: string) => {
-    if (!date || !location) return;
-    setIsLoadingPickupTimes(true);
-    try {
-      const hours = await getAvailableTimes(date, location);
-      setAvailablePickupHours(hours);
-      
-      if (hours.length > 0) {
-        const currentPickup = newReservation.pickup_time;
-        if (!hours.includes(currentPickup)) {
-          setNewReservation({ ...newReservation, pickup_time: hours[0] });
-        }
-      }
-    } catch (error) {
-      console.error("Error loading pickup hours:", error);
-    } finally {
-      setIsLoadingPickupTimes(false);
-    }
-  };
-
-  const loadReturnHours = async (date: Date, location: string) => {
-    if (!date || !location) return;
-    setIsLoadingReturnTimes(true);
-    try {
-      const hours = await getAvailableTimes(date, location);
-      setAvailableReturnHours(hours);
-      
-      if (hours.length > 0) {
-        const currentReturn = newReservation.return_time;
-        if (!hours.includes(currentReturn)) {
-          setNewReservation({ ...newReservation, return_time: hours[hours.length - 1] });
-        }
-      }
-    } catch (error) {
-      console.error("Error loading return hours:", error);
-    } finally {
-      setIsLoadingReturnTimes(false);
-    }
-  };
-
-  // ============================================
   // ✅ FUNCIONES PARA PRECIOS
   // ============================================
 
@@ -963,26 +919,72 @@ export default function AdminPage() {
     }
   }, [newReservation.start_date, newReservation.end_date])
 
-  // ✅ EFECTO PARA CARGAR HORARIOS DE RECOGIDA - ADMIN
+  // ✅ EFECTO ÚNICO Y SECUENCIAL PARA CARGAR HORARIOS - ADMIN
+  // 🔧 FIX: antes había dos useEffect separados (pickup / return) que
+  // corrían en paralelo. Cuando start_date empujaba a end_date al mismo
+  // día (ver onSelect de "Fecha de inicio"), el efecto de "mismo día"
+  // copiaba `availablePickupHours`/`newReservation.pickup_time` ANTES de
+  // que terminara de resolver la carga async de horarios para la nueva
+  // fecha (race condition). Además, como todo vive en un solo objeto
+  // `newReservation`, cada `setNewReservation({ ...newReservation, ... })`
+  // hecho con un closure viejo podía pisar cambios hechos en paralelo
+  // (bicis, accesorios, datos del cliente, etc). Ahora todo corre en un
+  // solo efecto secuencial y usa siempre la forma funcional de
+  // setNewReservation para no perder cambios concurrentes.
   useEffect(() => {
-    if (newReservation.start_date && newReservation.pickup_location) {
-      loadPickupHours(newReservation.start_date, newReservation.pickup_location);
-    }
-  }, [newReservation.start_date, newReservation.pickup_location]);
+    let cancelled = false;
 
-  // ✅ EFECTO PARA CARGAR HORARIOS DE DEVOLUCIÓN - ADMIN
-  useEffect(() => {
-    if (newReservation.end_date && newReservation.pickup_location) {
+    const syncHours = async () => {
+      if (!newReservation.start_date || !newReservation.pickup_location) return;
+
+      const pickupHours = await getAvailableTimes(newReservation.start_date, newReservation.pickup_location);
+      if (cancelled) return;
+
+      setIsLoadingPickupTimes(true);
+      let resolvedPickupTime = newReservation.pickup_time;
+      if (pickupHours.length > 0) {
+        setAvailablePickupHours(pickupHours);
+        if (!pickupHours.includes(resolvedPickupTime)) {
+          resolvedPickupTime = pickupHours[0];
+        }
+      }
+      setNewReservation((prev: any) => ({ ...prev, pickup_time: resolvedPickupTime }));
+      setIsLoadingPickupTimes(false);
+
+      if (!newReservation.end_date) return;
+
       const startStr = formatDateForDB(newReservation.start_date);
       const endStr = formatDateForDB(newReservation.end_date);
+
+      setIsLoadingReturnTimes(true);
+
       if (startStr !== endStr) {
-        loadReturnHours(newReservation.end_date, newReservation.pickup_location);
+        const returnHours = await getAvailableTimes(newReservation.end_date, newReservation.pickup_location);
+        if (cancelled) return;
+
+        if (returnHours.length > 0) {
+          setAvailableReturnHours(returnHours);
+          setNewReservation((prev: any) => ({
+            ...prev,
+            return_time: returnHours.includes(prev.return_time) ? prev.return_time : returnHours[returnHours.length - 1],
+          }));
+        }
       } else {
-        setAvailableReturnHours(availablePickupHours);
-        setNewReservation({ ...newReservation, return_time: newReservation.pickup_time });
+        // Mismo día → usar EXACTAMENTE los horarios ya validados de pickup
+        // (pickupHours/resolvedPickupTime), no un estado potencialmente stale.
+        setAvailableReturnHours(pickupHours);
+        setNewReservation((prev: any) => ({ ...prev, return_time: resolvedPickupTime }));
       }
-    }
-  }, [newReservation.end_date, newReservation.pickup_location]);
+
+      setIsLoadingReturnTimes(false);
+    };
+
+    syncHours();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [newReservation.start_date, newReservation.end_date, newReservation.pickup_location]);
 
   // ✅ EFECTO PARA ACTUALIZAR TOTALES CUANDO CAMBIA LA SELECCIÓN
   useEffect(() => {
@@ -2831,8 +2833,10 @@ export default function AdminPage() {
                           value={newReservation.pickup_location}
                           onValueChange={(value) => {
                             setNewReservation({ ...newReservation, pickup_location: value, return_location: value });
-                            if (newReservation.start_date) loadPickupHours(newReservation.start_date, value);
-                            if (newReservation.end_date) loadReturnHours(newReservation.end_date, value);
+                            // 🔧 FIX: ya no se llama loadPickupHours/loadReturnHours
+                            // acá directo. El useEffect [start_date, end_date,
+                            // pickup_location] se dispara solo al cambiar
+                            // pickup_location y recarga todo en orden.
                           }}
                         >
                           <SelectTrigger>
