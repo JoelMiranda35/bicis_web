@@ -79,12 +79,18 @@ import {
 // ✅ FUNCIONES DE FECHAS - IGUAL QUE ADMIN
 // ============================================
 
-const forceSpainDate = (date: Date, time: string): Date => {
+const forceSpainDate = (date: Date, time: string | null | undefined): Date => {
+  if (!date || isNaN(date.getTime())) return new Date();
+  
+  const safeTime = (time && typeof time === 'string' && time.includes(':')) 
+    ? time 
+    : "10:00";
+  
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   
-  const [hours, minutes] = time.split(':').map(Number);
+  const [hours, minutes] = safeTime.split(':').map(Number);
   
   const isWinter = (date.getMonth() + 1) <= 3 || (date.getMonth() + 1) >= 11;
   const offset = isWinter ? '+01:00' : '+02:00';
@@ -196,13 +202,9 @@ interface StoreHour {
 }
 
 // ============================================
-// 📅 FUNCIONES DE HORARIOS - CORREGIDAS (IGUAL QUE ADMIN)
+// 📅 FUNCIONES DE HORARIOS
 // ============================================
 
-/**
- * Genera horas entre openTime y closeTime (SOLO horas enteras)
- * ✅ MISMA FUNCIÓN QUE EL ADMIN
- */
 const generateHoursBetween = (openTime: string | null, closeTime: string | null): string[] => {
   if (!openTime || !closeTime) return [];
   
@@ -221,10 +223,6 @@ const generateHoursBetween = (openTime: string | null, closeTime: string | null)
   return hours;
 };
 
-/**
- * Obtiene las horas disponibles para una tienda y fecha específica
- * ✅ MISMA LÓGICA QUE EL ADMIN
- */
 const getAvailableTimes = async (
   location: string,
   date: Date
@@ -235,7 +233,6 @@ const getAvailableTimes = async (
   
   let allHours: string[] = [];
   
-  // 1. PRIMERO: Verificar horario personalizado (store_hours_by_date)
   const { data: customHours } = await supabase
     .from("store_hours_by_date")
     .select("*")
@@ -260,7 +257,6 @@ const getAvailableTimes = async (
     }
   }
   
-  // 2. SEGUNDO: Verificar horario semanal (store_hours)
   const { data: weeklyHours } = await supabase
     .from("store_hours")
     .select("*")
@@ -285,7 +281,6 @@ const getAvailableTimes = async (
     }
   }
   
-  // 3. FALLBACK: Horario global estándar
   const isSaturday = date.getDay() === 6;
   const fallbackHours = isSaturday 
     ? generateHoursBetween("10:00", "14:00")
@@ -295,17 +290,12 @@ const getAvailableTimes = async (
   return fallbackHours;
 };
 
-// ============================================
-// 🏪 FUNCIÓN PARA OBTENER HORARIO COMPLETO DE LA TIENDA (DINÁMICO)
-// ============================================
-
 const getStoreSchedule = async (location: string): Promise<{
   weekdays: string;
   saturday: string;
   sunday: string;
 }> => {
   try {
-    // Obtener horario de Lunes a Viernes (días 1-5)
     const { data: weekdaysData } = await supabase
       .from("store_hours")
       .select("*")
@@ -313,7 +303,6 @@ const getStoreSchedule = async (location: string): Promise<{
       .in("day_of_week", [1, 2, 3, 4, 5])
       .order("day_of_week");
 
-    // Obtener horario de Sábado (día 6)
     const { data: saturdayData } = await supabase
       .from("store_hours")
       .select("*")
@@ -325,7 +314,6 @@ const getStoreSchedule = async (location: string): Promise<{
     let saturdayText = "";
     let sundayText = "Cerrado";
 
-    // Procesar Lunes a Viernes
     if (weekdaysData && weekdaysData.length > 0) {
       const first = weekdaysData[0];
       if (first.split_schedule && first.open_time_2 && first.close_time_2) {
@@ -337,7 +325,6 @@ const getStoreSchedule = async (location: string): Promise<{
       weekdaysText = "10:00 - 18:00";
     }
 
-    // Procesar Sábado
     if (saturdayData && !saturdayData.use_global) {
       if (saturdayData.split_schedule && saturdayData.open_time_2 && saturdayData.close_time_2) {
         saturdayText = `${saturdayData.open_time} - ${saturdayData.close_time} y ${saturdayData.open_time_2} - ${saturdayData.close_time_2}`;
@@ -362,10 +349,6 @@ const getStoreSchedule = async (location: string): Promise<{
     };
   }
 };
-
-// ============================================
-// 🏪 COMPONENTE StoreHoursNotice (DINÁMICO)
-// ============================================
 
 const StoreHoursNotice = ({ 
   t, 
@@ -458,6 +441,7 @@ const translateBikeContent = (
   return textObject[language as "es" | "en" | "nl"] || textObject.es;
 };
 
+// ✅ CALCULAR DÍAS — AHORA TOLERA RANGOS < 24h Y MISMOS DÍAS
 const calculateTotalDays = (
   startDate: Date,
   endDate: Date,
@@ -468,7 +452,7 @@ const calculateTotalDays = (
     const startSpain = forceSpainDate(startDate, pickupTime);
     const endSpain = forceSpainDate(endDate, returnTime);
     
-    if (startSpain.toDateString() === endSpain.toDateString()) {
+    if (endSpain <= startSpain) {
       return 1;
     }
     
@@ -645,7 +629,6 @@ const InsuranceContractCheckbox = ({
   );
 };
 
-// StripePaymentForm
 const StripePaymentForm = ({ 
   clientSecret,
   customerData,
@@ -1160,22 +1143,14 @@ export default function ReservePage() {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [reservationData, setReservationData] = useState<any>(null);
   
-  // ✅ ESTADOS SEPARADOS PARA HORARIOS DE RECOGIDA Y DEVOLUCIÓN
   const [availablePickupTimes, setAvailablePickupTimes] = useState<string[]>([]);
   const [availableReturnTimes, setAvailableReturnTimes] = useState<string[]>([]);
   const [isLoadingPickupTimes, setIsLoadingPickupTimes] = useState(false);
   const [isLoadingReturnTimes, setIsLoadingReturnTimes] = useState(false);
 
-  // ✅ FIX: estos estados vivían dentro del case "payment" de renderStepContent(),
-  // lo que violaba las Reglas de los Hooks (se llamaban condicionalmente según el paso
-  // actual) y causaba React error #310. Se movieron al nivel superior del componente.
   const [bikeSubtotalPayment, setBikeSubtotalPayment] = useState(0);
   const [orderTotalPayment, setOrderTotalPayment] = useState(0);
   const [depositTotalPayment, setDepositTotalPayment] = useState(0);
-
-  // ============================================
-  // ✅ PRECIOS DESDE LA DB (IGUAL QUE ADMIN)
-  // ============================================
 
   const [pricingData, setPricingData] = useState<Record<string, {
     price_1_3: number;
@@ -1188,8 +1163,6 @@ export default function ReservePage() {
     getAllPricesFromDB().then(setPricingData);
   }, []);
 
-  // ✅ FIX: cálculo de totales del paso "payment", movido aquí (antes vivía dentro
-  // del switch de renderStepContent y violaba las Reglas de los Hooks).
   useEffect(() => {
     if (currentStep !== "payment" || isAdminMode) return;
 
@@ -1234,7 +1207,6 @@ export default function ReservePage() {
     calculatePaymentTotals();
   }, [currentStep, isAdminMode, startDate, endDate, pickupTime, returnTime, selectedBikes, selectedAccessories, hasInsurance]);
 
-  // ✅ Lee el precio desde pricingData (DB), con fallback al estático
   const getPriceFromState = (category: string, days: number): number => {
     const item = pricingData[category];
     if (item) {
@@ -1243,16 +1215,12 @@ export default function ReservePage() {
     return calculatePrice(category, days);
   };
 
-  // ✅ Lee el depósito desde pricingData (DB), con fallback al estático
   const getDepositFromState = (category: string): number => {
     const item = pricingData[category];
     if (item) return item.deposit;
     return calculateDeposit(category);
   };
 
-  // ============================================
-  // ✅ RESET
-  // ============================================
   const resetReservationState = (keepDates: boolean = false) => {
     setSelectedBikes([]);
     setSelectedAccessories([]);
@@ -1280,29 +1248,12 @@ export default function ReservePage() {
     setCurrentStep("dates");
   };
 
-  // ============================================
-  // ✅ EFECTOS
-  // ============================================
-
-  // ✅ EFECTO ÚNICO Y SECUENCIAL PARA CARGAR HORARIOS DE RECOGIDA Y DEVOLUCIÓN
-  // 🔧 FIX: antes había dos useEffect separados (uno para pickup, otro para
-  // return) que corrían en paralelo. Cuando startDate cambiaba y "empujaba"
-  // endDate al mismo día, el efecto de "mismo día" copiaba
-  // `availablePickupTimes`/`pickupTime` ANTES de que terminara de resolver
-  // la carga async de los horarios de pickup para la nueva fecha (race
-  // condition). Eso dejaba el dropdown de devolución con horas de un día
-  // distinto (ej. 20:00 de un día de semana) aunque la fecha real fuera
-  // sábado (cierre 14:00). Ahora todo corre en un solo efecto secuencial:
-  // primero se espera (await) la carga de horarios de recogida para
-  // startDate, y recién con ese resultado ya resuelto se decide qué hacer
-  // con los horarios de devolución.
   useEffect(() => {
     let cancelled = false;
 
     const syncTimes = async () => {
       if (!startDate || !pickupLocation) return;
 
-      // 1) Cargar y ESPERAR los horarios de recogida para la fecha de inicio
       const pickupTimes = await getAvailableTimes(pickupLocation, startDate);
       if (cancelled) return;
 
@@ -1331,7 +1282,6 @@ export default function ReservePage() {
       setIsLoadingReturnTimes(true);
 
       if (startStr !== endStr) {
-        // 2a) Días distintos → cargar horarios reales de la fecha de fin
         const returnTimes = await getAvailableTimes(pickupLocation, endDate);
         if (cancelled) return;
 
@@ -1346,8 +1296,6 @@ export default function ReservePage() {
           setReturnTime(fallback[fallback.length - 1] ?? "18:00");
         }
       } else {
-        // 2b) Mismo día → usar EXACTAMENTE los horarios ya validados de pickup
-        // (resolvedPickupTime/pickupTimes), no un estado potencialmente stale.
         const sameDayTimes = pickupTimes.length > 0
           ? pickupTimes
           : generateHoursBetween("10:00", "18:00");
@@ -1458,7 +1406,7 @@ export default function ReservePage() {
   }, [availableBikes]);
 
   // ============================================
-  // ✅ FUNCIONES DE BICIS
+  // ✅ FETCH DISPONIBILIDAD EN TIEMPO REAL
   // ============================================
 
   const fetchAvailableBikes = async () => {
@@ -1466,29 +1414,37 @@ export default function ReservePage() {
 
     setIsLoadingBikes(true);
     try {
+      // 1. Traer TODAS las bicis operativas
       const { data: allBikes, error: bikesError } = await supabase
         .from("bikes")
         .select("*")
         .eq("available", true);
 
       if (bikesError) throw bikesError;
+      if (!allBikes) {
+        setAvailableBikes([]);
+        return;
+      }
+
+      const selStart = forceSpainDate(startDate, pickupTime || "10:00");
+      const selEnd = forceSpainDate(endDate, returnTime || "18:00");
+
+      // 2. Traer SOLO reservas activas que terminan HOY o después
+      const todayStr = formatDateForDB(createLocalDate());
 
       const { data: reservations, error: resError } = await supabase
         .from("reservations")
         .select("bikes, start_date, end_date, pickup_time, return_time, status")
-        .or(`and(start_date.lte.${formatDateForDB(endDate)},end_date.gte.${formatDateForDB(startDate)})`)
-        .in("status", ["confirmed", "in_process"]);
+        .in("status", ["confirmed", "in_process"])
+        .gte("end_date", todayStr);
 
       if (resError) throw resError;
 
       const reservedBikeIds = new Set<string>();
 
-      const selStart = forceSpainDate(startDate, pickupTime);
-      const selEnd = forceSpainDate(endDate, returnTime);
-
-      reservations.forEach(res => {
-        const resStart = forceSpainDate(new Date(res.start_date), res.pickup_time);
-        const resEnd = forceSpainDate(new Date(res.end_date), res.return_time);
+      (reservations || []).forEach(res => {
+        const resStart = forceSpainDate(new Date(res.start_date), res.pickup_time || "10:00");
+        const resEnd = forceSpainDate(new Date(res.end_date), res.return_time || "18:00");
 
         const overlap = selStart < resEnd && selEnd > resStart;
 
@@ -1500,10 +1456,14 @@ export default function ReservePage() {
             
             if (Array.isArray(bikesData)) {
               bikesData.forEach((bikeGroup: any) => {
-                if (bikeGroup.bike_ids && Array.isArray(bikeGroup.bike_ids)) {
-                  bikeGroup.bike_ids.forEach((id: string | number) => {
+                const ids = bikeGroup.bike_ids || bikeGroup.all_ids || [];
+                if (Array.isArray(ids)) {
+                  ids.forEach((id: string | number) => {
                     if (id) reservedBikeIds.add(id.toString().trim());
                   });
+                }
+                if (bikeGroup.id) {
+                  reservedBikeIds.add(bikeGroup.id.toString().trim());
                 }
               });
             }
@@ -1563,10 +1523,6 @@ export default function ReservePage() {
 
     setBikeModels(Object.values(grouped));
   };
-
-  // ============================================
-  // ✅ VALIDACIONES Y SELECCIONES
-  // ============================================
 
   const validateCustomerData = () => {
     const errors: Record<string, string> = {};
@@ -1757,7 +1713,6 @@ export default function ReservePage() {
     return titles[baseKey]?.[isScooter ? "scooters" : "bikes"] || baseKey;
   };
 
-  // ✅ FUNCIÓN PARA CALCULAR TOTAL CON PRECIOS DE DB (ASYNC)
   const calculateTotalAsync = async (): Promise<number> => {
     if (!startDate || !endDate || selectedBikes.length === 0) {
       throw new Error("No se han seleccionado bicicletas o fechas");
@@ -1789,7 +1744,6 @@ export default function ReservePage() {
     return total;
   };
 
-  // ✅ FUNCIÓN SÍNCRONA PARA MOSTRAR TOTAL EN UI (USA CACHE O FALLBACK)
   const calculateTotal = (): number => {
     if (!startDate || !endDate || selectedBikes.length === 0) {
       return 0;
@@ -1875,10 +1829,6 @@ export default function ReservePage() {
     }
   };
 
-  // ============================================
-  // ✅ CHECK BIKES AVAILABILITY
-  // ============================================
-
   const checkBikesAvailability = async (): Promise<{ available: boolean; unavailableBikes: string[] }> => {
     if (!startDate || !endDate || selectedBikes.length === 0) {
       return { available: false, unavailableBikes: [] };
@@ -1903,10 +1853,13 @@ export default function ReservePage() {
         return { available: false, unavailableBikes: [] };
       }
 
+      const todayStr = formatDateForDB(createLocalDate());
+
       const { data: overlappingReservations, error } = await supabase
         .from("reservations")
         .select("bikes, start_date, end_date, pickup_time, return_time, status")
-        .in("status", ["confirmed", "in_process"]);
+        .in("status", ["confirmed", "in_process"])
+        .gte("end_date", todayStr);
 
       if (error) throw error;
 
@@ -1927,8 +1880,9 @@ export default function ReservePage() {
             
             if (Array.isArray(bikesData)) {
               bikesData.forEach((bikeGroup: any) => {
-                if (bikeGroup.bike_ids && Array.isArray(bikeGroup.bike_ids)) {
-                  bikeGroup.bike_ids.forEach((id: string | number) => {
+                const ids = bikeGroup.bike_ids || bikeGroup.all_ids || [];
+                if (Array.isArray(ids)) {
+                  ids.forEach((id: string | number) => {
                     if (id) {
                       const idStr = id.toString().trim();
                       reservedBikeIds.add(idStr);
@@ -1957,10 +1911,6 @@ export default function ReservePage() {
       return { available: false, unavailableBikes: [] };
     }
   };
-
-  // ============================================
-  // ✅ HANDLE SUBMIT RESERVATION
-  // ============================================
 
   const handleSubmitReservation = async () => {
     if (isSubmitting) {
@@ -2019,10 +1969,14 @@ export default function ReservePage() {
         throw new Error("Error: No se pudieron identificar las bicicletas seleccionadas");
       }
 
+      // ✅ SOLO reservas activas con end_date >= hoy
+      const todayStr = formatDateForDB(createLocalDate());
+
       const { data: overlappingReservations, error: overlapError } = await supabase
         .from("reservations")
         .select("id, bikes, start_date, end_date, pickup_time, return_time, status")
-        .in("status", ["confirmed", "in_process"]);
+        .in("status", ["confirmed", "in_process"])
+        .gte("end_date", todayStr);
 
       if (overlapError) {
         console.error("Error buscando reservas solapadas:", overlapError);
@@ -2034,17 +1988,8 @@ export default function ReservePage() {
       if (overlappingReservations && overlappingReservations.length > 0) {
         overlappingReservations.forEach((reservation) => {
           try {
-            const resStart = convertToMadridTime(new Date(reservation.start_date));
-            resStart.setHours(
-              Number(reservation.pickup_time.split(":")[0]),
-              Number(reservation.pickup_time.split(":")[1])
-            );
-
-            const resEnd = convertToMadridTime(new Date(reservation.end_date));
-            resEnd.setHours(
-              Number(reservation.return_time.split(":")[0]),
-              Number(reservation.return_time.split(":")[1])
-            );
+            const resStart = forceSpainDate(new Date(reservation.start_date), reservation.pickup_time);
+            const resEnd = forceSpainDate(new Date(reservation.end_date), reservation.return_time);
 
             const overlaps = selStart < resEnd && selEnd > resStart;
 
@@ -2057,10 +2002,14 @@ export default function ReservePage() {
               
               if (Array.isArray(bikesData)) {
                 bikesData.forEach((bikeGroup: any) => {
-                  if (bikeGroup.bike_ids && Array.isArray(bikeGroup.bike_ids)) {
-                    bikeGroup.bike_ids.forEach((id: string | number) => {
+                  const ids = bikeGroup.bike_ids || bikeGroup.all_ids || [];
+                  if (Array.isArray(ids)) {
+                    ids.forEach((id: string | number) => {
                       if (id) reservedBikeIds.push(id.toString().trim());
                     });
+                  }
+                  if (bikeGroup.id) {
+                    reservedBikeIds.push(bikeGroup.id.toString().trim());
                   }
                 });
               }
@@ -2119,7 +2068,6 @@ export default function ReservePage() {
         throw new Error("La duración del alquiler no es válida");
       }
 
-      // ✅ CALCULAR TOTAL CON PRECIOS DE DB
       let bikeSubtotal = 0;
       for (const bike of selectedBikes) {
         const pricePerDay = await getPriceFromDB(bike.category, days);
@@ -2175,18 +2123,25 @@ export default function ReservePage() {
         }
       }
 
+      // ✅ GUARDAR CON TODOS LOS CAMPOS PARA COMPATIBILIDAD
       const simplifiedBikesData = selectedBikes.map(bike => ({
-        model: bike.title_es.substring(0, 50),
-        size: bike.size,
+        id: bike.bikes?.[0]?.id || null,
+        title_es: bike.title_es || "Bicicleta",
+        title: bike.title_es || "Bicicleta",
+        model: bike.title_es || "Bicicleta",
+        subtitle_es: bike.subtitle_es || "",
+        size: bike.size || "N/A",
+        category: bike.category,
         quantity: bike.quantity,
-        pricePerDay: getPriceFromState(bike.category, days),
-        totalPrice: getPriceFromState(bike.category, days) * days * bike.quantity,
+        price_per_day: getPriceFromState(bike.category, days),
+        total_price: getPriceFromState(bike.category, days) * days * bike.quantity,
         bike_ids: bike.bikes.map((b: any) => b.id).filter(Boolean)
       }));
 
       const simplifiedAccessories = selectedAccessories.map(acc => ({
         id: acc.id,
-        name: acc.name_es.substring(0, 50),
+        name_es: acc.name_es,
+        name: acc.name_es,
         price: acc.price
       }));
 
@@ -2305,10 +2260,6 @@ export default function ReservePage() {
     }
   };
 
-  // ============================================
-  // ✅ RENDER
-  // ============================================
-
   const renderStepContent = () => {
     const isScooter = isScooterReservation();
     
@@ -2404,10 +2355,6 @@ export default function ReservePage() {
                           if (endDate && newDate > endDate) {
                             setEndDate(newDate);
                           }
-                          // 🔧 FIX: ya no se llama loadPickupTimes acá directo.
-                          // El useEffect [startDate, endDate, pickupLocation]
-                          // se encarga de recargar pickup y return de forma
-                          // secuencial y sin condición de carrera.
                         }
                       }}
                       disabled={(date) => {
@@ -2538,10 +2485,6 @@ export default function ReservePage() {
                         setSelectedBikes([]);
                         setAvailableBikes([]);
                         setBikeModels([]);
-                        // 🔧 FIX: ya no se llama loadPickupTimes/loadReturnTimes
-                        // acá directo. El useEffect [startDate, endDate,
-                        // pickupLocation] se dispara solo al cambiar
-                        // pickupLocation y recarga todo en orden.
                       }}
                     >
                       <SelectTrigger>
@@ -3493,10 +3436,6 @@ export default function ReservePage() {
             </div>
           );
         }
-
-        // ✅ bikeSubtotalPayment / orderTotalPayment / depositTotalPayment se calculan
-        // en el useEffect a nivel superior del componente (ver arriba) para respetar
-        // las Reglas de los Hooks.
 
         if (orderTotalPayment <= 0) {
           return (

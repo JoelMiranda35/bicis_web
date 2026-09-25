@@ -58,14 +58,20 @@ import { toast } from "@/components/ui/use-toast"
 import { getPricingFromDB, updatePricing, PricingData } from "@/lib/pricing-db"
 
 // ============================================
-// ✅ FORCE SPAIN DATE
+// ✅ FORCE SPAIN DATE — BLINDADO CONTRA null/undefined
 // ============================================
 
-const forceSpainDate = (date: Date, time: string): Date => {
+const forceSpainDate = (date: Date, time: string | null | undefined): Date => {
+  if (!date || isNaN(date.getTime())) return new Date();
+  
+  const safeTime = (time && typeof time === 'string' && time.includes(':')) 
+    ? time 
+    : "10:00";
+  
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  const [hours, minutes] = time.split(':').map(Number);
+  const [hours, minutes] = safeTime.split(':').map(Number);
   const isWinter = (date.getMonth() + 1) <= 3 || (date.getMonth() + 1) >= 11;
   const offset = isWinter ? '+01:00' : '+02:00';
   const spainString = `${year}-${month}-${day}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00.000${offset}`;
@@ -594,7 +600,6 @@ export default function AdminPage() {
   const [calendarMonth, setCalendarMonth] = useState<Date>(createLocalDate())
   const [hoveredBlockedReason, setHoveredBlockedReason] = useState<{text: string, x: number, y: number} | null>(null)
 
-  // ========== ESTADO PARA PRECIOS ==========
   const [pricingData, setPricingData] = useState<PricingData[]>([]);
   const [editingPricingId, setEditingPricingId] = useState<string | null>(null);
   const [isSavingPricing, setIsSavingPricing] = useState(false);
@@ -605,19 +610,13 @@ export default function AdminPage() {
     deposit: 0,
   });
 
-  // ========== ESTADO PARA TOTALES EN CREACIÓN DE RESERVA ==========
   const [totalPrice, setTotalPrice] = useState(0);
   const [totalDeposit, setTotalDeposit] = useState(0);
 
-  // ========== ESTADO PARA HORARIOS DISPONIBLES EN CREAR RESERVA ==========
   const [availablePickupHours, setAvailablePickupHours] = useState<string[]>([])
   const [availableReturnHours, setAvailableReturnHours] = useState<string[]>([])
   const [isLoadingPickupTimes, setIsLoadingPickupTimes] = useState(false)
   const [isLoadingReturnTimes, setIsLoadingReturnTimes] = useState(false)
-
-  // ============================================
-  // ✅ FUNCIÓN PARA OBTENER HORAS DISPONIBLES - ADMIN
-  // ============================================
 
   const getAvailableTimes = async (date: Date, location: string): Promise<string[]> => {
     if (!date || !location) return [];
@@ -689,28 +688,21 @@ export default function AdminPage() {
     }
   };
 
-  // ============================================
-  // ✅ FUNCIONES PARA PRECIOS
-  // ============================================
-
- const loadPricing = async () => {
-  console.log("🔵 Cargando precios...");
-  try {
-    // 🔥 USAR getPricingFromDB EN VEZ DE SUPABASE DIRECTO
-    const data = await getPricingFromDB();
-    console.log("🔵 Datos cargados:", data);
-    
-    // 🔥 Forzar actualización del estado con un nuevo array
-    setPricingData([...data]);
-  } catch (error) {
-    console.error("🔴 Error loading pricing:", error);
-    toast({ 
-      title: "Error", 
-      description: "No se pudieron cargar los precios", 
-      variant: "destructive" 
-    });
-  }
-};
+  const loadPricing = async () => {
+    console.log("🔵 Cargando precios...");
+    try {
+      const data = await getPricingFromDB();
+      console.log("🔵 Datos cargados:", data);
+      setPricingData([...data]);
+    } catch (error) {
+      console.error("🔴 Error loading pricing:", error);
+      toast({ 
+        title: "Error", 
+        description: "No se pudieron cargar los precios", 
+        variant: "destructive" 
+      });
+    }
+  };
 
   const handleEditPricing = (item: PricingData) => {
     console.log("✏️ Editando:", item.category);
@@ -724,63 +716,60 @@ export default function AdminPage() {
   };
 
   const handleSavePricing = async (item: PricingData) => {
-  console.log("🟢 === INICIANDO GUARDADO ===");
-  console.log("🟢 Categoría:", item.category);
-  console.log("🟢 ID:", item.id);
-  console.log("🟢 pricingForm ANTES de guardar:", pricingForm);
-  console.log("🟢 price_1_3 en euros:", pricingForm.price_1_3 / 100);
-  
-  setIsSavingPricing(true);
-  try {
-    if (pricingForm.price_1_3 < 0 || pricingForm.price_4_9 < 0 || pricingForm.price_10_plus < 0 || pricingForm.deposit < 0) {
-      throw new Error("Los valores no pueden ser negativos");
+    console.log("🟢 === INICIANDO GUARDADO ===");
+    console.log("🟢 Categoría:", item.category);
+    console.log("🟢 ID:", item.id);
+    console.log("🟢 pricingForm ANTES de guardar:", pricingForm);
+    console.log("🟢 price_1_3 en euros:", pricingForm.price_1_3 / 100);
+    
+    setIsSavingPricing(true);
+    try {
+      if (pricingForm.price_1_3 < 0 || pricingForm.price_4_9 < 0 || pricingForm.price_10_plus < 0 || pricingForm.deposit < 0) {
+        throw new Error("Los valores no pueden ser negativos");
+      }
+
+      console.log("🟢 Enviando a updatePricing:", {
+        category: item.category,
+        prices: pricingForm,
+      });
+
+      const result = await updatePricing(item.category, pricingForm);
+      console.log("🟢 Resultado de updatePricing:", result);
+
+      if (!result.success) {
+        throw new Error(result.error || "Error al actualizar");
+      }
+
+      console.log("✅ Precios actualizados correctamente en DB");
+      
+      toast({ 
+        title: "✅ Precios actualizados", 
+        description: `Los precios de ${item.category} se actualizaron correctamente` 
+      });
+      
+      setEditingPricingId(null);
+      
+      console.log("🔄 Esperando 500ms antes de recargar...");
+      setTimeout(async () => {
+        console.log("🔄 Recargando precios...");
+        await loadPricing();
+      }, 500);
+      
+    } catch (error: any) {
+      console.error("🔴 Error en handleSavePricing:", error);
+      toast({ 
+        title: "❌ Error", 
+        description: error.message || "No se pudieron guardar los cambios", 
+        variant: "destructive" 
+      });
+    } finally {
+      setIsSavingPricing(false);
+      console.log("🟢 === FIN GUARDADO ===");
     }
-
-    console.log("🟢 Enviando a updatePricing:", {
-      category: item.category,
-      prices: pricingForm,
-    });
-
-    // 🔥 USAR LA FUNCIÓN updatePricing DE pricing-db
-    const result = await updatePricing(item.category, pricingForm);
-    console.log("🟢 Resultado de updatePricing:", result);
-
-    if (!result.success) {
-      throw new Error(result.error || "Error al actualizar");
-    }
-
-    console.log("✅ Precios actualizados correctamente en DB");
-    
-    toast({ 
-      title: "✅ Precios actualizados", 
-      description: `Los precios de ${item.category} se actualizaron correctamente` 
-    });
-    
-    setEditingPricingId(null);
-    
-    // 🔥 RECARGAR CON UN RETRASO PARA ASEGURAR QUE LA DB SE ACTUALIZÓ
-    console.log("🔄 Esperando 500ms antes de recargar...");
-    setTimeout(async () => {
-      console.log("🔄 Recargando precios...");
-      await loadPricing();
-    }, 500);
-    
-  } catch (error: any) {
-    console.error("🔴 Error en handleSavePricing:", error);
-    toast({ 
-      title: "❌ Error", 
-      description: error.message || "No se pudieron guardar los cambios", 
-      variant: "destructive" 
-    });
-  } finally {
-    setIsSavingPricing(false);
-    console.log("🟢 === FIN GUARDADO ===");
-  }
-};
+  };
 
   const formatPrice = (cents: number): string => (cents / 100).toFixed(2);
 
-  // ✅ NUEVO: lee el precio desde pricingData (DB), con fallback al estático
   const getPriceFromState = (category: string, days: number): number => {
     const item = pricingData.find((p) => p.category === category);
     if (item) {
@@ -791,16 +780,11 @@ export default function AdminPage() {
     return isValidCategory(category) ? calculatePrice(category, days) : 0;
   };
 
-  // ✅ NUEVO: lee el depósito desde pricingData (DB), con fallback al estático
   const getDepositFromState = (category: string): number => {
     const item = pricingData.find((p) => p.category === category);
     if (item) return item.deposit / 100;
     return isValidCategory(category) ? calculateDeposit(category) : 0;
   };
-
-  // ============================================
-  // ✅ FUNCIONES PARA TOTALES EN CREACIÓN DE RESERVA
-  // ============================================
 
   const calculateTotalDays = (
     startDate: Date,
@@ -812,7 +796,7 @@ export default function AdminPage() {
       const startSpain = forceSpainDate(startDate, pickupTime);
       const endSpain = forceSpainDate(endDate, returnTime);
       
-      if (startSpain.toDateString() === endSpain.toDateString()) {
+      if (endSpain <= startSpain) {
         return 1;
       }
       
@@ -868,10 +852,6 @@ export default function AdminPage() {
     setTotalDeposit(deposit);
   };
 
-  // ============================================
-  // ✅ EFECTOS - ADMIN
-  // ============================================
-
   useEffect(() => {
     const savedAuth = localStorage.getItem('adminAuthenticated')
     if (savedAuth === 'true') {
@@ -919,18 +899,6 @@ export default function AdminPage() {
     }
   }, [newReservation.start_date, newReservation.end_date])
 
-  // ✅ EFECTO ÚNICO Y SECUENCIAL PARA CARGAR HORARIOS - ADMIN
-  // 🔧 FIX: antes había dos useEffect separados (pickup / return) que
-  // corrían en paralelo. Cuando start_date empujaba a end_date al mismo
-  // día (ver onSelect de "Fecha de inicio"), el efecto de "mismo día"
-  // copiaba `availablePickupHours`/`newReservation.pickup_time` ANTES de
-  // que terminara de resolver la carga async de horarios para la nueva
-  // fecha (race condition). Además, como todo vive en un solo objeto
-  // `newReservation`, cada `setNewReservation({ ...newReservation, ... })`
-  // hecho con un closure viejo podía pisar cambios hechos en paralelo
-  // (bicis, accesorios, datos del cliente, etc). Ahora todo corre en un
-  // solo efecto secuencial y usa siempre la forma funcional de
-  // setNewReservation para no perder cambios concurrentes.
   useEffect(() => {
     let cancelled = false;
 
@@ -970,8 +938,6 @@ export default function AdminPage() {
           }));
         }
       } else {
-        // Mismo día → usar EXACTAMENTE los horarios ya validados de pickup
-        // (pickupHours/resolvedPickupTime), no un estado potencialmente stale.
         setAvailableReturnHours(pickupHours);
         setNewReservation((prev: any) => ({ ...prev, return_time: resolvedPickupTime }));
       }
@@ -986,7 +952,6 @@ export default function AdminPage() {
     };
   }, [newReservation.start_date, newReservation.end_date, newReservation.pickup_location]);
 
-  // ✅ EFECTO PARA ACTUALIZAR TOTALES CUANDO CAMBIA LA SELECCIÓN
   useEffect(() => {
     updateTotals();
   }, [
@@ -998,10 +963,6 @@ export default function AdminPage() {
     newReservation.pickup_time,
     newReservation.return_time,
   ]);
-
-  // ============================================
-  // ✅ FETCH DATA
-  // ============================================
 
   const fetchData = async () => {
     try {
@@ -1063,10 +1024,6 @@ export default function AdminPage() {
       console.error("Error fetching data:", error)
     }
   }
-
-  // ============================================
-  // 📅 GESTIÓN DE DÍAS BLOQUEADOS (FERIADOS)
-  // ============================================
 
   const fetchBlockedDates = async () => {
     try {
@@ -1143,10 +1100,6 @@ export default function AdminPage() {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   };
-
-  // ============================================
-  // 🗑️ FUNCIÓN PARA BORRAR CANCELADAS DEL MES
-  // ============================================
 
   const deleteCancelledReservationsOfMonth = async () => {
     try {
@@ -1229,7 +1182,7 @@ export default function AdminPage() {
   };
 
   // ============================================
-  // 🔧 fetchAvailableBikes
+  // 🔧 FETCH AVAILABLE BIKES - DISPONIBILIDAD EN TIEMPO REAL
   // ============================================
 
   const fetchAvailableBikes = async () => {
@@ -1238,6 +1191,7 @@ export default function AdminPage() {
     try {
       setIsLoadingBikes(true);
 
+      // 1. Traer TODAS las bicis operativas
       const { data: allBikes, error: bikesError } = await supabase
         .from("bikes")
         .select("*")
@@ -1251,32 +1205,40 @@ export default function AdminPage() {
 
       const selStart = forceSpainDate(
         new Date(newReservation.start_date), 
-        newReservation.pickup_time
+        newReservation.pickup_time || "10:00"
       );
       
       const selEnd = forceSpainDate(
         new Date(newReservation.end_date), 
-        newReservation.return_time
+        newReservation.return_time || "18:00"
       );
+
+      // 2. Traer SOLO reservas activas con end_date >= hoy
+      // ✅ FIX: filtro clave que ignora reservas vencidas colgadas
+      const todayStr = formatDateForDB(createLocalDate());
 
       const { data: reservations, error: resError } = await supabase
         .from("reservations")
-        .select("bikes, start_date, end_date, pickup_time, return_time, status")
-        .in("status", ["confirmed", "in_process"]);
+        .select("id, bikes, start_date, end_date, pickup_time, return_time, status")
+        .in("status", ["confirmed", "in_process"])
+        .gte("end_date", todayStr);
 
       if (resError) throw resError;
 
       const reservedBikeIds = new Set<string>();
 
       (reservations || []).forEach(res => {
+        // Ignorar la reserva que estamos editando
+        if (newReservation.id && res.id === newReservation.id) return;
+
         const resStart = forceSpainDate(
           new Date(res.start_date), 
-          res.pickup_time
+          res.pickup_time || "10:00"
         );
         
         const resEnd = forceSpainDate(
           new Date(res.end_date), 
-          res.return_time
+          res.return_time || "18:00"
         );
 
         const overlap = selStart < resEnd && selEnd > resStart;
@@ -1289,11 +1251,14 @@ export default function AdminPage() {
             
             if (Array.isArray(bikesData)) {
               bikesData.forEach((bikeGroup: any) => {
-                if (bikeGroup.bike_ids && Array.isArray(bikeGroup.bike_ids)) {
-                  bikeGroup.bike_ids.forEach((id: string | number) => {
+                // ✅ Aceptar los 3 formatos posibles
+                const ids = bikeGroup.bike_ids || bikeGroup.all_ids || [];
+                if (Array.isArray(ids)) {
+                  ids.forEach((id: string | number) => {
                     if (id) reservedBikeIds.add(id.toString().trim());
                   });
-                } else if (bikeGroup.id) {
+                }
+                if (bikeGroup.id) {
                   reservedBikeIds.add(bikeGroup.id.toString().trim());
                 }
               });
@@ -1304,18 +1269,12 @@ export default function AdminPage() {
         }
       });
 
-      if (newReservation.id) {
-        newReservation.bikes.forEach((bike: any) => {
-          if (bike.all_ids && Array.isArray(bike.all_ids)) {
-            bike.all_ids.forEach((id: string) => {
-              reservedBikeIds.delete(id.toString().trim());
-            });
-          }
-        });
-      }
+      // 3. Filtrar: operativas Y sin reserva activa en el rango
+      const availableIndividualBikes = allBikes.filter(
+        b => !reservedBikeIds.has(b.id.trim())
+      );
 
-      const availableIndividualBikes = allBikes.filter(b => !reservedBikeIds.has(b.id.trim()));
-
+      // 4. Agrupar por modelo + categoría + talla
       const groupedBikesMap = new Map();
       
       availableIndividualBikes.forEach(bike => {
@@ -1343,9 +1302,7 @@ export default function AdminPage() {
         }
       });
 
-      const availableGroups = Array.from(groupedBikesMap.values());
-
-      setAvailableBikes(availableGroups);
+      setAvailableBikes(Array.from(groupedBikesMap.values()));
 
     } catch (error) {
       console.error("❌ Error calculando disponibilidad:", error);
@@ -1360,7 +1317,14 @@ export default function AdminPage() {
     const rentedBikes = new Set(
       reservations
         .filter(res => res.status && ["confirmed", "in_process"].includes(res.status.toLowerCase()))
-        .flatMap(res => res.bikes.map((b: any) => b.id))
+        .flatMap(res => {
+          const bikeIds: string[] = [];
+          (res.bikes || []).forEach((b: any) => {
+            const ids = b.bike_ids || b.all_ids || [b.id];
+            ids.forEach((id: string) => id && bikeIds.push(id));
+          });
+          return bikeIds;
+        })
     ).size
     const totalRevenue = reservations
       .filter(res => !res.status || res.status.toLowerCase() !== 'cancelled')
@@ -1701,10 +1665,6 @@ export default function AdminPage() {
     }
   }
 
-  // ============================================
-  // ✅ CREATE RESERVATION (MODIFICADO CON ASYNC)
-  // ============================================
-
   const createReservation = async () => {
     if (isCreatingReservation) return;
 
@@ -1718,16 +1678,19 @@ export default function AdminPage() {
         newReservation.return_time
       );
 
-      // ✅ USAR calculatePriceAsync PARA OBTENER PRECIOS DE DB
+      // ✅ GUARDAR CON TODOS LOS CAMPOS PARA COMPATIBILIDAD
       const bikesForDB = await Promise.all(newReservation.bikes.map(async (bike: any) => {
         const pricePerDay = await calculatePriceAsync(bike.category, days);
-        let bike_ids = bike.all_ids && bike.all_ids.length > 0 
+        const bike_ids = bike.all_ids && bike.all_ids.length > 0 
           ? bike.all_ids 
           : [bike.id];
 
         return {
           id: bike.id,
-          title_es: bike.title_es || bike.title,
+          title_es: bike.title || bike.title_es || "Bicicleta",
+          title: bike.title || bike.title_es || "Bicicleta",
+          model: bike.title || bike.title_es || "Bicicleta",
+          subtitle_es: bike.subtitle_es || "",
           size: bike.size,
           category: bike.category,
           bike_ids: bike_ids,
@@ -1740,7 +1703,6 @@ export default function AdminPage() {
       let totalAmount = 0;
       let depositAmount = 0;
 
-      // ✅ USAR calculateDepositAsync PARA OBTENER DEPÓSITO DE DB
       for (const bike of newReservation.bikes) {
         if (isValidCategory(bike.category)) {
           const bikeDeposit = await calculateDepositAsync(bike.category);
@@ -1748,7 +1710,6 @@ export default function AdminPage() {
         }
       }
 
-      // Calcular totalAmount desde bikesForDB
       bikesForDB.forEach((bike: any) => {
         if (isValidCategory(bike.category)) {
           totalAmount += bike.total_price;
@@ -1796,7 +1757,7 @@ export default function AdminPage() {
             const bikesData = typeof res.bikes === 'string' ? JSON.parse(res.bikes) : res.bikes;
             
             bikesData.forEach((bikeGroup: any) => {
-              const reservedBikeIds = bikeGroup.bike_ids || [];
+              const reservedBikeIds = bikeGroup.bike_ids || bikeGroup.all_ids || [];
               
               const duplicateBikes = selectedBikeIds.filter((id: string) => 
                 reservedBikeIds.includes(id)
@@ -1879,6 +1840,7 @@ export default function AdminPage() {
       
       setReservationStep("dates");
       await fetchData();
+      await fetchAvailableBikes();
 
     } catch (err: any) {
       toast({
@@ -1891,18 +1853,14 @@ export default function AdminPage() {
     }
   };
 
+  // ============================================
+  // ✅ UPDATE RESERVATION STATUS - YA NO TOCA bikes.available
+  // ============================================
+
   const updateReservationStatus = async (id: string, status: string) => {
     try {
       setError(null);
       
-      const { data: reservation, error: fetchError } = await supabase
-        .from("reservations")
-        .select("bikes, status")
-        .eq("id", id)
-        .single();
-
-      if (fetchError) throw fetchError;
-
       const { error } = await supabase
         .from("reservations")
         .update({ status })
@@ -1910,24 +1868,15 @@ export default function AdminPage() {
 
       if (error) throw error;
 
-      if (status === "completed" || status === "cancelled") {
-        const bikeIds = reservation.bikes.flatMap((bike: any) => 
-          Array.isArray(bike.bike_ids) ? bike.bike_ids : [bike.id]
-        );
-
-        const { error: updateBikesError } = await supabase
-          .from("bikes")
-          .update({ available: true })
-          .in("id", bikeIds);
-
-        if (updateBikesError) throw updateBikesError;
-      }
+      // ✅ NO tocamos bikes.available acá.
+      // La disponibilidad se calcula en tiempo real según status + fechas + filtro end_date >= hoy
 
       await fetchData();
+      await fetchAvailableBikes();
       
       toast({
         title: "Estado actualizado",
-        description: `El estado de la reserva se ha actualizado a ${status}`,
+        description: `El estado de la reserva se cambió a ${status}`,
         variant: "default",
       })
     } catch (error: any) {
@@ -1937,6 +1886,41 @@ export default function AdminPage() {
         description: error.message,
         variant: "destructive",
       })
+    }
+  };
+
+  // ============================================
+  // ✅ RECALCULAR DISPONIBILIDAD (red de seguridad)
+  // ============================================
+
+  const recalculateAvailability = async () => {
+    if (!confirm(
+      "Esto va a marcar TODAS las bicis como operativas (available=true).\n\n" +
+      "Las reservas activas se respetan automáticamente al calcular disponibilidad.\n\n" +
+      "¿Continuar?"
+    )) return;
+
+    try {
+      const { error } = await supabase
+        .from("bikes")
+        .update({ available: true })
+        .neq("id", "00000000-0000-0000-0000-000000000000");
+
+      if (error) throw error;
+
+      await fetchData();
+      await fetchAvailableBikes();
+      
+      toast({ 
+        title: "✅ Inventario recalculado", 
+        description: "Todas las bicis marcadas como operativas" 
+      });
+    } catch (e: any) {
+      toast({ 
+        title: "Error", 
+        description: e.message, 
+        variant: "destructive" 
+      });
     }
   };
 
@@ -1992,10 +1976,6 @@ export default function AdminPage() {
       })
     }
   }
-
-  // ============================================
-  // ✅ RENDER PRINCIPAL
-  // ============================================
 
   if (!isAuthenticated) {
     return (
@@ -2099,37 +2079,46 @@ export default function AdminPage() {
           <TabsContent value="bikes">
             <Card>
               <CardHeader>
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center flex-wrap gap-2">
                   <CardTitle>Gestión de Bicicletas</CardTitle>
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button
-                        onClick={() =>
-                          setEditingBike({
-                            title_es: "",
-                            title_en: "",
-                            title_nl: "",
-                            subtitle_es: "",
-                            subtitle_en: "",
-                            subtitle_nl: "",
-                            category: "ROAD",
-                            size: "M",
-                            available: true,
-                            image_url: "",
-                          })
-                        }
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Nueva Bicicleta
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>{editingBike?.id ? "Editar" : "Nueva"} Bicicleta</DialogTitle>
-                      </DialogHeader>
-                      <BikeForm bike={editingBike} onSave={saveBike} onCancel={() => setEditingBike(null)} />
-                    </DialogContent>
-                  </Dialog>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={recalculateAvailability}
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Recalcular disponibilidad
+                    </Button>
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button
+                          onClick={() =>
+                            setEditingBike({
+                              title_es: "",
+                              title_en: "",
+                              title_nl: "",
+                              subtitle_es: "",
+                              subtitle_en: "",
+                              subtitle_nl: "",
+                              category: "ROAD",
+                              size: "M",
+                              available: true,
+                              image_url: "",
+                            })
+                          }
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Nueva Bicicleta
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>{editingBike?.id ? "Editar" : "Nueva"} Bicicleta</DialogTitle>
+                        </DialogHeader>
+                        <BikeForm bike={editingBike} onSave={saveBike} onCancel={() => setEditingBike(null)} />
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -2555,30 +2544,57 @@ export default function AdminPage() {
 
                         <div className="mt-4 pt-4 border-t">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* ✅ RENDER DE BICIS TOLERANTE A TODOS LOS FORMATOS */}
                             <div>
                               <h4 className="font-medium mb-2">Bicicletas:</h4>
                               {(() => {
-                                const groupedBikes = reservation.bikes?.reduce((acc: any[], bike: any) => {
-                                  const bikeName = bike.title_es || bike.title || bike.model;
-                                  const key = `${bikeName}-${bike.size}`;
+                                const getBikeName = (bike: any): string => {
+                                  return (
+                                    bike.title_es ||
+                                    bike.title ||
+                                    bike.model ||
+                                    bike.name_es ||
+                                    bike.name?.es ||
+                                    bike.name ||
+                                    "Bicicleta"
+                                  );
+                                };
+
+                                const getBikeSize = (bike: any): string => {
+                                  const size = bike.size || bike.talla || "N/A";
+                                  return size === "N/A" ? "" : size;
+                                };
+
+                                const getBikeQuantity = (bike: any): number => {
+                                  return bike.quantity || 1;
+                                };
+
+                                const groupedBikes = (reservation.bikes || []).reduce((acc: any[], bike: any) => {
+                                  const bikeName = getBikeName(bike);
+                                  const bikeSize = getBikeSize(bike);
+                                  const key = `${bikeName}-${bikeSize}`;
                                   
                                   const existing = acc.find((b: any) => b.key === key);
                                   if (existing) {
-                                    existing.quantity += bike.quantity || 1;
+                                    existing.quantity += getBikeQuantity(bike);
                                   } else {
                                     acc.push({
                                       key,
                                       name: bikeName,
-                                      size: bike.size,
-                                      quantity: bike.quantity || 1
+                                      size: bikeSize,
+                                      quantity: getBikeQuantity(bike)
                                     });
                                   }
                                   return acc;
-                                }, []) || [];
+                                }, []);
+
+                                if (groupedBikes.length === 0) {
+                                  return <p className="text-sm text-gray-400 italic">Sin detalle de bicicletas</p>;
+                                }
 
                                 return groupedBikes.map((bike: any, index: number) => (
                                   <p key={index} className="text-sm text-gray-600">
-                                    {bike.name} - Talla {bike.size} {bike.quantity > 1 && `(x${bike.quantity})`}
+                                    {bike.name}{bike.size ? ` - Talla ${bike.size}` : ""} {bike.quantity > 1 && `(x${bike.quantity})`}
                                   </p>
                                 ));
                               })()}
@@ -2833,10 +2849,6 @@ export default function AdminPage() {
                           value={newReservation.pickup_location}
                           onValueChange={(value) => {
                             setNewReservation({ ...newReservation, pickup_location: value, return_location: value });
-                            // 🔧 FIX: ya no se llama loadPickupHours/loadReturnHours
-                            // acá directo. El useEffect [start_date, end_date,
-                            // pickup_location] se dispara solo al cambiar
-                            // pickup_location y recarga todo en orden.
                           }}
                         >
                           <SelectTrigger>
@@ -2894,10 +2906,16 @@ export default function AdminPage() {
                             setError("La fecha de fin debe ser igual o posterior a la fecha de inicio");
                             return;
                           }
-                          if (newReservation.return_time < newReservation.pickup_time) {
-                            setError("La hora de devolución debe ser igual o posterior a la hora de recogida");
+                          
+                          // ✅ FIX: solo comparar horas si es el MISMO día
+                          const isSameDayReservation = 
+                            formatDateForDB(newReservation.start_date) === formatDateForDB(newReservation.end_date);
+                          
+                          if (isSameDayReservation && newReservation.return_time < newReservation.pickup_time) {
+                            setError("Si recogés y devolvés el mismo día, la hora de devolución debe ser igual o posterior a la de recogida");
                             return;
                           }
+                          
                           setReservationStep("bikes");
                           setError(null);
                         }}>Siguiente: Seleccionar Bicicletas</Button>
@@ -3307,9 +3325,6 @@ export default function AdminPage() {
             </Card>
           </TabsContent>
 
-          {/* ============================================ */}
-          {/* ✅ PESTAÑA: PRECIOS */}
-          {/* ============================================ */}
           <TabsContent value="pricing">
             <Card>
               <CardHeader>
@@ -3381,7 +3396,6 @@ export default function AdminPage() {
                                           value={pricingForm.price_1_3 / 100}
                                           onChange={(e) => {
                                             const val = parseFloat(e.target.value);
-                                            console.log("✏️ Cambiando price_1_3:", { val, cents: Math.round((isNaN(val) ? 0 : val) * 100) });
                                             setPricingForm({ ...pricingForm, price_1_3: Math.round((isNaN(val) ? 0 : val) * 100) });
                                           }}
                                           className="w-24 mx-auto text-center"
@@ -3399,7 +3413,6 @@ export default function AdminPage() {
                                           value={pricingForm.price_4_9 / 100}
                                           onChange={(e) => {
                                             const val = parseFloat(e.target.value);
-                                            console.log("✏️ Cambiando price_4_9:", { val, cents: Math.round((isNaN(val) ? 0 : val) * 100) });
                                             setPricingForm({ ...pricingForm, price_4_9: Math.round((isNaN(val) ? 0 : val) * 100) });
                                           }}
                                           className="w-24 mx-auto text-center"
@@ -3417,7 +3430,6 @@ export default function AdminPage() {
                                           value={pricingForm.price_10_plus / 100}
                                           onChange={(e) => {
                                             const val = parseFloat(e.target.value);
-                                            console.log("✏️ Cambiando price_10_plus:", { val, cents: Math.round((isNaN(val) ? 0 : val) * 100) });
                                             setPricingForm({ ...pricingForm, price_10_plus: Math.round((isNaN(val) ? 0 : val) * 100) });
                                           }}
                                           className="w-24 mx-auto text-center"
@@ -3435,7 +3447,6 @@ export default function AdminPage() {
                                           value={pricingForm.deposit / 100}
                                           onChange={(e) => {
                                             const val = parseFloat(e.target.value);
-                                            console.log("✏️ Cambiando deposit:", { val, cents: Math.round((isNaN(val) ? 0 : val) * 100) });
                                             setPricingForm({ ...pricingForm, deposit: Math.round((isNaN(val) ? 0 : val) * 100) });
                                           }}
                                           className="w-24 mx-auto text-center"
@@ -3450,7 +3461,6 @@ export default function AdminPage() {
                                           <Button
                                             size="sm"
                                             onClick={() => {
-                                              console.log("🔵 Click en guardar para:", item.category);
                                               handleSavePricing(item);
                                             }}
                                             disabled={isSavingPricing}
@@ -3459,7 +3469,6 @@ export default function AdminPage() {
                                             {isSavingPricing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                                           </Button>
                                           <Button size="sm" variant="outline" onClick={() => {
-                                            console.log("🔵 Cancelando edición para:", item.category);
                                             setEditingPricingId(null);
                                           }}>
                                             Cancelar
@@ -3495,8 +3504,8 @@ export default function AdminPage() {
           <Dialog open={!!editingBike} onOpenChange={() => setEditingBike(null)}>
             <DialogContent className="max-w-md">
               <DialogHeader>
-  <DialogTitle>{editingBike?.id ? "Editar" : "Nueva"} Bicicleta</DialogTitle>
-</DialogHeader>
+                <DialogTitle>{editingBike?.id ? "Editar" : "Nueva"} Bicicleta</DialogTitle>
+              </DialogHeader>
               <BikeForm bike={editingBike} onSave={saveBike} onCancel={() => setEditingBike(null)} />
             </DialogContent>
           </Dialog>
@@ -3506,8 +3515,8 @@ export default function AdminPage() {
           <Dialog open={!!editingScooter} onOpenChange={() => setEditingScooter(null)}>
             <DialogContent className="max-w-md">
               <DialogHeader>
-  <DialogTitle>{editingScooter?.id ? "Editar" : "Nuevo"} Scooter</DialogTitle>
-</DialogHeader>
+                <DialogTitle>{editingScooter?.id ? "Editar" : "Nuevo"} Scooter</DialogTitle>
+              </DialogHeader>
               <ScooterForm scooter={editingScooter} onSave={saveScooter} onCancel={() => setEditingScooter(null)} />
             </DialogContent>
           </Dialog>
@@ -3517,8 +3526,8 @@ export default function AdminPage() {
           <Dialog open={!!editingAccessory} onOpenChange={() => setEditingAccessory(null)}>
             <DialogContent className="max-w-md">
               <DialogHeader>
-  <DialogTitle>{editingAccessory?.id ? "Editar" : "Nuevo"} Accesorio</DialogTitle>
-</DialogHeader>
+                <DialogTitle>{editingAccessory?.id ? "Editar" : "Nuevo"} Accesorio</DialogTitle>
+              </DialogHeader>
               <AccessoryForm accessory={editingAccessory} onSave={saveAccessory} onCancel={() => setEditingAccessory(null)} />
             </DialogContent>
           </Dialog>

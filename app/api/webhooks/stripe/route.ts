@@ -87,7 +87,7 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
       return;
     }
     
-    // 🔴🚨 **MEJORAS EN IDEMPOTENCIA** 🚨🔴
+    // 🔴🚨 IDEMPOTENCIA
     
     // 1. VERIFICAR SI RESERVA YA EXISTE POR PAYMENT_INTENT_ID
     const { data: existingReservation } = await supabase
@@ -99,7 +99,6 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
     if (existingReservation) {
       console.log('✅ Webhook: Reserva ya existe, actualizando estado:', existingReservation.id);
       
-      // Solo actualizar si no está ya confirmada
       if (existingReservation.status !== 'confirmed') {
         const { error: updateError } = await supabase
           .from('reservations')
@@ -116,7 +115,6 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
         }
       }
       
-      // 🔍 REGISTRAR DUPLICADO DETECTADO
       await supabase.from('payment_logs').insert({
         payment_intent_id: paymentIntent.id,
         event_type: 'duplicate_payment_detected',
@@ -142,7 +140,6 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
       if (duplicateReservation) {
         console.log('🔄 Webhook: Reserva duplicada detectada por fechas/email:', duplicateReservation.id);
         
-        // Actualizar con el payment_intent_id correcto
         await supabase
           .from('reservations')
           .update({
@@ -153,7 +150,6 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
           })
           .eq('id', duplicateReservation.id);
         
-        // 🔍 REGISTRAR DUPLICADO POR DATOS
         await supabase.from('payment_logs').insert({
           payment_intent_id: paymentIntent.id,
           event_type: 'duplicate_reservation_by_data',
@@ -181,7 +177,6 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
       if (recentReservations && recentReservations.length > 1) {
         console.log('🚨 Múltiples reservas recientes detectadas:', recentReservations.length);
         
-        // Marcar como potencial fraude
         await supabase.from('payment_alerts').insert({
           alert_type: 'multiple_recent_reservations',
           customer_email: paymentIntent.metadata.customer_email,
@@ -199,7 +194,6 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
   } catch (error) {
     console.error('Error in handlePaymentSuccess:', error);
     
-    // Guardar error
     await supabase
       .from('payment_errors')
       .insert({
@@ -222,7 +216,7 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
     console.log('📍 pickup_location from metadata:', metadata.pickup_location);
 
     // ========================================
-    // 🔴 FIX #1: VALIDACIÓN DE DOMINGOS
+    // 🔴 VALIDACIÓN DE DOMINGOS
     // ========================================
     
     const startDate = new Date(metadata.start_date + 'T00:00:00.000Z');
@@ -239,7 +233,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
         endDay
       });
       
-      // HACER REFUND AUTOMÁTICO
       try {
         await stripe.refunds.create({
           payment_intent: paymentIntent.id,
@@ -251,7 +244,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
         
         console.log('✅ Refund creado por reserva en domingo');
         
-        // Registrar refund
         await supabase.from('payment_logs').insert({
           payment_intent_id: paymentIntent.id,
           event_type: 'refund_sunday_booking',
@@ -263,7 +255,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
           created_at: new Date().toISOString(),
         });
         
-        // Enviar email al cliente explicando
         await sendRefundEmail(metadata.customer_email, {
           reason: 'Tu reserva fue rechazada porque seleccionaste un domingo para recogida o devolución. Nuestra tienda está cerrada los domingos. Se ha procesado un reembolso automático.',
           amount: paymentIntent.amount / 100,
@@ -274,24 +265,22 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
         console.error('❌ Error creating refund for Sunday booking:', refundError);
       }
       
-      return; // NO crear reserva
+      return;
     }
     
     console.log('✅ WEBHOOK: Validación de domingos OK');
 
     // ========================================
-    // 🔴 FIX #2: USAR selected_bike_ids GARANTIZADO
+    // ✅ USAR selected_bike_ids GARANTIZADO
     // ========================================
     
     const selectedBikeIds = metadata.selected_bike_ids 
       ? metadata.selected_bike_ids.split(',').filter(Boolean).map(id => id.trim())
       : [];
 
-    // VALIDACIÓN CRÍTICA
     if (selectedBikeIds.length === 0) {
       console.error('❌ WEBHOOK: No hay bike_ids en metadata');
       
-      // REFUND + ALERTA
       try {
         await stripe.refunds.create({
           payment_intent: paymentIntent.id,
@@ -303,7 +292,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
         
         console.log('✅ Refund creado por falta de bike_ids');
         
-        // Alerta al admin
         await supabase.from('admin_alerts').insert({
           alert_type: 'WEBHOOK_NO_BIKE_IDS',
           payment_intent_id: paymentIntent.id,
@@ -312,7 +300,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
           created_at: new Date().toISOString()
         });
         
-        // Email al cliente
         await sendRefundEmail(metadata.customer_email, {
           reason: 'Hubo un error técnico al procesar tu reserva (falta información de bicicletas). Se ha procesado un reembolso automático. Por favor, contacta con nosotros.',
           amount: paymentIntent.amount / 100,
@@ -329,54 +316,108 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
     console.log('✅ WEBHOOK: bike_ids encontrados:', selectedBikeIds.length, selectedBikeIds);
 
     // ========================================
-    // 🔴 FIX #3: PARSEAR bikes_data SEGURO
+    // ✅ PARSEAR bikes_data SEGURO
     // ========================================
     
-    let bikesData = [];
+    let bikesData: any[] = [];
     try {
       if (metadata.bikes_data) {
         bikesData = JSON.parse(metadata.bikes_data);
         console.log('✅ bikes_data parseado:', bikesData.length, 'grupos');
+        console.log('📊 Estructura de bikesData[0]:', bikesData[0]);
       }
     } catch (error) {
       console.warn('⚠️ WEBHOOK: Error parseando bikes_data, usando IDs directamente:', error);
-      // Continuar usando selectedBikeIds
     }
 
     // ========================================
-    // 🔴 FIX #4: RECONSTRUIR ESTRUCTURA CON IDS GARANTIZADOS
+    // ✅ FIX PRINCIPAL: RECONSTRUIR CON TODOS LOS CAMPOS
     // ========================================
+    // Antes solo guardaba model, size, quantity, category
+    // Ahora guarda TODOS los campos para compatibilidad con el admin
     
     const bikesToSave = bikesData.map((bike: any, index: number) => {
       // Calcular qué IDs pertenecen a este grupo
       const previousQuantity = bikesData.slice(0, index).reduce((sum: number, b: any) => 
-        sum + (b.qty || b.quantity || 0), 0);
+        sum + (b.qty || b.quantity || 1), 0);
       const thisQuantity = bike.qty || bike.quantity || 1;
       const bikeIdsForThisGroup = selectedBikeIds.slice(previousQuantity, previousQuantity + thisQuantity);
       
+      // ✅ Nombre tolerante: busca en TODOS los formatos posibles
+      const bikeName = 
+        bike.title_es || 
+        bike.title || 
+        bike.model || 
+        bike.name_es ||
+        bike.name?.es ||
+        bike.name ||
+        "Bicicleta";
+      
       return {
-        model: bike.model || "Sin modelo",
-        size: bike.size || "N/A",
+        // Datos de identidad (para que el admin los encuentre en cualquier búsqueda)
+        id: bike.id || bikeIdsForThisGroup[0] || null,
+        title_es: bikeName,
+        title: bikeName,
+        model: bikeName,
+        subtitle_es: bike.subtitle_es || bike.subtitle || "",
+        
+        // Datos de la bici
+        size: bike.size || bike.talla || "N/A",
+        category: bike.category || bike.cat || "E_CITY_BIKE",
         quantity: thisQuantity,
-        category: bike.cat || bike.category || "ROAD",
-        bike_ids: bikeIdsForThisGroup  // 🔴 IDs desde metadata garantizado
+        
+        // Precios (si vienen del cliente)
+        price_per_day: bike.price_per_day ?? bike.pricePerDay ?? null,
+        total_price: bike.total_price ?? bike.totalPrice ?? null,
+        
+        // IDs garantizados
+        bike_ids: bikeIdsForThisGroup
       };
     });
 
-    // Si bikesData está vacío, crear estructura básica
+    // Si bikesData está vacío, crear estructura básica pero con los IDs
     if (bikesToSave.length === 0) {
       console.warn('⚠️ bikes_data vacío, creando estructura básica');
-      bikesToSave.push({
-        model: "Bicicleta",
-        size: "N/A",
-        quantity: selectedBikeIds.length,
-        category: "ROAD",
-        bike_ids: selectedBikeIds
-      });
+      
+      // Intentar recuperar datos reales de la DB para tener al menos nombres
+      const { data: bikesFromDB } = await supabase
+        .from('bikes')
+        .select('id, title_es, size, category')
+        .in('id', selectedBikeIds);
+      
+      if (bikesFromDB && bikesFromDB.length > 0) {
+        bikesToSave.push(...bikesFromDB.map((b: any) => ({
+          id: b.id,
+          title_es: b.title_es || "Bicicleta",
+          title: b.title_es || "Bicicleta",
+          model: b.title_es || "Bicicleta",
+          subtitle_es: "",
+          size: b.size || "N/A",
+          category: b.category || "E_CITY_BIKE",
+          quantity: 1,
+          price_per_day: null,
+          total_price: null,
+          bike_ids: [b.id]
+        })));
+      } else {
+        bikesToSave.push({
+          id: selectedBikeIds[0] || null,
+          title_es: "Bicicleta",
+          title: "Bicicleta",
+          model: "Bicicleta",
+          subtitle_es: "",
+          size: "N/A",
+          category: "E_CITY_BIKE",
+          quantity: selectedBikeIds.length,
+          price_per_day: null,
+          total_price: null,
+          bike_ids: selectedBikeIds
+        });
+      }
     }
 
     // ========================================
-    // 🔴 FIX #5: VERIFICAR ESTRUCTURA FINAL
+    // ✅ VERIFICAR ESTRUCTURA FINAL
     // ========================================
     
     const finalBikeIds: string[] = [];
@@ -389,7 +430,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
     if (finalBikeIds.length === 0) {
       console.error('❌ WEBHOOK: bikesToSave sin IDs después de reconstrucción');
       
-      // REFUND + ALERTA
       try {
         await stripe.refunds.create({
           payment_intent: paymentIntent.id,
@@ -421,7 +461,7 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
     });
 
     // ========================================
-    // 🔴 FIX #6: RE-VERIFICAR DISPONIBILIDAD
+    // ✅ RE-VERIFICAR DISPONIBILIDAD
     // ========================================
     
     console.log('🔍 WEBHOOK: Verificando disponibilidad final...');
@@ -442,7 +482,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
           const selStart = new Date(metadata.start_date);
           const selEnd = new Date(metadata.end_date);
 
-          // Verificar solapamiento
           const overlaps = selStart < resEnd && selEnd > resStart;
 
           if (overlaps) {
@@ -476,7 +515,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
       const uniqueConflicts = [...new Set(conflictingBikes)];
       console.error('❌ WEBHOOK: CONFLICTO - Bicis no disponibles:', uniqueConflicts);
       
-      // REFUND AUTOMÁTICO
       try {
         await stripe.refunds.create({
           payment_intent: paymentIntent.id,
@@ -498,7 +536,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
           created_at: new Date().toISOString(),
         });
         
-        // Email al cliente
         await sendRefundEmail(metadata.customer_email, {
           reason: `Lo sentimos, las siguientes bicicletas ya no están disponibles para las fechas seleccionadas: ${uniqueConflicts.join(', ')}. Se ha procesado un reembolso automático.`,
           amount: paymentIntent.amount / 100,
@@ -515,10 +552,10 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
     console.log('✅ WEBHOOK: Verificación de disponibilidad OK');
 
     // ========================================
-    // 🔴 FIX #7: PARSEAR ACCESSORIES SEGURO
+    // ✅ PARSEAR ACCESSORIES SEGURO
     // ========================================
     
-    let accessoriesData = [];
+    let accessoriesData: any[] = [];
     try {
       if (metadata.accessories_data) {
         accessoriesData = JSON.parse(metadata.accessories_data);
@@ -542,7 +579,7 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
     }
 
     // ========================================
-    // 🔴 FIX #8: INSERTAR EN BD
+    // ✅ INSERTAR EN BD
     // ========================================
     
     const reservationData = {
@@ -557,7 +594,7 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
       pickup_location: validatedPickupLocation,
       return_location: validatedPickupLocation,
       total_days: parseInt(metadata.total_days || '1'),
-      bikes: bikesToSave,  // 🔴 Estructura corregida
+      bikes: bikesToSave,
       accessories: accessoriesData,
       insurance: metadata.insurance === '1',
       total_amount: parseFloat(metadata.total_amount?.toString().replace(',', '.') || '0'),
@@ -577,7 +614,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
       total_bike_ids: finalBikeIds.length
     });
 
-    // 🔥 USAR UPSERT para aprovechar índice único
     const { data, error } = await supabase
       .from('reservations')
       .upsert([reservationData], {
@@ -588,7 +624,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
       .single();
 
     if (error) {
-      // Si es error de duplicado, es NORMAL
       if (error.code === '23505') {
         console.log('🔄 Reserva duplicada detectada por BD (índice único):', paymentIntent.id);
         
@@ -609,7 +644,7 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
     console.log('✅ Reservation created/updated:', data.id);
 
     // ========================================
-    // 🔴 FIX #9: VERIFICACIÓN POST-INSERCIÓN
+    // ✅ VERIFICACIÓN POST-INSERCIÓN
     // ========================================
     
     const savedBikes = data.bikes;
@@ -625,10 +660,10 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
 
     console.log('✅ WEBHOOK: Bicis guardadas en BD:', {
       total: savedBikeIds.length,
-      ids: savedBikeIds.join(', ')
+      ids: savedBikeIds.join(', '),
+      estructura: savedBikes
     });
 
-    // 🚨 ALERTA SI NO HAY IDs GUARDADOS
     if (savedBikeIds.length === 0) {
       console.error('🚨🚨🚨 CRÍTICO: Reserva creada SIN bike_ids');
       
@@ -655,7 +690,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
       });
     }
     
-    // 🔍 REGISTRAR RESERVA CREADA/ACTUALIZADA
     await supabase.from('payment_logs').insert({
       payment_intent_id: paymentIntent.id,
       event_type: 'reservation_created_or_updated',
@@ -667,7 +701,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
       created_at: new Date().toISOString(),
     });
     
-    // Enviar email de confirmación SOLO si es nueva
     const isNewReservation = data.created_at === data.updated_at;
     if (isNewReservation) {
       console.log('📧 Enviando email de confirmación para nueva reserva:', data.id);
@@ -681,7 +714,6 @@ async function createReservationFromMetadata(paymentIntent: Stripe.PaymentIntent
   } catch (error) {
     console.error('Error creating reservation from metadata:', error);
     
-    // Guardar error en base de datos
     await supabase
       .from('payment_errors')
       .insert({
@@ -775,7 +807,6 @@ async function sendConfirmationEmail(reservation: any) {
   try {
     console.log('📧 Sending confirmation email for reservation:', reservation.id);
     
-    // ✅ CAMBIO: Usar NEXT_PUBLIC_SITE_URL en lugar de NEXTAUTH_URL
     const apiUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXTAUTH_URL;
     
     if (!apiUrl) {
@@ -822,7 +853,6 @@ async function sendRefundEmail(email: string, refundInfo: { reason: string; amou
   try {
     console.log('📧 Sending refund email to:', email);
     
-    // ✅ CAMBIO: Usar NEXT_PUBLIC_SITE_URL en lugar de NEXTAUTH_URL
     const apiUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXTAUTH_URL;
     
     if (!apiUrl) {
